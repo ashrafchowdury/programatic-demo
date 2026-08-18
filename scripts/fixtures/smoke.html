@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Reference-rhythm smoke fixture</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+        background: #f4f5f7;
+        color: #0f172a;
+      }
+      /* Fake "product window" content for establish / trail framing. */
+      .app {
+        max-width: 1100px;
+        margin: 48px auto;
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 20px 50px rgba(15, 23, 42, 0.08);
+        padding: 40px 48px 56px;
+        min-height: 720px;
+      }
+      h1 {
+        font-size: 36px;
+        margin: 0 0 8px;
+        letter-spacing: -0.02em;
+      }
+      .sub {
+        color: #64748b;
+        font-size: 16px;
+        margin-bottom: 36px;
+      }
+      .board {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 20px;
+      }
+      .col {
+        background: #f8fafc;
+        border-radius: 10px;
+        padding: 16px;
+        min-height: 360px;
+      }
+      .col h2 {
+        font-size: 14px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: #64748b;
+        margin: 0 0 14px;
+      }
+      .card {
+        background: #fff;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        padding: 14px 16px;
+        margin-bottom: 12px;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+      }
+      .card strong { display: block; font-size: 15px; margin-bottom: 8px; }
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 13px;
+        font-weight: 600;
+        border: 1px solid #e2e8f0;
+        background: #fffbeb;
+        color: #92400e;
+        cursor: pointer;
+        user-select: none;
+      }
+      .chip.high {
+        background: #fef2f2;
+        color: #b91c1c;
+        border-color: #fecaca;
+      }
+      .menu {
+        display: none;
+        position: absolute;
+        margin-top: 6px;
+        min-width: 160px;
+        background: #fff;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12);
+        padding: 6px;
+        z-index: 20;
+      }
+      .menu.open { display: block; }
+      .menu button {
+        display: block;
+        width: 100%;
+        text-align: left;
+        border: none;
+        background: transparent;
+        padding: 10px 12px;
+        border-radius: 8px;
+        font-size: 14px;
+        cursor: pointer;
+      }
+      .menu button:hover { background: #f1f5f9; }
+      .chip-wrap { position: relative; display: inline-block; }
+      .far {
+        margin-top: 28px;
+        padding: 14px 22px;
+        font-size: 16px;
+        font-weight: 600;
+        color: #fff;
+        background: #2563eb;
+        border: none;
+        border-radius: 10px;
+        cursor: pointer;
+      }
+      .toast {
+        margin-top: 18px;
+        font-size: 15px;
+        font-weight: 600;
+        color: #2563eb;
+        opacity: 0;
+        transition: opacity 0.25s ease;
+      }
+      .toast.show { opacity: 1; }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <h1 id="title">Task board</h1>
+      <p class="sub">Reference-rhythm offline fixture (establish → hold → trail → second beat)</p>
+      <div class="board">
+        <div class="col">
+          <h2>To Do</h2>
+          <div class="card" id="card-priority">
+            <strong>Collect travel expenses</strong>
+            <div class="chip-wrap">
+              <button type="button" class="chip" id="priority" aria-haspopup="listbox">·· Medium</button>
+              <div class="menu" id="priority-menu" role="listbox">
+                <button type="button" id="opt-low">Low</button>
+                <button type="button" id="opt-medium">Medium</button>
+                <button type="button" id="opt-high">High</button>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <strong>Draft weekly report</strong>
+            <span class="chip">·· Low</span>
+          </div>
+        </div>
+        <div class="col">
+          <h2>Doing</h2>
+          <div class="card">
+            <strong>Scholarship submission</strong>
+            <span class="chip high">🔥 High</span>
+          </div>
+        </div>
+        <div class="col">
+          <h2>Done</h2>
+          <div class="card">
+            <strong>Compliance checks</strong>
+            <span class="chip high">🔥 High</span>
+          </div>
+        </div>
+      </div>
+      <button type="button" class="far" id="done-btn">Mark week complete</button>
+      <div class="toast" id="toast">✓ Week marked complete</div>
+    </div>
+    <script>
+      const chip = document.getElementById("priority");
+      const menu = document.getElementById("priority-menu");
+      chip.addEventListener("click", () => menu.classList.toggle("open"));
+      document.getElementById("opt-high").addEventListener("click", () => {
+        chip.textContent = "🔥 High";
+        chip.classList.add("high");
+        menu.classList.remove("open");
+      });
+      document.getElementById("opt-low").addEventListener("click", () => {
+        chip.textContent = "·· Low";
+        chip.classList.remove("high");
+        menu.classList.remove("open");
+      });
+      document.getElementById("opt-medium").addEventListener("click", () => {
+        chip.textContent = "·· Medium";
+        chip.classList.remove("high");
+        menu.classList.remove("open");
+      });
+      document.getElementById("done-btn").addEventListener("click", () => {
+        document.getElementById("toast").classList.add("show");
+      });
+    </script>
+  </body>
+</html>

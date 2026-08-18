@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Picker pointerdown unmount</title>
+  </head>
+  <body>
+    <button type="button" id="open">Open picker</button>
+    <div id="menu" hidden>
+      <div role="option" id="keep">OpenRouter 3</div>
+      <div role="option" id="flash">DeepSeek: DeepSeek V4 Flash</div>
+    </div>
+    <script>
+      document.getElementById("open").addEventListener("click", () => {
+        document.getElementById("menu").hidden = false;
+      });
+      // Stays mounted — normal click fires.
+      document.getElementById("keep").addEventListener("click", () => {});
+      // Commits and unmounts on pointerdown — click never fires (Radix select).
+      document.getElementById("flash").addEventListener("pointerdown", () => {
+        document.getElementById("menu").remove();
+      });
+    </script>
+  </body>
+</html>

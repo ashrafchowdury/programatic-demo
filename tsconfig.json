@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "Preserve",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "lib": ["ES2022", "DOM"],
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "noUnusedLocals": true
+  },
+  // Covers the whole repo on purpose. This used to be ["src"] with scripts
+  // and flows excluded, which meant `pnpm lint` typechecked a third of the
+  // codebase — two missing imports shipped that way before it was widened.
+  "include": ["src", "scripts", "flows", "remotion.config.ts"]
+}
