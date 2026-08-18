@@ -51,6 +51,7 @@ where you clicked and when.
 | Node | 20+ |
 | pnpm | 9+ |
 | ffmpeg | **system install required** (`brew install ffmpeg`) — see [Sync](#sync-why-the-recorder-flashes-the-screen) |
+| GPU | rendering rasterises on the GPU, worth **roughly 10×** on a real demo (a 23s clip: 24 min → 2-3 min). No usable GPU (CI, headless Linux)? Set `DEMO_GL=swiftshader` — see [Knobs](#knobs) |
 
 ## Quick start
 
@@ -232,6 +233,17 @@ Both put the footage ahead of the click log, so drawers opened before the pointe
 arrived. **This needs a system ffmpeg** — Remotion's bundled build has no
 `signalstats`. Without it the recorder falls back to the old estimate and prints
 a loud warning.
+
+### Knobs
+
+Three env vars, all optional. Each one's reasoning and measurements live beside
+the constant it controls, not here:
+
+| Var | Default | Does | Measured in |
+| --- | --- | --- | --- |
+| `DEMO_GL` | `angle` | Chromium's rasteriser, and the biggest lever here — `angle` is the real GPU, worth **roughly 10×** (a 23s demo renders in 2-3 min instead of 24). `swiftshader` is the no-GPU fallback — it works everywhere, but it is software too, so expect roughly the un-accelerated time | [`scripts/render.ts`](scripts/render.ts) |
+| `DEMO_SPEED` | `1.25` | Playback rate vs the shoot. `1` is realtime | [`src/lib/click-log.ts`](src/lib/click-log.ts) |
+| `DEMO_CONCURRENCY` | Remotion's own | Frames rendered in parallel. Leave it unset — 6 workers measured 33% *slower* than the default. `1` is useful for debugging a render | [`scripts/render.ts`](scripts/render.ts) |
 
 ## Layout
 

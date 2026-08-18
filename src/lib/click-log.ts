@@ -97,12 +97,11 @@ export const EMPTY_LOG: ClickLog = {
  *   2560x1440   837s   3.9MB    +13%
  *   3840x2160  1827s   6.9MB   +118% over 1440p
  *
- * The resolution scaling still holds in shape — 4K is disproportionately
- * expensive — but it is compositing cost, not swapping. And 4K buys almost
- * nothing:
- * side by side at matched size, the cursor edges are marginally cleaner and the
- * app text is indistinguishable, because it is the same 1920 source either way.
- * Do not raise this expecting the footage to improve.
+ * The shape of that curve still holds — 4K is disproportionately expensive — but
+ * the reason is compositing cost, not swapping. And 4K buys almost nothing: side
+ * by side at matched size, the cursor edges are marginally cleaner and the app
+ * text is indistinguishable, because it is the same 1920 source either way. Do
+ * not raise this expecting the footage to improve.
  */
 export const OUTPUT_WIDTH = 2560;
 /**

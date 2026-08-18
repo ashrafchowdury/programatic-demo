@@ -11,9 +11,10 @@ import { enableTailwind } from '@remotion/tailwind-v4';
 Config.setRspack(true);
 // Rasterise on the real GPU. This composition is dominated by
 // <CameraMotionBlur>, which composites `samples` full-size copies per frame —
-// software rasterising that cost 16x more (see scripts/render.ts for the
-// measurements). Set here as well as in render.ts so Studio scrubbing gets it
-// too. Override with DEMO_GL=swangle where there is no usable GPU.
+// software rasterising that cost roughly 10x more on a real demo (see
+// scripts/render.ts for the measurements, and for the thermal caveat). Set here as well as in render.ts so Studio scrubbing gets it
+// too. Override with DEMO_GL=swiftshader where there is no usable GPU — it is a
+// compatibility fallback rather than a fast one (`swangle` fails outright here).
 Config.setChromiumOpenGlRenderer(
   (process.env.DEMO_GL as Parameters<typeof Config.setChromiumOpenGlRenderer>[0]) ??
     "angle",

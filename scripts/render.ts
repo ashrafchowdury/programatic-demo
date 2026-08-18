@@ -25,17 +25,52 @@ const REMOTION_BIN = path.join(ROOT, "node_modules", ".bin", "remotion");
  * Software-rasterising that is what made the render slow, and it is precisely
  * the work a GPU exists to do.
  *
- * Measured on the 248-frame smoke clip, 2560x1440, samples=8, 8-core/16GB:
+ * Measured on one 60-frame slice of the smoke clip, 2560x1440, samples=8, on an
+ * 8-core/16GB machine. All four on the SAME scale — mixing a full-clip time in
+ * here once made swiftshader look 3x faster than the default:
  *
- *   default (software)   ~510s
- *   --gl=angle             31s   <- 16x
- *   --gl=swiftshader      163s   (software GL: slower than the default)
- *   --gl=angle-egl        176s
+ *   --gl=angle            13.1s   <- the only one worth having
+ *   default (software)   136.6s
+ *   --gl=swiftshader     163.4s   software GL: SLOWER than doing nothing
+ *   --gl=angle-egl       176.4s
  *
- * Same picture: 53.9 dB PSNR over the clip against the software render, and on
- * the fastest-moving frame (171px of camera travel, where the shutter is doing
- * the most work) the mean per-channel difference is 0.09 levels. The backdrop
- * banding metric in DemoClip.tsx is unchanged.
+ * Full 248-frame clip, end to end: ~510s software -> 31s on angle, 16x.
+ *
+ * BUT 16x is the synthetic fixture's number — quote the production one instead.
+ * Verified on `agent-skill`, a real 23.3s app demo (560 frames), whole clip:
+ *
+ *   --gl=swiftshader    1425s  (23.8 min)
+ *   --gl=angle           131s  ( 2.2 min)  on a cold machine
+ *   --gl=angle           206s  ( 3.4 min)  after ~40 min of sustained rendering
+ *
+ * MIND THE THERMALS when benchmarking this. That last row is not noise: the same
+ * command, same flags, run twice, went 131s -> 206s purely because the laptop had
+ * been rendering for half an hour. A cold first run will flatter any change you
+ * make here. The most trustworthy figure came from two 60-frame slices measured
+ * back to back in the same thermal state: 150.8s default vs 15.5s angle.
+ *
+ * So: ~7x hot, ~10x like-for-like, ~11x cold. Call it roughly an order of
+ * magnitude and budget 0.23-0.37 s/frame on the GPU. Real app footage costs
+ * ~1.8x more per frame than the smoke fixture, which is why none of these reach
+ * the fixture's 16x.
+ *
+ * Note also that swiftshader came out level with the default on this clip, not
+ * 20% behind it as on smoke — that gap is clip-dependent, so treat swiftshader
+ * as "about as slow as no GPU", not reliably worse.
+ *
+ * Same picture. On smoke: 53.9 dB PSNR over the clip against the software
+ * render. On `agent-skill`, which is the harder case because real app UI is all
+ * text edges, the two renders were compared frame by frame:
+ *
+ *   PSNR 46.4 dB average (median 49.9, worst frame 40.1), SSIM 0.9976
+ *   only 0.09% of pixels differ by more than 8 levels
+ *   the differences trace glyph and UI-element outlines — flat areas are equal
+ *   backdrop banding metric BYTE-IDENTICAL on every scanline tested
+ *   Laplacian variance 203.8 vs 204.5 — no sharpness lost
+ *
+ * So the lower PSNR here is sub-pixel antialiasing on edges, not degradation.
+ * If you change this, re-check the banding metric first — that is the one this
+ * composition is actually tuned around (see DemoClip.tsx).
  *
  * Two earlier theories about this render were measured and are WRONG. They are
  * recorded so nobody re-derives them:
@@ -47,7 +82,12 @@ const REMOTION_BIN = path.join(ROOT, "node_modules", ".bin", "remotion");
  *     samples — 8 / 22 / 38 / 55 / 123s for samples 1/2/3/4/8 on that slice.
  *     No cliff. The CPU was idle because one thread was compositing.
  *
- * Set DEMO_GL=swangle on a machine with no usable GPU (CI, headless Linux).
+ * Set DEMO_GL=swiftshader on a machine with no usable GPU (CI, headless Linux).
+ * It is a COMPATIBILITY fallback, not a fast one — it is software rasterising
+ * too, so it lands at roughly the un-accelerated time (level with the default on
+ * agent-skill, ~20% behind it on smoke). It is still the value to reach for,
+ * because the config file now pins `angle`, so there is no longer an "unset"
+ * path to fall back to. (`swangle` fails outright here.)
  */
 function resolveGl(raw?: string): string {
   return raw != null && raw !== "" ? raw : "angle";
