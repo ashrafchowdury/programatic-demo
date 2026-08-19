@@ -411,6 +411,17 @@ same detail whichever frame it lands in. The window takes the region's own
 shape and is fitted into the canvas on whichever axis binds first, so a wide
 region in a 9:16 frame letterboxes rather than being cropped.
 
+### Already have the screenshot?
+
+```bash
+pnpm render:still <name> --from screenshot.png --all
+```
+
+Skips the capture and frames an image you already have. The sidecar is written
+from the file's real dimensions, so the upscale warning stays honest — a
+2832px-wide screenshot in a 3840px canvas is stretched about 1.1x. Shoot it with
+`pnpm shot` instead when you want native pixels.
+
 ### Resolution
 
 `deviceScaleFactor` can only be set when the browser context is created, so the

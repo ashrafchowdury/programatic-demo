@@ -111,6 +111,23 @@ pnpm still <name> [og|--all]     # both
 Iterating on framing? Run `render:still` alone. The capture is the slow half and
 it is already done.
 
+## Framing an image you already have
+
+If the screenshot exists — you took it by hand, someone sent it, a design tool
+exported it — skip the capture entirely:
+
+```bash
+pnpm render:still <name> --from screenshot.png --all
+```
+
+That copies it to `public/shots/<name>.png`, writes the sidecar from the image's
+real dimensions, and frames it. The two stages only ever meet at those two
+files, so anything that can produce them can use the framing.
+
+The upscale warning still applies and is still honest: a 2832px-wide screenshot
+in a 3840px canvas gets stretched about 1.1x. For a hero image, prefer shooting
+it with `pnpm shot` so the pixels are native.
+
 ## Presets
 
 | id | canvas | for |
