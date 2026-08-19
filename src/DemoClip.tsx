@@ -10,6 +10,7 @@ import { Video } from "@remotion/media";
 import { CameraMotionBlur } from "@remotion/motion-blur";
 import { zoomAt, type ClickLog } from "./lib/zoom";
 import { CHROME_H, WINDOW_FIT } from "./lib/window";
+import { backdropFile, isLightBackdrop } from "./lib/backdrop";
 import { Cursor } from "./Cursor";
 import { RimLight, Stage, useDesignScale, WindowFrame } from "./WindowFrame";
 
@@ -34,6 +35,11 @@ export type DemoClipProps = {
    * this is unset.
    */
   drift?: number;
+  /**
+   * Which studio backdrop to float the window on. A name from BACKDROPS, or a
+   * filename you dropped in public/backdrops/. Defaults to "glaze".
+   */
+  backdrop?: string;
 };
 
 /**
@@ -60,24 +66,14 @@ export type DemoClipProps = {
  * the encoder must spend bits on it. It is also nearly free per-frame: the
  * backdrop never moves, so after the I-frame every P-frame sees zero residual.
  *
- * REGENERATING. Source is the Raycast "glaze" wallpaper at 6000x3375. Order
- * matters — blur first (it would destroy grain applied before it), lift the
- * black floor second, grain last:
- *
- *   ffmpeg -i glaze_1.png -vf "scale=2560:1440:flags=lanczos,\
- *     gblur=sigma=16,\
- *     lutrgb=r='10+val*245/255':g='10+val*245/255':b='10+val*245/255',\
- *     noise=alls=12:allf=u" -q:v 2 backdrop.jpg
- *
- * The lut is not cosmetic. The source has YLOW=16, i.e. its whole bottom decile
- * sits on the black floor, and noise on clipped black is half-rectified — it can
- * only swing up. Lifting the floor ten levels first took this image from 137px
- * to 27px. Blur then took it to 12px, which is why sigma 16 is a win twice over.
+ * REGENERATING. `pnpm backdrop <image> <name>` does all of this and reports the
+ * banding measurement. Order matters and the script keeps it: blur first (it
+ * would destroy grain applied before it), lift the black floor only if the
+ * source is clipped (`--lift`), grain last.
  *
  * Downscaling alone is NOT enough dither: averaging 6000px into 2560px cuts the
  * source's own grain, and the unprocessed wallpaper measured 1930px.
  */
-const BACKDROP_FILE = "backdrop.jpg";
 
 
 /**
@@ -85,10 +81,10 @@ const BACKDROP_FILE = "backdrop.jpg";
  * an <Img> has decoded, so it cannot render a frame with the backdrop missing.
  * A CSS background is invisible to that handshake and flickers on cold workers.
  */
-export const Backdrop: React.FC = () => (
+export const Backdrop: React.FC<{ name?: string }> = ({ name }) => (
   <AbsoluteFill>
     <Img
-      src={staticFile(BACKDROP_FILE)}
+      src={staticFile(backdropFile(name))}
       style={{ width: "100%", height: "100%", objectFit: "cover" }}
     />
   </AbsoluteFill>
@@ -158,12 +154,13 @@ const ShadowGroup: React.FC<DemoClipProps> = ({
   chrome = false,
   speed = 1,
   drift,
+  backdrop,
 }) => {
   const { style } = useCameraGroup(chrome, log, speed, drift);
   return (
     <Stage>
       <div style={style}>
-        <RimLight />
+        <RimLight light={isLightBackdrop(backdrop ?? "")} />
       </div>
     </Stage>
   );
@@ -226,7 +223,7 @@ export const DemoClip: React.FC<DemoClipProps> = (props) => {
 
   return (
     <AbsoluteFill>
-      <Backdrop />
+      <Backdrop name={props.backdrop} />
       {/*
         Shadow first, and deliberately NOT inside the shutter below: stacking
         semi-transparent copies quantises a soft gradient into rings. It carries

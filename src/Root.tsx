@@ -62,6 +62,8 @@ export const RemotionRoot: React.FC = () => {
           // the vector layers over it can. Rounded to even so h264 accepts it.
           const aspect = log.viewport.height / log.viewport.width;
           const even = (n: number) => Math.round(n / 2) * 2;
+          const backdrop =
+            props.backdrop ?? process.env.DEMO_BACKDROP ?? log.backdrop;
           return {
             durationInFrames: Math.max(
               1,
@@ -69,7 +71,7 @@ export const RemotionRoot: React.FC = () => {
             ),
             width: even(OUTPUT_WIDTH),
             height: even(OUTPUT_WIDTH * aspect),
-            props: { ...props, log, speed },
+            props: { ...props, log, speed, backdrop },
           };
         }}
       />
@@ -156,7 +158,12 @@ export const RemotionRoot: React.FC = () => {
           const preset = resolvePreset(
             (props as { preset?: string }).preset ?? process.env.DEMO_PRESET,
           );
-          return { ...STILL_PRESETS[preset], props: { ...props, meta } };
+          const backdrop =
+            props.backdrop ?? process.env.DEMO_BACKDROP ?? meta.backdrop;
+          return {
+            ...STILL_PRESETS[preset],
+            props: { ...props, meta, backdrop },
+          };
         }}
       />
     </>

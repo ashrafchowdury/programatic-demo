@@ -302,6 +302,7 @@ async function main() {
     scale,
     viewport: spec.viewport,
     via: pass.via,
+    backdrop: spec.backdrop,
   };
   fs.writeFileSync(
     path.join(SHOTS, `${spec.name}.json`),

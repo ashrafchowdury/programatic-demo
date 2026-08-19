@@ -439,6 +439,7 @@ export async function recordFlow(
     durationMs,
     trimBeforeMs,
     offsetMs: 0,
+    backdrop: flow.backdrop,
     // Omitted on the baked-cursor path so Remotion does not draw a second one.
     cursorTrack: useBakedCursor() ? undefined : cursor,
     clicks,

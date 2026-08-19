@@ -485,7 +485,7 @@ export const Intro: React.FC<IntroProps> = ({ intro }) => {
     <AbsoluteFill style={{ backgroundColor: look.ground }}>
       {look.flat ? null : (
         <AbsoluteFill style={{ transform: `scale(${drift})` }}>
-          <Backdrop />
+          <Backdrop name={intro.backdrop} />
         </AbsoluteFill>
       )}
       {intro.chip && t.chip ? (

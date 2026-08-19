@@ -159,6 +159,8 @@ export type Flow = {
    * unset is correct for most demos.
    */
   mutates?: string;
+  /** Studio backdrop name for this demo. See src/lib/backdrop.ts. */
+  backdrop?: string;
   /** The actions to record. Use ctx helpers so clicks are logged for zoom. */
   run: (ctx: FlowContext) => Promise<void>;
 };

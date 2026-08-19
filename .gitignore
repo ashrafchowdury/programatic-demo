@@ -51,8 +51,8 @@ flows/*
 !flows/google-search.ts
 !flows/skillsmp-search.ts
 
-# Kept on purpose: public/backdrop.jpg is a design asset, not pipeline output.
-!public/backdrop.jpg
+# Kept on purpose: public/backdrops/ are design assets, not pipeline output.
+!public/backdrops
 
 # Your brand mark, drawn on logo cards (LOGO_FILE in src/lib/intro.ts). Ignored
 # for the same reason the flows are: it is one company's logo, not the engine's.

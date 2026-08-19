@@ -43,6 +43,7 @@
     "analyze": "tsx scripts/analyze.ts",
     "render": "tsx scripts/render.ts",
     "render:intro": "tsx scripts/render-intro.ts",
+    "backdrop": "tsx scripts/make-backdrop.ts",
     "shot": "tsx scripts/shoot-still.ts",
     "render:still": "tsx scripts/render-still.ts",
     "still": "tsx scripts/still.ts",

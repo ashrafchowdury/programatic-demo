@@ -72,6 +72,13 @@ export type ClickLog = {
   trimBeforeMs?: number;
   /** Manual nudge (ms) applied to every click time if video/log drift shows up. */
   offsetMs?: number;
+  /**
+   * Studio backdrop for this demo, copied from the flow at record time.
+   *
+   * It lives in the LOG rather than the flow because `pnpm render` never loads
+   * a flow — it reads this file. See src/lib/backdrop.ts.
+   */
+  backdrop?: string;
   clicks: ClickEvent[];
 };
 

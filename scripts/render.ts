@@ -125,13 +125,19 @@ function main() {
   const speed = resolvePlaybackRate(process.env.DEMO_SPEED);
   const concurrency = resolveConcurrency(process.env.DEMO_CONCURRENCY);
   const gl = resolveGl(process.env.DEMO_GL);
+  // A name here beats the one recorded in the click log, so a demo can be
+  // re-framed on another backdrop without re-recording it.
+  const backdrop = process.argv
+    .slice(2)
+    .find((a) => a.startsWith("--backdrop="))
+    ?.split("=")[1];
   execFileSync(
     REMOTION_BIN,
     [
       "render",
       "DemoClip",
       out,
-      `--props=${JSON.stringify({ name, speed })}`,
+      `--props=${JSON.stringify({ name, speed, ...(backdrop ? { backdrop } : {}) })}`,
       "--crf=16",
       `--gl=${gl}`,
       ...(concurrency != null ? [`--concurrency=${concurrency}`] : []),

@@ -67,7 +67,37 @@ export const Stage: React.FC<{ children: React.ReactNode }> = ({ children }) => 
  * Judge changes from a magnified crop of the window's bottom-left corner; none
  * of this shows up in a scanline diff of the whole frame.
  */
-export const RimLight: React.FC = () => {  const k = useDesignScale();
+export const RimLight: React.FC<{ light?: boolean }> = ({ light = false }) => {
+  const k = useDesignScale();
+  // On a LIGHT backdrop the white lift below has nothing to be brighter than,
+  // so the window dissolves into the ground — the mirror of the cast shadow
+  // that vanished on near-black. Cast a soft dark shadow instead. Safe because
+  // this renders OUTSIDE the shutter; only gradients INSIDE it band.
+  if (light)
+    return (
+      <>
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            borderRadius: 60 * k,
+            background: "rgba(30,20,10,0.30)",
+            transform: "translateY(2.5%) scale(0.97, 0.96)",
+            filter: `blur(${90 * k}px)`,
+            pointerEvents: "none",
+          }}
+        />
+        <div
+          style={{
+            position: "absolute",
+            inset: -k,
+            borderRadius: (WINDOW_RADIUS + 1) * k,
+            boxShadow: `0 0 0 ${k}px rgba(15,23,42,0.16)`,
+            pointerEvents: "none",
+          }}
+        />
+      </>
+    );
   return (
     <>
       {/* Broad ambient lift: the pool of light the window sits in. */}

@@ -41,15 +41,23 @@ const REMOTION_BIN = path.join(ROOT, "node_modules", ".bin", "remotion");
 const resolveGl = (raw?: string): string =>
   raw != null && raw !== "" ? raw : "angle";
 
-function renderOne(name: string, preset: StillPresetId): string {
-  const out = outPath("still", `${name}-${preset}.png`);
+function renderOne(
+  name: string,
+  preset: StillPresetId,
+  backdrop?: string,
+): string {
+  // An explicit backdrop goes in the filename: rendering the same shot on two
+  // backdrops is a normal thing to want, and a shared name would silently leave
+  // you with only the last one.
+  const suffix = backdrop ? `-${backdrop.replace(/\.[^.]+$/, "")}` : "";
+  const out = outPath("still", `${name}-${preset}${suffix}.png`);
   execFileSync(
     REMOTION_BIN,
     [
       "still",
       "Still",
       out,
-      `--props=${JSON.stringify({ name, preset })}`,
+      `--props=${JSON.stringify({ name, preset, ...(backdrop ? { backdrop } : {}) })}`,
       `--gl=${resolveGl(process.env.DEMO_GL)}`,
     ],
     { stdio: "inherit" },
@@ -92,6 +100,7 @@ async function main() {
   const positional = argv.filter((a) => !a.startsWith("-"));
   const name = positional[0] ?? "smoke";
   const all = argv.includes("--all");
+  const backdrop = argv.find((a) => a.startsWith("--backdrop="))?.split("=")[1];
 
   const fromFlag = argv.find((a) => a.startsWith("--from="))?.slice("--from=".length)
     ?? (argv.includes("--from") ? argv[argv.indexOf("--from") + 1] : undefined);
@@ -132,7 +141,7 @@ async function main() {
     : [resolvePreset(asked ?? process.env.DEMO_PRESET)];
 
   for (const preset of presets)
-    console.log(`still      -> ${outRel(renderOne(name, preset))}`);
+    console.log(`still      -> ${outRel(renderOne(name, preset, backdrop))}`);
 }
 
 main().catch((err) => {

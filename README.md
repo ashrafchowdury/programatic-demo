@@ -261,7 +261,7 @@ body, the card does **not** speed up under `DEMO_SPEED` — the footage is a
 recording being replayed faster, the card is authored motion, and copy at 2x is
 copy nobody reads.
 
-The card uses the same `public/backdrop.jpg` the demo floats its window on, so
+The card uses the same studio backdrop the demo floats its window on, so
 the cut lands on an unchanged frame: the text leaves, the window arrives. That
 is also why the two halves must agree on geometry exactly —
 [`pnpm stitch`](scripts/stitch.ts) joins them with `-c copy`, and it probes both
@@ -314,7 +314,7 @@ copy and only that card re-renders.
 
 **Match the card's ground to the product.** `background` takes `"light"` (flat
 near-white), `"plain"` (flat near-black) or `"plate"` (the default —
-`public/backdrop.jpg`, the same image the demo floats its window on, so a card at
+the studio backdrop, the same image the demo floats its window on, so a card at
 the very start or end joins the footage on an unchanged frame).
 
 Pick it by measuring, not by taste. The app these numbers come from is
@@ -395,6 +395,52 @@ pnpm shot smoke --probe
 which drives the steps and then writes `.diag/shots/<name>.probe.png` — the full
 viewport under a 100px coordinate grid — plus a listing of what was on screen.
 Read the numbers off it and paste them in as a rect.
+
+### Backdrops
+
+Sixteen ship with the repo. Pick one by name — no code change:
+
+```ts
+export default defineShot({ name: "triggers", backdrop: "cobalt", /* … */ });
+export default defineFlow({ name: "agent-skill", backdrop: "prism", /* … */ });
+```
+
+| name | | | name | |
+| --- | --- | --- | --- | --- |
+| `glaze` | near-black, faint streaks — default | | `halo` | magenta ring on near-black |
+| `ink` | the darkest — filaments on black | | `dusk` | a low sunset horizon |
+| `cobalt` | blue and magenta folds | | `studio` | a studio-lit object |
+| `graphite` | monochrome folds, most neutral | | `canyon` | **light** — cream and teal |
+| `ember` | red folds, deep | | `mist` | **light** — pale teal and white |
+| `flare` | red folds, brighter | | `chalk` | **light** — near-white, grey ring |
+| `prism` | teal and coral split | | `aurora` | **light** — cyan to lavender |
+| `bloom` | soft pink and white | | `moonrise` | deep purple, magenta glow |
+
+`dusk` and `studio` have a recognisable subject rather than being abstract, so
+check the window is not sitting on the horizon or the object.
+
+Override at render time without re-recording:
+
+```bash
+pnpm render:still triggers wide --backdrop=ember
+pnpm render agent-skill --backdrop=graphite
+```
+
+Add your own — any image, converted and prepared the same way:
+
+```bash
+pnpm backdrop ~/Pictures/wall.heic aurora
+```
+
+That scales, blurs, grains and reports the banding measurement. Grain is not
+decoration: h264's deadzone quantiser turns a smooth ramp into rings unless the
+grain is in the source at full amplitude, and weak grain measures *worse* than
+none. All sixteen measure 4–12px as the longest identical-colour run on a
+scanline; the CSS gradient they replaced measured 97, a flat colour 2560.
+
+On a **light** backdrop the window's white rim has nothing to be brighter than,
+so it switches to a soft dark shadow instead. `LIGHT_BACKDROPS` holds every
+backdrop measuring YAVG > 110 — add yours there if it is bright.
 
 ### Presets
 
@@ -518,7 +564,8 @@ the constant it controls, not here:
 | `intros/` | One title card per demo (`defineIntro`) — only the example is committed |
 | `reels/` | Narrative cuts: cards + clip ranges (`defineReel`) |
 | `src/lib/reel.ts` | Reel segment types + clip-range arithmetic |
-| `public/backdrop.jpg` | The studio backdrop (a committed design asset) |
+| `public/backdrops/` | The studio backdrops (committed design assets) |
+| `src/lib/backdrop.ts` | Backdrop names + light/dark elevation |
 | `.agents/skills/` | Agent-readable pipeline docs |
 
 **What is not committed.** `out/`, `recordings/`, `public/*.mp4`,

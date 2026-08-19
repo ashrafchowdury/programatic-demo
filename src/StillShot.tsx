@@ -4,6 +4,7 @@ import { Backdrop } from "./DemoClip";
 import { RimLight, Stage, WindowFrame } from "./WindowFrame";
 import { WINDOW_FIT } from "./lib/window";
 import { shotAspect, windowBox, type ShotMeta } from "./lib/still";
+import { isLightBackdrop } from "./lib/backdrop";
 
 export type StillShotProps = {
   /** Reads public/shots/<name>.png. */
@@ -12,6 +13,8 @@ export type StillShotProps = {
   meta: ShotMeta;
   /** Fake macOS titlebar, as in DemoClip. Off by default for the same reason. */
   chrome?: boolean;
+  /** Studio backdrop name. See src/lib/backdrop.ts. Defaults to "glaze". */
+  backdrop?: string;
 };
 
 /**
@@ -36,7 +39,12 @@ export type StillShotProps = {
  *    1920px wide and magnifying it softens. A still is captured at whatever
  *    scale it needs, so nothing is being stretched to begin with.
  */
-export const StillShot: React.FC<StillShotProps> = ({ name, meta, chrome }) => {
+export const StillShot: React.FC<StillShotProps> = ({
+  name,
+  meta,
+  chrome,
+  backdrop,
+}) => {
   const { width, height } = useVideoConfig();
   // The window takes the region's shape, fitted into the preset's canvas on
   // whichever axis binds first — the two aspects are independent here, unlike
@@ -50,11 +58,11 @@ export const StillShot: React.FC<StillShotProps> = ({ name, meta, chrome }) => {
 
   return (
     <AbsoluteFill>
-      <Backdrop />
+      <Backdrop name={backdrop} />
       {/* Elevation first, as its own layer, exactly as DemoClip stacks it. */}
       <Stage>
         <div style={frame}>
-          <RimLight />
+          <RimLight light={isLightBackdrop(backdrop ?? "")} />
         </div>
       </Stage>
       <Stage>

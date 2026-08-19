@@ -50,6 +50,8 @@ export type ShotSpec = {
   targets?: TargetOverrides;
   /** Drive the app into the state worth photographing. Omit to shoot on load. */
   steps?: readonly Step[];
+  /** Studio backdrop name. See src/lib/backdrop.ts. */
+  backdrop?: string;
   /** The part to keep. Omit for the whole viewport. */
   region?: ShotRegion;
   /**

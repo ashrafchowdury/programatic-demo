@@ -246,7 +246,7 @@ lead-in as the cursor departs → hold ≥1.3 s through the interaction → trai
 - **Never hardcode a start URL.** It embeds workspace/project/app ids. Read it
   from `process.env.DEMO_URL_<NAME>` and document the key in `.env.example`.
 - **`recordings/`, `public/*.mp4`, `public/*.clicks.json`, `out/`, `tours/*.json`
-  are all regenerated.** Do not commit them. `public/backdrop.jpg` is the one
+  are all regenerated.** Do not commit them. `public/backdrops/` are the
   committed asset — it is a design file, not output.
 - **Cold contexts are slower than the warm profile.** Wait for elements
   (`findByName`); do not probe after a fixed sleep (`softByName`) or a batch run

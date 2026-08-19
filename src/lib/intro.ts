@@ -27,7 +27,7 @@ export type IntroStoryboard = {
   /**
    * What sits behind the text.
    *
-   * "plate" is public/backdrop.jpg — the same image DemoClip floats its window
+   * "plate" is the studio backdrop — the same image DemoClip floats its window
    * on, so a card cutting straight into footage lands on an unchanged frame.
    * "plain" is flat near-black. "light" is flat near-white and is the right
    * default for a light-theme product: measured, our footage averages Y 181, so
@@ -49,6 +49,8 @@ export type IntroStoryboard = {
    * will have little contrast.
    */
   logo?: boolean;
+  /** Studio backdrop name, so a card matches the demo it introduces. */
+  backdrop?: string;
 };
 
 /** The brand mark asset, rendered above a logo card's text. Supply your own. */

@@ -87,7 +87,7 @@ Needs **system ffmpeg** (`brew install ffmpeg`); the bundled one lacks
   Read `process.env.DEMO_URL_<NAME>` and document the key in `.env.example`.
 - **Never commit pipeline output**: `out/` (all three features), `recordings/`,
   `public/*.mp4`, `public/*.clicks.json`, `public/shots/`, `tours/*.json`.
-  `public/backdrop.jpg` is the one committed asset — a design file, not output.
+  `public/backdrops/` are the committed assets — design files, not output.
 - **Demo flows are gitignored** except `smoke`, `google-search`,
   `skillsmp-search`. Same for `intros/`, `reels/` and `shots/`. The engine is
   public; account-specific demos are not.

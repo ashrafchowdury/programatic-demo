@@ -41,6 +41,8 @@ export type ShotMeta = {
   viewport: Canvas;
   /** How the region was resolved, for the log line. e.g. `css(#sidebar)`. */
   via?: string;
+  /** Studio backdrop name for this shot. See src/lib/backdrop.ts. */
+  backdrop?: string;
 };
 
 /** Native pixel size of the captured PNG. */
