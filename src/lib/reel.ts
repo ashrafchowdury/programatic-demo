@@ -32,10 +32,86 @@ export type ReelClip = {
 };
 export type ReelSegment = ReelCard | ReelClip;
 
+/**
+ * One audio piece laid onto the finished reel's timeline.
+ *
+ * Opt-in and additive: a reel with no `audio` renders silent, byte-for-byte as
+ * before. Pieces are mixed in a single post-concat pass on the SYSTEM ffmpeg
+ * (the bundled remotion build has no audio filters) — see scripts/reel.ts and
+ * the pure src/lib/reel-audio.ts. Multiple pieces cover both cases: place them
+ * end to end (sequential) or overlapping (a bed under a lead).
+ */
+/**
+ * A reel-time position that snaps to a segment boundary instead of a
+ * hand-counted second — "start this tune at the 4th card's cut". `segment` is
+ * 0-based; `edge` defaults to the segment's start.
+ */
+export type ReelAnchor = { segment: number; edge?: "start" | "end" };
+
+export type ReelAudioPiece = {
+  /** Path under public/, e.g. "audio/bed.mp3". Supplied locally (gitignored). */
+  src: string;
+  /** Source sub-range in seconds — use 12–25s of a file, say. Omit = whole file. */
+  trim?: { fromS: number; toS?: number };
+  /** Reel second (or a segment anchor) the piece begins. Default 0. */
+  start?: number | ReelAnchor;
+  /** Hard reel-time end. Mutually exclusive with `duration`. */
+  end?: number | ReelAnchor;
+  /** Reel seconds the piece occupies. Mutually exclusive with `end`. */
+  duration?: number;
+  /** Linear gain multiplier. Default 1 — use ~0.3–0.5 for a bed. */
+  gain?: number;
+  /** Fade in / out, seconds. */
+  fadeInS?: number;
+  fadeOutS?: number;
+  /** Silence-pad to fill the span if the (trimmed) source is shorter than it. */
+  pad?: boolean;
+  /**
+   * Mixing role. `bed` pieces duck under `lead`/`sfx` when `Reel.duck` is on;
+   * everything else defaults to `lead`. Auto-SFX are tagged `sfx`.
+   */
+  role?: "bed" | "lead" | "sfx";
+  /**
+   * Crossfade into this piece from the PREVIOUS one over this many seconds. The
+   * pair plays back to back (this piece's own `start` is ignored — the fade
+   * defines the join), for a seamless track change.
+   */
+  crossfadePrevS?: number;
+};
+
+/** One auto-SFX cue: the sample to place, and how loud. */
+export type SfxCue = { src: string; gain?: number; fadeOutS?: number };
+
+/**
+ * Auto-SFX driven by the demo's click log: a tick on each real click, a whoosh
+ * on each camera zoom, a soft cue at each typing span. Each present kind places
+ * its sample at every matching beat, mapped into reel time.
+ */
+export type ReelSfx = { click?: SfxCue; whoosh?: SfxCue; typing?: SfxCue };
+
+/** Sidechain-ducking of `bed` pieces under `lead`/`sfx`. `true` = defaults. */
+export type ReelDuck = {
+  thresholdDb?: number;
+  ratio?: number;
+  attackMs?: number;
+  releaseMs?: number;
+};
+
 export type Reel = {
   /** The demo these clips come from: out/<name>.mp4 and the DemoClip props. */
   name: string;
   segments: ReelSegment[];
+  /** Audio pieces mixed onto the finished reel. Absent = silent (unchanged). */
+  audio?: ReelAudioPiece[];
+  /**
+   * Normalize the final mix to this integrated loudness (LUFS). Absent = off.
+   * -14 is the web/social standard. Applied on the mix before it is muxed.
+   */
+  loudnessLUFS?: number;
+  /** Auto-SFX generated from the click log. Absent = none. */
+  sfx?: ReelSfx;
+  /** Duck `bed` pieces under `lead`/`sfx`. Absent = off. */
+  duck?: boolean | ReelDuck;
 };
 
 export const defineReel = (reel: Reel): Reel => reel;
@@ -143,6 +219,137 @@ export function reelProblem(
         return `${at} (clip) starts at or before the previous clip ended`;
       previousLast = last;
     }
+  }
+  if (reel.audio !== undefined) {
+    const problem = audioProblem(
+      reel.audio,
+      totalFrames,
+      fps,
+      reel.segments.length,
+    );
+    if (problem) return problem;
+  }
+  if (
+    reel.loudnessLUFS !== undefined &&
+    !(
+      typeof reel.loudnessLUFS === "number" &&
+      reel.loudnessLUFS <= 0 &&
+      reel.loudnessLUFS >= -70
+    )
+  )
+    return "`loudnessLUFS` must be a number between -70 and 0";
+  if (reel.sfx !== undefined) {
+    if (typeof reel.sfx !== "object" || reel.sfx === null)
+      return "`sfx` must be an object";
+    for (const kind of ["click", "whoosh", "typing"] as const) {
+      const cue = reel.sfx[kind];
+      if (cue === undefined) continue;
+      if (
+        typeof cue !== "object" ||
+        cue === null ||
+        typeof cue.src !== "string" ||
+        cue.src === ""
+      )
+        return `\`sfx.${kind}\` needs a \`src\``;
+      for (const k of ["gain", "fadeOutS"] as const)
+        if (cue[k] !== undefined && !(typeof cue[k] === "number" && cue[k]! >= 0))
+          return `\`sfx.${kind}.${k}\` must be a number >= 0`;
+    }
+  }
+  if (reel.duck !== undefined && typeof reel.duck !== "boolean") {
+    if (typeof reel.duck !== "object" || reel.duck === null)
+      return "`duck` must be a boolean or an object";
+    for (const k of ["thresholdDb", "ratio", "attackMs", "releaseMs"] as const)
+      if (reel.duck[k] !== undefined && typeof reel.duck[k] !== "number")
+        return `\`duck.${k}\` must be a number`;
+  }
+  return null;
+}
+
+/**
+ * Shape check for `reel.audio`, mirroring reelProblem's return-a-string style.
+ * Exported so it can be unit-tested on its own. `totalFrames` bounds a piece's
+ * start to inside the reel when known — a piece that begins after the reel ends
+ * is inaudible and almost always a typo; an overrun past the END is fine (the
+ * mux truncates it), so it is not checked here.
+ */
+/** A `start`/`end` value: seconds >= 0, or a `{ segment }` anchor. */
+function anchorOrSecondsProblem(
+  v: unknown,
+  label: string,
+  segmentCount?: number,
+): string | null {
+  if (v === undefined) return null;
+  if (typeof v === "number")
+    return v >= 0 ? null : `${label} must be a number >= 0`;
+  if (typeof v === "object" && v !== null) {
+    const a = v as Partial<ReelAnchor>;
+    if (!Number.isInteger(a.segment))
+      return `${label} anchor needs an integer \`segment\``;
+    if (segmentCount != null && (a.segment! < 0 || a.segment! >= segmentCount))
+      return `${label} anchor \`segment\` ${a.segment} is out of range (0-${segmentCount - 1})`;
+    if (a.edge !== undefined && a.edge !== "start" && a.edge !== "end")
+      return `${label} anchor \`edge\` must be "start" or "end"`;
+    return null;
+  }
+  return `${label} must be a number of seconds or a { segment } anchor`;
+}
+
+export function audioProblem(
+  value: unknown,
+  totalFrames?: number,
+  fps = 30,
+  segmentCount?: number,
+): string | null {
+  if (!Array.isArray(value)) return "`audio` must be an array";
+  const totalS = totalFrames != null ? totalFrames / fps : null;
+  for (let i = 0; i < value.length; i++) {
+    const piece = value[i] as Partial<ReelAudioPiece>;
+    const at = `audio[${i}]`;
+    if (typeof piece !== "object" || piece === null)
+      return `${at} must be an object`;
+    if (typeof piece.src !== "string" || piece.src === "")
+      return `${at} needs a \`src\``;
+    if (piece.trim !== undefined) {
+      const { fromS, toS } = piece.trim;
+      if (!(typeof fromS === "number" && fromS >= 0))
+        return `${at} trim.fromS must be a number >= 0`;
+      if (toS !== undefined && !(typeof toS === "number" && toS > fromS))
+        return `${at} trim.toS must be a number greater than fromS`;
+    }
+    for (const key of [
+      "duration",
+      "gain",
+      "fadeInS",
+      "fadeOutS",
+      "crossfadePrevS",
+    ] as const) {
+      const v = piece[key];
+      if (v !== undefined && !(typeof v === "number" && v >= 0))
+        return `${at} \`${key}\` must be a number >= 0`;
+    }
+    if (
+      piece.role !== undefined &&
+      piece.role !== "bed" &&
+      piece.role !== "lead" &&
+      piece.role !== "sfx"
+    )
+      return `${at} \`role\` must be bed, lead or sfx`;
+    const startBad = anchorOrSecondsProblem(piece.start, `${at}.start`, segmentCount);
+    if (startBad) return startBad;
+    const endBad = anchorOrSecondsProblem(piece.end, `${at}.end`, segmentCount);
+    if (endBad) return endBad;
+    if (piece.end !== undefined && piece.duration !== undefined)
+      return `${at} sets both \`end\` and \`duration\` — use one`;
+    // Numeric ordering only; an anchor's position is trusted (resolved later).
+    if (
+      typeof piece.end === "number" &&
+      typeof piece.start === "number" &&
+      !(piece.end > piece.start)
+    )
+      return `${at} \`end\` must be after \`start\``;
+    if (totalS != null && typeof piece.start === "number" && piece.start >= totalS)
+      return `${at} starts at ${piece.start}s, after the reel ends (${totalS.toFixed(2)}s)`;
   }
   return null;
 }

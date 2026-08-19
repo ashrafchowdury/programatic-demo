@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  audioProblem,
   clipFrameCount,
   clipFrames,
   coldOpenIndex,
@@ -140,5 +141,93 @@ describe("cold open", () => {
       segments: [{ clip: { fromS: 0, toS: 2, drift: 4 } }],
     };
     assert.match(reelProblem(bad) ?? "", /drift/);
+  });
+});
+
+describe("audioProblem", () => {
+  const ok = { src: "audio/bed.mp3", trim: { fromS: 12, toS: 25 } };
+
+  it("accepts a valid audio array and an absent one", () => {
+    assert.equal(audioProblem([ok]), null);
+    assert.equal(
+      reelProblem({ name: "x", segments: [{ clip: { fromS: 0, toS: 2 } }] }, 60),
+      null,
+    );
+  });
+
+  it("requires an array and a src", () => {
+    assert.match(audioProblem({} as unknown) ?? "", /must be an array/);
+    assert.match(audioProblem([{}]) ?? "", /needs a `src`/);
+    assert.match(audioProblem([{ src: "" }]) ?? "", /needs a `src`/);
+  });
+
+  it("validates trim ordering and non-negative numbers", () => {
+    assert.match(
+      audioProblem([{ src: "a.mp3", trim: { fromS: 5, toS: 3 } }]) ?? "",
+      /trim.toS/,
+    );
+    assert.match(
+      audioProblem([{ src: "a.mp3", gain: -1 }]) ?? "",
+      /`gain`/,
+    );
+  });
+
+  it("rejects both end and duration, and end before start", () => {
+    assert.match(
+      audioProblem([{ src: "a.mp3", end: 5, duration: 3 }]) ?? "",
+      /both `end` and `duration`/,
+    );
+    assert.match(
+      audioProblem([{ src: "a.mp3", start: 6, end: 4 }]) ?? "",
+      /`end` must be after `start`/,
+    );
+  });
+
+  it("rejects a piece that starts after the reel ends (when total known)", () => {
+    // 60 frames @ 30fps = 2s reel; a piece starting at 5s is inaudible.
+    assert.match(
+      audioProblem([{ src: "a.mp3", start: 5 }], 60, 30) ?? "",
+      /after the reel ends/,
+    );
+    // Without a known total, the start is not bounded.
+    assert.equal(audioProblem([{ src: "a.mp3", start: 5 }]), null);
+  });
+
+  it("flows through reelProblem for a reel with audio", () => {
+    const reel = {
+      name: "x",
+      segments: [{ clip: { fromS: 0, toS: 2 } }],
+      audio: [{ src: "" }],
+    };
+    assert.match(reelProblem(reel, 60) ?? "", /needs a `src`/);
+  });
+});
+
+describe("audio anchors + loudness validation (F12/F9)", () => {
+  it("accepts a segment anchor for start and rejects an out-of-range one", () => {
+    const segs = [{ clip: { fromS: 0, toS: 2 } }, { card: { name: "x", headline: "H" } }];
+    assert.equal(
+      reelProblem({ name: "x", segments: segs, audio: [{ src: "a.mp3", start: { segment: 1 } }] }, 90),
+      null,
+    );
+    assert.match(
+      reelProblem({ name: "x", segments: segs, audio: [{ src: "a.mp3", start: { segment: 5 } }] }, 90) ?? "",
+      /5 is out of range/,
+    );
+    assert.match(
+      audioProblem([{ src: "a.mp3", start: { segment: 1.5 } }]) ?? "",
+      /integer `segment`/,
+    );
+  });
+
+  it("validates loudnessLUFS range", () => {
+    assert.equal(
+      reelProblem({ name: "x", segments: [{ clip: { fromS: 0, toS: 2 } }], loudnessLUFS: -14 }, 90),
+      null,
+    );
+    assert.match(
+      reelProblem({ name: "x", segments: [{ clip: { fromS: 0, toS: 2 } }], loudnessLUFS: 5 }, 90) ?? "",
+      /loudnessLUFS/,
+    );
   });
 });
