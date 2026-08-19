@@ -300,49 +300,4 @@ describe("captureTour", () => {
     }
   });
 
-  it("captures a picker row that unmounts on pointerdown (no click)", async (t) => {
-    const skip = await browserSkipReason();
-    if (skip) return t.skip(skip);
-    const fixture = pathToFileURL(
-      path.resolve(import.meta.dirname, "../fixtures/picker-pointerdown.html"),
-    ).href;
-    const browser = await chromium.launch({ headless: true });
-    const context = await browser.newContext({
-      viewport: { width: 800, height: 600 },
-    });
-    const page = await context.newPage();
-    await page.goto(fixture, { waitUntil: "domcontentloaded" });
-
-    try {
-      const capturing = captureTour({
-        page,
-        context,
-        name: "picker-pointerdown",
-        viewport: { width: 800, height: 600 },
-        startUrl: page.url(),
-      });
-      await page.waitForTimeout(200);
-      await page.click("#open");
-      await page.waitForTimeout(50);
-      await page.click("#keep");
-      await page.waitForTimeout(50);
-      await page.click("#flash");
-      await page.waitForTimeout(80);
-      await page.keyboard.press("Escape");
-      const tour = await capturing;
-
-      const labels = tour.steps.map((s) => s.label).join(" | ");
-      assert.ok(
-        tour.steps.some((s) => /openrouter/i.test(s.label)),
-        `missing OpenRouter: ${labels}`,
-      );
-      assert.ok(
-        tour.steps.some((s) => /deepseek/i.test(s.label)),
-        `missing DeepSeek (pointerdown-unmount): ${labels}`,
-      );
-    } finally {
-      await context.close().catch(() => {});
-      await browser.close().catch(() => {});
-    }
-  });
 });

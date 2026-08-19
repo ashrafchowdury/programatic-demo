@@ -585,48 +585,6 @@ const CAPTURE_INIT = `
     };
   };
 
-  // Model-picker rows (Radix/cmdk) commit on pointerdown and unmount before
-  // click fires. Listen to both and de-dupe so OpenRouter-style rows that
-  // stay mounted are not recorded twice.
-  var lastKey = '', lastAt = 0;
-  var recordClick = function (raw) {
-    var el = rootOf(raw);
-    var snap = snapshot(el);
-    var key = (snap.role || '') + '|' + (snap.name || snap.text || '').slice(0, 60) + '|' + (snap.css || '');
-    var now = Date.now();
-    if (key && key === lastKey && now - lastAt < 500) return;
-    lastKey = key;
-    lastAt = now;
-    send({ type: 'click', snapshot: snap, url: location.href });
-  };
-  var fromPointer = function (e) {
-    if (e.button !== 0) return;
-    var t = e.target;
-    if (t && t.nodeType === 3) t = t.parentElement;
-    if (!t || !t.closest) return;
-    if (t.closest('#pw-tour-banner')) return;
-    recordClick(t);
-  };
-  document.addEventListener('pointerdown', fromPointer, true);
-  document.addEventListener('click', fromPointer, true);
-
-  document.addEventListener('input', function (e) {
-    var t = e.target;
-    if (!t || !t.closest) return;
-    if (t.closest('#pw-tour-banner')) return;
-    var value = (t.value != null) ? String(t.value) : (t.textContent || '');
-    send({ type: 'input', snapshot: snapshot(t), value: value, url: location.href });
-  }, true);
-
-  document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') {
-      window.__tourStop = true;
-      send({ type: 'stop' });
-      return;
-    }
-    if (e.key === 'Enter') send({ type: 'commit', url: location.href });
-  }, true);
-})();
 `;
 
 export async function captureTour(opts: {
