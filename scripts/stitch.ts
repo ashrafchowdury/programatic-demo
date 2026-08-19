@@ -21,6 +21,7 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { compareStreams, type FileProbe } from "./lib/stitch";
+import { outPath, outPathOf } from "./lib/out";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const REMOTION_BIN = path.join(ROOT, "node_modules", ".bin", "remotion");
@@ -61,8 +62,8 @@ function need(file: string, fix: string): void {
 
 function main() {
   const name = process.argv[2] ?? "smoke";
-  const intro = path.join(ROOT, "out", `${name}.intro.mp4`);
-  const demo = path.join(ROOT, "out", `${name}.mp4`);
+  const intro = outPathOf("reel", `${name}.intro.mp4`);
+  const demo = outPathOf("demo", `${name}.mp4`);
   need(intro, `run \`pnpm render:intro ${name}\` first`);
   need(demo, `run \`pnpm render ${name}\` first`);
 
@@ -83,7 +84,7 @@ function main() {
   const list = path.join(listDir, `${name}.txt`);
   fs.writeFileSync(list, `file '${intro}'\nfile '${demo}'\n`);
 
-  const out = path.join(ROOT, "out", `${name}.full.mp4`);
+  const out = outPath("reel", `${name}.full.mp4`);
   const reencode = process.env.DEMO_STITCH_REENCODE === "1";
   execFileSync(
     REMOTION_BIN,

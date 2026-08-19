@@ -9,7 +9,7 @@ metadata:
 
 ```
 Playwright records the flow  ──►  ffmpeg (Remotion bundled)  ──►  Remotion
-  recordings/<name>.webm            public/<name>.mp4              out/<name>.mp4
+  recordings/<name>.webm            public/<name>.mp4              out/demo/<name>.mp4
   public/<name>.clicks.json
 ```
 
@@ -119,10 +119,10 @@ pnpm record:instructions && pnpm convert agent-instructions && pnpm render agent
 pnpm record:live <flow-name>                  # any flow with a startUrl
 
 # Intro title card (optional, after the demo has been rendered)
-pnpm intro <flow-name>          # render:intro -> stitch -> out/<name>.full.mp4
+pnpm intro <flow-name>          # render:intro -> stitch -> out/reel/<name>.full.mp4
 
 # Narrative cut: cards interleaved with clip ranges
-pnpm reel <flow-name>           # reels/<name>.ts -> out/<name>.reel.mp4
+pnpm reel <flow-name>           # reels/<name>.ts -> out/reel/<name>.mp4
 
 # Generic
 pnpm clip <flow-name>
@@ -166,8 +166,8 @@ Unset `DEMO_TOUR` keeps the scripted `flows/<name>.ts` path.
 ## Add an intro title card
 
 1. `intros/<name>.ts` with `defineIntro` — copy only, no timings
-2. `pnpm intro <name>` after `pnpm clip <name>` has produced `out/<name>.mp4`
-3. Card lands in `out/<name>.intro.mp4`, joined file in `out/<name>.full.mp4`
+2. `pnpm intro <name>` after `pnpm clip <name>` has produced `out/demo/<name>.mp4`
+3. Card lands in `out/reel/<name>.intro.mp4`, joined file in `out/reel/<name>.full.mp4`
 
 Rules that are load-bearing:
 
@@ -189,7 +189,7 @@ Rules that are load-bearing:
   replayed faster; the card is authored motion, and copy at 2x is unreadable.
 - `pnpm analyze` is now meaningful on a reel or stitched file: cards move
   through their cuts, so the reel passes all six checks rather than tripping the
-  dead-air ones. `out/<name>.mp4` is untouched either way.
+  dead-air ones. `out/demo/<name>.mp4` is untouched either way.
 - Cards must be MOVING at their cut. The reference has motion on both sides of
   8 of its 10 cuts and never lands on a frozen card; an early edit of ours
   managed 2 of 9 and read as slides advancing. But do not overcorrect into
@@ -199,9 +199,9 @@ Rules that are load-bearing:
 
 ## Cut a reel
 
-1. `pnpm render <name>` once, then scrub `out/<name>.mp4` for beat boundaries
+1. `pnpm render <name>` once, then scrub `out/demo/<name>.mp4` for beat boundaries
 2. `reels/<name>.ts` with `defineReel` — cards and `{ fromS, toS }` clip ranges
-3. `pnpm reel <name>` -> `out/<name>.reel.mp4`
+3. `pnpm reel <name>` -> `out/reel/<name>.mp4`
 
 - Clip ranges are SECONDS of the rendered demo; `toS` is exclusive so adjacent
   ranges never share a frame. `reelProblem()` rejects overlapping, backwards or
@@ -211,7 +211,7 @@ Rules that are load-bearing:
 - Clips are re-rendered via `--frames`, never cut out of the mp4 — no second
   h264 generation on tuned footage. Segments are cached in `.diag/reel/<name>/`
   by a hash of their spec, so editing one card re-renders only that card.
-- The reel refuses to run if `out/<name>.mp4` was rendered at a different
+- The reel refuses to run if `out/demo/<name>.mp4` was rendered at a different
   `DEMO_SPEED` than the current run, because the frame ranges would point
   somewhere else.
 - Match the card ground to the product: `background: "light"` for a light-theme
@@ -222,7 +222,7 @@ Rules that are load-bearing:
   forward-ordering rule and may replay footage a later clip covers. Choose a
   range that is already moving.
 - `drift: 1` on a clip adds a slow push inside long holds. Opt-in by design, so
-  `out/<name>.mp4` and everything `analyze` measures are untouched.
+  `out/demo/<name>.mp4` and everything `analyze` measures are untouched.
 - Chip cards: `"Hit {chip}. It'''s live."` + `chip: {label}`. One line only. The
   chip is centred by a `1fr auto 1fr` grid so its centre is known without
   measuring the DOM — a measured origin would vary per worker and per font.

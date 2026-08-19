@@ -7,6 +7,11 @@ metadata:
 
 # Make an intro reel
 
+**This is one of three features. A reel is cut FROM a demo, so the demo must be
+rendered first** (`.agents/skills/shoot-demo-video/SKILL.md`). A still image of
+part of the screen is a *still* (`.agents/skills/shoot-still/SKILL.md`). See the
+table in `AGENTS.md`.
+
 A reel is **cards + clips**: title cards narrate in a few words what the next
 clip is about to show, the clip proves it, a logo signs off. ~15s, 6-ish beats.
 
@@ -99,8 +104,8 @@ frames with ffprobe and look. Fix the gap, re-measure.
 pnpm capture:session          # once — auth the live platform (headed)
 pnpm record:live <flow>       # shoot   → recordings + clicks.json
 pnpm convert <flow>           # webm → public/<flow>.mp4
-pnpm render <flow>            # → out/<flow>.mp4
-pnpm reel <flow>              # cut cards+clips → out/<flow>.reel.mp4
+pnpm render <flow>            # → out/demo/<flow>.mp4
+pnpm reel <flow>              # cut cards+clips → out/reel/<flow>.mp4
 ```
 
 Cards author as JSON or TS (`intros/<name>.json` | reel cards). Markup:

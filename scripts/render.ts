@@ -11,6 +11,7 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { resolvePlaybackRate } from "../src/lib/click-log";
+import { outPath, outRel } from "./lib/out";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const REMOTION_BIN = path.join(ROOT, "node_modules", ".bin", "remotion");
@@ -120,8 +121,7 @@ function main() {
       `Missing ${path.relative(ROOT, src)} — run \`pnpm convert ${name}\` first.`,
     );
 
-  const out = path.join(ROOT, "out", `${name}.mp4`);
-  fs.mkdirSync(path.dirname(out), { recursive: true });
+  const out = outPath("demo", `${name}.mp4`);
   const speed = resolvePlaybackRate(process.env.DEMO_SPEED);
   const concurrency = resolveConcurrency(process.env.DEMO_CONCURRENCY);
   const gl = resolveGl(process.env.DEMO_GL);
@@ -144,7 +144,7 @@ function main() {
   if (speed !== 1) console.log(`speed      -> ${speed}×`);
   if (concurrency != null) console.log(`workers    -> ${concurrency}`);
   console.log(`gl         -> ${gl}`);
-  console.log(`mp4        -> ${path.relative(ROOT, out)}`);
+  console.log(`mp4        -> ${outRel(out)}`);
 }
 
 main();

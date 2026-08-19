@@ -29,4 +29,4 @@ const name = process.argv[2] ?? "smoke";
 step("record-demo.ts", name);
 step("convert.ts", name);
 step("render.ts", name);
-console.log(`\nDone. See out/${name}.mp4`);
+console.log(`\nDone. See out/demo/${name}.mp4`);

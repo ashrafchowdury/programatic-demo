@@ -15,6 +15,20 @@ studio frame. The result is an MP4 you can regenerate every release.
 
 ---
 
+## Three things this makes
+
+| | **demo** | **reel** | **still** |
+| --- | --- | --- | --- |
+| What | one recorded flow, played through | a launch film cut from cards + demo footage | one region of the app, as an image |
+| You write | `flows/<name>.ts` | `reels/<name>.ts` | `shots/<name>.ts` |
+| You run | `pnpm record:live` → `convert` → `render` | `pnpm reel <name>` | `pnpm still <name>` |
+| You get | `out/demo/<name>.mp4` | `out/reel/<name>.mp4` | `out/still/<name>-<preset>.png` |
+
+A reel is cut **from** a demo, so render the demo first. A still stands alone —
+it drives the app itself and never touches the video pipeline. It is also the
+only one that can be 4K, for a reason worth knowing: see
+[Stills](#stills-one-part-of-the-app-at-4k).
+
 ## Why
 
 Screen recordings go stale. Someone re-records them by hand, the mouse wanders,
@@ -67,7 +81,7 @@ pnpm clip:smoke
 ```
 
 That records a local fixture, converts it, renders it, and writes
-`out/smoke.mp4`. If it works, record → convert → render all work.
+`out/demo/smoke.mp4`. If it works, record → convert → render all work.
 
 ```bash
 pnpm test     # camera / track unit tests
@@ -236,8 +250,8 @@ pnpm intro <name>    # render:intro -> stitch
 
 | Command | Writes |
 | --- | --- |
-| `pnpm render:intro <name>` | `out/<name>.intro.mp4` |
-| `pnpm stitch <name>` | `out/<name>.full.mp4` — the card + the demo |
+| `pnpm render:intro <name>` | `out/reel/<name>.intro.mp4` |
+| `pnpm stitch <name>` | `out/reel/<name>.full.mp4` — the card + the demo |
 | `pnpm intro <name>` | both of the above |
 
 Pacing comes from the word count, in
@@ -256,7 +270,7 @@ files and refuses rather than producing an mp4 that plays and then falls apart.
 **`pnpm analyze` works on a stitched or reel file too, now.** It used to be
 useless there — a title card was a long frozen run by design and tripped the
 dead-air thresholds. Cards no longer freeze, and the reel passes all six checks
-(0.7% frozen against a 15% ceiling). `out/<name>.mp4` is still never touched, so
+(0.7% frozen against a 15% ceiling). `out/demo/<name>.mp4` is still never touched, so
 analyze also keeps measuring the demo alone.
 
 ## Reels: cards cut with the demo
@@ -284,10 +298,10 @@ export default defineReel({
 
 ```bash
 pnpm render <name>   # the demo itself, once
-pnpm reel <name>     # -> out/<name>.reel.mp4
+pnpm reel <name>     # -> out/reel/<name>.mp4
 ```
 
-Clip ranges are **seconds of `out/<name>.mp4`** — the numbers you read off a
+Clip ranges are **seconds of `out/demo/<name>.mp4`** — the numbers you read off a
 scrubber. `toS` is exclusive, so `0 → 3.2` and `3.2 → 7.9` do not share a frame.
 Cut on still beats, not mid-glide: the camera holds through every interaction,
 and a cut during a pan reads as a mistake.
@@ -317,7 +331,7 @@ moving; opening on a static establish shot reads as a stuck decoder.
 
 **`drift: 1` on a clip** adds a slow push inside its long holds, so a multi-second
 typing beat is not perfectly inert. Off by default and never applied to
-`out/<name>.mp4`, so `pnpm render` and `pnpm analyze` are unaffected.
+`out/demo/<name>.mp4`, so `pnpm render` and `pnpm analyze` are unaffected.
 
 **A chip card** puts a live-looking control inside the sentence, sends the cursor
 to it, and punches the camera into it — the click becomes the cut. Write
@@ -420,7 +434,7 @@ quietly upscaled image.
  ffmpeg      ──►  public/<name>.mp4
         │
         ▼
- Remotion    ──►  out/<name>.mp4
+ Remotion    ──►  out/demo/<name>.mp4
    builds a camera track from the click log, composites it over a studio
    backdrop, draws the cursor as vector at output resolution
 ```

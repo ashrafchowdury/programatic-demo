@@ -32,6 +32,7 @@
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { outPathOf } from "./lib/out";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const WORK = path.join(ROOT, ".diag", "analyze");
@@ -403,7 +404,13 @@ function resolve(arg: string): string {
   if (arg.includes("/") || arg.endsWith(".mp4") || arg.endsWith(".webm")) {
     return path.resolve(ROOT, arg);
   }
-  return path.join(ROOT, "out", `${arg}.mp4`);
+  // A bare name is a demo unless only a reel of that name exists — the two
+  // share a name by design (a reel is cut FROM the demo it names).
+  const demo = outPathOf("demo", `${arg}.mp4`);
+  if (fs.existsSync(demo)) return demo;
+  const reel = outPathOf("reel", `${arg}.mp4`);
+  if (fs.existsSync(reel)) return reel;
+  return demo;
 }
 
 function main() {

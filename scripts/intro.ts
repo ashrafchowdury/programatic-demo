@@ -26,4 +26,4 @@ function step(script: string, name: string) {
 const name = process.argv[2] ?? "smoke";
 step("render-intro.ts", name);
 step("stitch.ts", name);
-console.log(`\nDone. See out/${name}.full.mp4`);
+console.log(`\nDone. See out/reel/${name}.full.mp4`);

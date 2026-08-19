@@ -19,6 +19,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import { introProblem, type IntroStoryboard } from "../src/lib/intro";
+import { outPath, outRel } from "./lib/out";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const REMOTION_BIN = path.join(ROOT, "node_modules", ".bin", "remotion");
@@ -96,8 +97,7 @@ async function main() {
         `recording, so record + convert ${name} first.`,
     );
 
-  const out = path.join(ROOT, "out", `${name}.intro.mp4`);
-  fs.mkdirSync(path.dirname(out), { recursive: true });
+  const out = outPath("reel", `${name}.intro.mp4`);
   const concurrency = resolveConcurrency(process.env.DEMO_CONCURRENCY);
   const gl = resolveGl(process.env.DEMO_GL);
   execFileSync(
@@ -114,7 +114,7 @@ async function main() {
     ],
     { stdio: "inherit" },
   );
-  console.log(`intro      -> ${path.relative(ROOT, out)}`);
+  console.log(`intro      -> ${outRel(out)}`);
 }
 
 main().catch((err) => {

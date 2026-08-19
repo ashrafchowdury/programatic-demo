@@ -4,23 +4,45 @@ Programmatic product demo videos. Playwright records a real app flow and logs
 every click; Remotion turns that log into a camera (zoom on click, easing,
 motion blur, vector cursor) over a studio backdrop.
 
-## Demos and reels
+## Three features. Work out which one you are in before you touch anything.
 
-Two deliverables, do not confuse them:
+This repo makes three different things. They share a look — the same backdrop,
+the same floating window — which makes them easy to confuse and expensive to
+confuse. Each has its own spec file, its own command, and its own output
+directory. If you cannot name which one you are in, stop and re-read this table.
 
-- A **demo** is one clip — a recorded flow with camera derived from the click
-  log, `out/<name>.mp4`. It shows a task end to end. **Read
-  `.agents/skills/shoot-demo-video/SKILL.md` before shooting one.**
-- A **reel** is a ~15s launch-film intro: authored title cards that narrate,
-  demo clips cut in as proof, a logo sign-off — `out/<name>.reel.mp4`. Cards are
-  authored motion (no recording); clips are frame ranges of a demo. **Read
-  `.agents/skills/intro-reel/SKILL.md` before making one.**
+| | **demo** | **reel** | **still** |
+| --- | --- | --- | --- |
+| What it is | one recorded flow, played through | a launch film cut from cards + demo footage | one region of the app, as an image |
+| Medium | video | video | PNG |
+| You author | `flows/<name>.ts` | `reels/<name>.ts` | `shots/<name>.ts` |
+| Command | `pnpm record:live <name>` → `pnpm convert` → `pnpm render` | `pnpm reel <name>` | `pnpm still <name>` |
+| Output | `out/demo/<name>.mp4` | `out/reel/<name>.mp4` | `out/still/<name>-<preset>.png` |
+| Read first | `.agents/skills/shoot-demo-video/SKILL.md` | `.agents/skills/intro-reel/SKILL.md` | `.agents/skills/shoot-still/SKILL.md` |
 
-A **still** is the third: one region of the app, captured as a 4K PNG and framed
-on the same backdrop, for sharing as an image — `out/shots/<name>-<preset>.png`.
+In one line each: a **demo** is footage; a **reel** is a film built from cards
+plus that footage; a **still** is a photograph of one part of the screen.
 
-In short: a demo is footage; a reel is a film built from cards + that footage; a
-still is a photograph of one part of the screen.
+Things that follow from this, and are not obvious:
+
+- **A reel depends on a demo.** `pnpm reel <name>` cuts frame ranges out of
+  `out/demo/<name>.mp4`, so the demo must be rendered first. A demo never
+  depends on a reel.
+- **A still depends on neither.** It drives the app itself and never touches
+  the video pipeline. Do not look for a click log; there isn't one.
+- **The name is shared on purpose.** `out/demo/agent-skill.mp4` and
+  `out/reel/agent-skill.mp4` are a demo and the film cut from it. The directory
+  is what tells them apart — never the filename.
+- **Only a still can be 4K.** Playwright's screencast emits CSS-viewport pixels
+  whatever `deviceScaleFactor` says; `page.screenshot()` reads the real
+  compositor surface. Do not try to raise video resolution this way — measured
+  three times, see `src/lib/click-log.ts`.
+- Title cards (`pnpm render:intro`, `pnpm stitch`) are the reel's raw material
+  and live in `out/reel/` with it.
+
+Output paths come from `outPath(feature, ...)` in `scripts/lib/out.ts`. Use it
+rather than joining `"out"` by hand — the `Feature` union is what stops a script
+writing into the wrong feature's territory.
 
 ## Commands
 
@@ -31,12 +53,13 @@ pnpm test            # unit tests (camera, zoom, selectors, batch)
 pnpm lint            # eslint + tsc --noEmit, covers src/ scripts/ flows/
 ```
 
-Demo pipeline: `pnpm record:live <name>` → `pnpm convert <name>` → `pnpm render <name>`.
+Demo: `pnpm record:live <name>` → `pnpm convert <name>` → `pnpm render <name>`.
+Reel: author `reels/<name>.ts` (cards + clip ranges), then `pnpm reel <name>`
+(cards render, demo clips are cut in, all concatenated).
 Still: author `shots/<name>.ts` (steps + the region to keep), then
 `pnpm still <name> [preset|--all]`. `pnpm shot <name> --probe` writes a
 coordinate grid to `.diag/shots/` for picking a rect by eye.
-Reel: author `reels/<name>.ts` (cards + clip ranges), then `pnpm reel <name>`
-(cards render, demo clips are cut in, all concatenated).
+
 Needs **system ffmpeg** (`brew install ffmpeg`); the bundled one lacks
 `signalstats` and the recorder silently mis-syncs without it.
 
@@ -44,16 +67,12 @@ Needs **system ffmpeg** (`brew install ffmpeg`); the bundled one lacks
 
 - **Never hardcode a start URL.** They embed private workspace/project/app ids.
   Read `process.env.DEMO_URL_<NAME>` and document the key in `.env.example`.
-- **Never commit pipeline output**: `out/`, `recordings/`, `public/*.mp4`,
-  `public/*.clicks.json`, `public/shots/`, `tours/*.json`.
+- **Never commit pipeline output**: `out/` (all three features), `recordings/`,
+  `public/*.mp4`, `public/*.clicks.json`, `public/shots/`, `tours/*.json`.
   `public/backdrop.jpg` is the one committed asset — a design file, not output.
 - **Demo flows are gitignored** except `smoke`, `google-search`,
   `skillsmp-search`. Same for `intros/`, `reels/` and `shots/`. The engine is
   public; account-specific demos are not.
-- **Video cannot be 4K; a still can.** Playwright's screencast emits CSS-viewport
-  pixels whatever `deviceScaleFactor` says, but `page.screenshot()` reads the
-  real compositor surface. Do not try to raise video resolution with
-  `deviceScaleFactor` — measured three times, see `src/lib/click-log.ts`.
 - **Other agents may be working here.** Do not commit, amend or revert work you
   did not create.
 
@@ -87,7 +106,7 @@ carries uncommitted work, so `HEAD` is not the baseline you think it is.
 | `intros/` | single title cards, JSON or TS (`pnpm intro`/`stitch`) |
 | `shots/` | one file per still (steps + the region to capture) |
 | `scripts/` | recorders, convert, render, analyze, reel, shoot-still |
-| `scripts/lib/` | cursor, flow DSL, selector ladder, session, batch |
+| `scripts/lib/` | cursor, flow DSL, selector ladder, session, batch, out paths |
 | `src/lib/` | click-log types, camera, zoom track, intro/reel types |
 | `src/DemoClip.tsx` | demo composition: backdrop, window, motion blur |
 | `src/Intro.tsx` | title-card composition: cards, chip, logo lockup |

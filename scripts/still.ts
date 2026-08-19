@@ -40,4 +40,4 @@ const rest = argv.filter((a) => a !== name);
 
 step("shoot-still.ts", [name]);
 step("render-still.ts", [name, ...rest]);
-console.log(`\nDone. See out/shots/${name}-*.png`);
+console.log(`\nDone. See out/still/${name}-*.png`);

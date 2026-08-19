@@ -7,11 +7,16 @@ metadata:
 
 # Shoot a demo video
 
+**This is one of three features. A demo is one recorded flow, played through. If
+you actually want** a cut launch film, that is a *reel*
+(`.agents/skills/intro-reel/SKILL.md`); a still image of part of the screen is a
+*still* (`.agents/skills/shoot-still/SKILL.md`). See the table in `AGENTS.md`.
+
 Three stages. A demo is a **flow file**; the camera work is derived from the
 click log, never authored by hand.
 
 ```
-flows/<name>.ts  →  record  →  convert  →  render  →  out/<name>.mp4
+flows/<name>.ts  →  record  →  convert  →  render  →  out/demo/<name>.mp4
 ```
 
 ## Prerequisites
@@ -44,7 +49,7 @@ cp -r /path/to/mounted/programatic-demo /tmp/demo
 cd /tmp/demo && rm -rf node_modules     # discard any tree built on the mount
 ```
 
-Copy `out/<name>.mp4` back to the mount when you are done. The mount is fine for
+Copy `out/demo/<name>.mp4` back to the mount when you are done. The mount is fine for
 storing files; it cannot be a runtime.
 
 ### 1. pnpm
@@ -156,7 +161,7 @@ video. Expect renders roughly 10x slower; that is the cost, not a fault.
 pnpm clip:smoke     # record -> convert -> render, offline, no login
 ```
 
-If that writes `out/smoke.mp4`, everything is wired. Fix it before touching a
+If that writes `out/demo/smoke.mp4`, everything is wired. Fix it before touching a
 real demo.
 
 ## Write the flow

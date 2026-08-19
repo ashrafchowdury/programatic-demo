@@ -21,6 +21,7 @@ import {
   STILL_PRESET_IDS,
   type StillPresetId,
 } from "../src/lib/still";
+import { outPath, outRel } from "./lib/out";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const REMOTION_BIN = path.join(ROOT, "node_modules", ".bin", "remotion");
@@ -29,8 +30,7 @@ const resolveGl = (raw?: string): string =>
   raw != null && raw !== "" ? raw : "angle";
 
 function renderOne(name: string, preset: StillPresetId): string {
-  const out = path.join(ROOT, "out", "shots", `${name}-${preset}.png`);
-  fs.mkdirSync(path.dirname(out), { recursive: true });
+  const out = outPath("still", `${name}-${preset}.png`);
   execFileSync(
     REMOTION_BIN,
     [
@@ -77,7 +77,7 @@ async function main() {
     : [resolvePreset(asked ?? process.env.DEMO_PRESET)];
 
   for (const preset of presets)
-    console.log(`still      -> ${path.relative(ROOT, renderOne(name, preset))}`);
+    console.log(`still      -> ${outRel(renderOne(name, preset))}`);
 }
 
 main().catch((err) => {
