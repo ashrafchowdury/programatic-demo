@@ -44,6 +44,13 @@ pnpm capture:session                                 # headed; a HUMAN logs in
 waits for someone to sign in. If a run reports "Not signed in", ask the user to
 run it — do not try to log in, and do not fall back to a browser tool.
 
+**Sessions are stored per host**, in `.sessions/<host>.json`. Shooting against a
+cloud instance and a local one needs one capture each; after that neither
+disturbs the other. Point `APP_BASE_URL` at the host you want and run
+`capture:session` again. (This used to be a single `storageState.json`, which
+silently dropped the other host's localStorage on every capture — see the
+comment on `sessionKey` in `scripts/lib/session.ts`.)
+
 ## Three features. Work out which one you are in before you touch anything.
 
 This repo makes three different things. They share a look — the same backdrop,

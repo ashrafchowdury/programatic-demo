@@ -19,8 +19,10 @@ you actually want** a cut launch film, that is a *reel*
 > into `steps:` and run the recorder. To *watch* a run, use `HEADED=1`.
 >
 > First time on this machine: `pnpm exec playwright install --with-deps chromium`.
-> For a logged-in app, a human must run `pnpm capture:session` once — you cannot,
-> and you must never type a credential into any field.
+> For a logged-in app, a human must run `pnpm capture:session` once PER HOST —
+> you cannot, and you must never type a credential into any field. Sessions live
+> in `.sessions/<host>.json`, so a cloud instance and a local one keep separate
+> logins and neither logs the other out.
 
 Three stages. A demo is a **flow file**; the camera work is derived from the
 click log, never authored by hand.

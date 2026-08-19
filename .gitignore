@@ -10,7 +10,10 @@ dist
 # Secrets — never commit
 .env
 .env.local
+# Stored logins. .sessions/ holds one snapshot per host; storageState.json
+# is the legacy single-file form it replaced.
 storageState.json
+.sessions
 .session-profile
 
 # --- Pipeline artifacts ----------------------------------------------------

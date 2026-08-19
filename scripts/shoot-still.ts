@@ -78,9 +78,10 @@ async function loadShot(name: string): Promise<ShotSpec> {
 async function openShotContext(
   viewport: { width: number; height: number },
   deviceScaleFactor: number,
+  baseUrl: string,
 ): Promise<{ context: BrowserContext; close: () => Promise<void> }> {
-  if (hasStoredSession())
-    return openContext("isolated", { viewport, deviceScaleFactor });
+  if (baseUrl && hasStoredSession(baseUrl))
+    return openContext("isolated", { viewport, deviceScaleFactor, baseUrl });
   const browser = await chromium.launch({ headless: resolveHeadless() });
   const context = await browser.newContext({ viewport, deviceScaleFactor });
   return { context, close: () => browser.close() };
@@ -180,7 +181,11 @@ async function runPass(
   probe: boolean,
 ): Promise<PassResult> {
   const startUrl = spec.startUrl ?? process.env.APP_BASE_URL;
-  const { context, close } = await openShotContext(spec.viewport, scale);
+  const { context, close } = await openShotContext(
+    spec.viewport,
+    scale,
+    startUrl ?? "",
+  );
   try {
     const page = context.pages()[0] ?? (await context.newPage());
     if (startUrl) await page.goto(startUrl, { waitUntil: "domcontentloaded" });

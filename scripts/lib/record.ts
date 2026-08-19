@@ -296,6 +296,7 @@ export async function recordFlow(
   const captureScale = resolveCaptureScale(process.env.CAPTURE_SCALE);
   const { context, close, physicalViewport } = await openContext(mode, {
     viewport: flow.viewport,
+    baseUrl: startUrl,
     recordVideo: check ? undefined : { dir: RECORDINGS, size: flow.viewport },
     captureScale,
   });

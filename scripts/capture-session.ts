@@ -12,11 +12,11 @@
 import "dotenv/config";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { stateFileFor } from "./lib/session";
 import { chromium } from "playwright";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const PROFILE = path.join(ROOT, ".session-profile");
-const STATE_FILE = path.join(ROOT, "storageState.json");
 const URL_FILE = path.join(PROFILE, "session-url.txt");
 const PLAYGROUND_URL_FILE = path.join(PROFILE, "playground-url.txt");
 
@@ -189,7 +189,13 @@ async function main() {
     throw new Error("Authenticated URL reached, but no cookies were stored.");
   }
 
-  await context.storageState({ path: STATE_FILE });
+  // Per host: a shared file loses the other host's localStorage, because
+  // storageState() records it only for origins this run visited. See sessionKey.
+  // indexedDB matches refreshSession — an app that keeps its token there would
+  // otherwise export as signed out.
+  const stateFile = stateFileFor(finalUrl);
+  fs.mkdirSync(path.dirname(stateFile), { recursive: true });
+  await context.storageState({ path: stateFile, indexedDB: true });
   fs.writeFileSync(URL_FILE, `${finalUrl}\n`);
   // Recorders still read the older filename.
   fs.writeFileSync(PLAYGROUND_URL_FILE, `${finalUrl}\n`);
@@ -197,7 +203,7 @@ async function main() {
   console.log(`\nAuthenticated URL: ${finalUrl}`);
   console.log(`Cookies saved:     ${cookies.length} total`);
   console.log(`Session-like:      ${cookieSummary(sessionCookies)}`);
-  console.log(`storageState  → ${path.relative(ROOT, STATE_FILE)}`);
+  console.log(`storageState  → ${path.relative(ROOT, stateFile)}`);
   console.log(`profile       → ${path.relative(ROOT, PROFILE)}/`);
   console.log(`session url   → ${path.relative(ROOT, URL_FILE)}`);
 

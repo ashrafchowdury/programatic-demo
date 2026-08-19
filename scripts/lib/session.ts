@@ -28,7 +28,35 @@ import type { Flow } from "./flow";
 
 const ROOT = path.resolve(import.meta.dirname, "..", "..");
 export const PROFILE = path.join(ROOT, ".session-profile");
-export const STATE_FILE = path.join(ROOT, "storageState.json");
+export const SESSIONS = path.join(ROOT, ".sessions");
+
+/**
+ * Stored sessions are keyed by HOST, and that is not a nicety.
+ *
+ * There used to be one storageState.json for everything. Cookies survived that
+ * — they accumulate in the persistent profile and `storageState()` exports them
+ * all — but localStorage did not: Playwright records localStorage only for
+ * origins the context actually VISITED during the run that exported it. Each
+ * `capture:session` visits one host, so every capture silently erased the other
+ * host's localStorage while leaving its cookies in place.
+ *
+ * Measured on a real file: cookies for eu.cloud.agenta.ai AND localhost, but
+ * `origins` containing http://localhost:3000 alone. An app that keeps its
+ * session in localStorage therefore reads as signed out on whichever host was
+ * not captured last — so shooting against cloud and local in turn meant logging
+ * in again every single switch.
+ *
+ * One file per host fixes it at the root. The profile stays shared: it holds
+ * both logins quite happily, and it is only the EXPORT that was lossy.
+ */
+export function sessionKey(url: string): string {
+  const { hostname, port } = new URL(url);
+  return `${hostname}${port ? `-${port}` : ""}`.replace(/[^a-z0-9.-]/gi, "-");
+}
+
+/** Where this host's portable session snapshot lives. */
+export const stateFileFor = (url: string): string =>
+  path.join(SESSIONS, `${sessionKey(url)}.json`);
 
 /** How long to wait for login + first paint before giving up. */
 export const READY_TIMEOUT_MS = 300_000;
@@ -47,6 +75,12 @@ export type ContextSpec = {
    * Default 1 (today's behaviour).
    */
   captureScale?: number;
+  /**
+   * The URL this context will drive. Required, because it selects which host's
+   * stored session to seed from — see sessionKey. Not optional on purpose: a
+   * default here would silently reintroduce the shared-session bug.
+   */
+  baseUrl: string;
   /**
    * Device pixels per CSS px. Defaults to DEVICE_SCALE_FACTOR.
    *
@@ -74,7 +108,8 @@ export type OpenContext = {
 };
 
 /** True once a state file exists to seed isolated contexts from. */
-export const hasStoredSession = (): boolean => fs.existsSync(STATE_FILE);
+export const hasStoredSession = (url: string): boolean =>
+  fs.existsSync(stateFileFor(url));
 
 /**
  * Headless unless explicitly asked otherwise.
@@ -132,9 +167,10 @@ export async function openContext(
     return { context, close: () => context.close(), physicalViewport };
   }
 
-  if (!hasStoredSession()) {
+  if (!hasStoredSession(spec.baseUrl)) {
     throw new Error(
-      `No ${path.relative(ROOT, STATE_FILE)} to seed an isolated context from.\n` +
+      `No ${path.relative(ROOT, stateFileFor(spec.baseUrl))} to seed an ` +
+        `isolated context from for ${new URL(spec.baseUrl).host}.\n` +
         `Run \`pnpm capture:session\` once, or record this flow on its own first.`,
     );
   }
@@ -144,7 +180,7 @@ export async function openContext(
   });
   const context = await browser.newContext({
     ...common,
-    storageState: STATE_FILE,
+    storageState: stateFileFor(spec.baseUrl),
   });
   await withScale(context);
   return { context, close: () => browser.close(), physicalViewport };
@@ -168,6 +204,7 @@ export async function refreshSession(flow: Flow): Promise<void> {
 
   const { context, close } = await openContext("profile", {
     viewport: flow.viewport,
+    baseUrl: startUrl,
   });
   try {
     const page = context.pages()[0] ?? (await context.newPage());
@@ -183,7 +220,11 @@ export async function refreshSession(flow: Flow): Promise<void> {
     // contexts read and write fine either way — but the omission is invisible
     // until an app happens to keep a token there, and asking for the complete
     // picture costs nothing.
-    await context.storageState({ path: STATE_FILE, indexedDB: true });
+    fs.mkdirSync(SESSIONS, { recursive: true });
+    await context.storageState({
+      path: stateFileFor(startUrl),
+      indexedDB: true,
+    });
   } finally {
     await close();
   }
