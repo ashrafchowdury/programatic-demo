@@ -10,11 +10,11 @@
  *        DEMO_TOUR=capture pnpm record <name>
  *        DEMO_TOUR=replay  pnpm record <name>
  */
-import { chromium } from "playwright";
+import "dotenv/config";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
-import "dotenv/config";
+import { chromium } from "playwright";
 import {
   CAMERA_LEAD_S,
   type CursorSample,
@@ -24,13 +24,13 @@ import {
   LEAD_FALLBACK_S,
   RECORD_SLOW_MO_MS,
 } from "../src/lib/click-log";
-import type { Flow, ClickEvent } from "./lib/flow";
 import {
-  resolveCaptureScale,
-  scaledViewport,
   captureScaleInitScript,
   OVERFLOW_PROBE,
+  resolveCaptureScale,
+  scaledViewport,
 } from "./lib/capture-scale";
+import type { ClickEvent, Flow } from "./lib/flow";
 import {
   buildContext,
   CURSOR_INIT_SCRIPT,
@@ -108,7 +108,7 @@ function dropBefore(cursor: CursorSample[], tMs: number): CursorSample[] {
 
 async function main() {
   const name = process.argv[2] ?? "smoke";
-  const baseURL = process.env.AGENTA_BASE_URL ?? "http://localhost:3000";
+  const baseURL = process.env.APP_BASE_URL ?? "http://localhost:3000";
   const tourMode = resolveTourMode(process.env.DEMO_TOUR);
 
   const flowPath = path.join(ROOT, "flows", `${name}.ts`);
@@ -118,8 +118,8 @@ async function main() {
     ? ((await import(pathToFileURL(flowPath).href)).default as Flow)
     : null;
   const replayTour = tourMode === "replay" ? readTour(ROOT, name) : null;
-  const shootViewport =
-    replayTour?.viewport ?? flow?.viewport ?? { width: 1920, height: 1080 };
+  const shootViewport = replayTour?.viewport ??
+    flow?.viewport ?? { width: 1920, height: 1080 };
   // HD capture: physically record larger than the logical layout (CAPTURE_SCALE),
   // never during tour capture. shootViewport stays the LOGICAL size the flow
   // authored against; captureViewport is the PHYSICAL size everything downstream
@@ -127,8 +127,7 @@ async function main() {
   const captureScale =
     tourMode === "capture" ? 1 : resolveCaptureScale(process.env.CAPTURE_SCALE);
   const captureViewport = scaledViewport(shootViewport, captureScale);
-  const viewport =
-    tourMode === "capture" ? CAPTURE_VIEWPORT : captureViewport;
+  const viewport = tourMode === "capture" ? CAPTURE_VIEWPORT : captureViewport;
 
   fs.mkdirSync(RECORDINGS, { recursive: true });
   fs.mkdirSync(PUBLIC, { recursive: true });
@@ -148,7 +147,9 @@ async function main() {
   const context = await browser.newContext({
     viewport,
     deviceScaleFactor:
-      tourMode === "capture" ? CAPTURE_DEVICE_SCALE_FACTOR : DEVICE_SCALE_FACTOR,
+      tourMode === "capture"
+        ? CAPTURE_DEVICE_SCALE_FACTOR
+        : DEVICE_SCALE_FACTOR,
     recordVideo:
       tourMode === "capture"
         ? undefined
@@ -175,9 +176,8 @@ async function main() {
   if (tourMode === "capture") {
     const smokeFixture =
       name === "smoke"
-        ? pathToFileURL(
-            path.join(ROOT, "scripts", "fixtures", "smoke.html"),
-          ).href
+        ? pathToFileURL(path.join(ROOT, "scripts", "fixtures", "smoke.html"))
+            .href
         : null;
     const start = process.env.DEMO_TOUR_URL || smokeFixture || baseURL;
     await page.goto(start, { waitUntil: "domcontentloaded" });

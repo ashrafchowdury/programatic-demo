@@ -16,15 +16,15 @@
  * profile is the thing a login actually updates, so the export drifts behind it
  * the moment a session is renewed.
  */
-import { chromium, type Browser, type BrowserContext } from "playwright";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { chromium, type Browser, type BrowserContext } from "playwright";
 import {
   DEVICE_SCALE_FACTOR,
   RECORD_SLOW_MO_MS,
 } from "../../src/lib/click-log";
+import { captureScaleInitScript, scaledViewport } from "./capture-scale";
 import type { Flow } from "./flow";
-import { scaledViewport, captureScaleInitScript } from "./capture-scale";
 
 const ROOT = path.resolve(import.meta.dirname, "..", "..");
 export const PROFILE = path.join(ROOT, ".session-profile");
@@ -87,7 +87,8 @@ export async function openContext(
   spec: ContextSpec,
 ): Promise<OpenContext> {
   const headless = spec.headless ?? resolveHeadless();
-  const scale = spec.captureScale && spec.captureScale > 1 ? spec.captureScale : 1;
+  const scale =
+    spec.captureScale && spec.captureScale > 1 ? spec.captureScale : 1;
   // The browser viewport and the recording are both PHYSICAL; the flow's own
   // size is logical. At scale 1 these are equal, so nothing changes.
   const physicalViewport = scaledViewport(spec.viewport, scale);
@@ -145,11 +146,11 @@ export async function openContext(
  * output. `flow` only supplies a URL and a readiness predicate to check against.
  */
 export async function refreshSession(flow: Flow): Promise<void> {
-  const startUrl = flow.startUrl ?? process.env.AGENTA_BASE_URL;
+  const startUrl = flow.startUrl ?? process.env.APP_BASE_URL;
   if (!startUrl)
     throw new Error(
       `Cannot refresh the session: flow "${flow.name}" has no startUrl and ` +
-        `AGENTA_BASE_URL is not set.`,
+        `APP_BASE_URL is not set.`,
     );
 
   const { context, close } = await openContext("profile", {

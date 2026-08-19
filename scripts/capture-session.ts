@@ -9,10 +9,10 @@
  *
  * Usage: pnpm capture:session
  */
-import { chromium } from "playwright";
+import "dotenv/config";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import "dotenv/config";
+import { chromium } from "playwright";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const PROFILE = path.join(ROOT, ".session-profile");
@@ -71,7 +71,11 @@ function isLoginUrl(raw: string): boolean {
 function isAppHost(raw: string): boolean {
   try {
     const host = new URL(raw).hostname.toLowerCase();
-    return host.endsWith("agenta.ai") || host === "localhost" || host.endsWith(".localhost");
+    return (
+      host.endsWith("agenta.ai") ||
+      host === "localhost" ||
+      host.endsWith(".localhost")
+    );
   } catch {
     return false;
   }
@@ -101,7 +105,7 @@ function cookieSummary(
 }
 
 async function main() {
-  const baseURL = process.env.AGENTA_BASE_URL || DEFAULT_URL;
+  const baseURL = process.env.APP_BASE_URL || DEFAULT_URL;
   fs.mkdirSync(PROFILE, { recursive: true });
 
   const context = await chromium.launchPersistentContext(PROFILE, {
@@ -113,7 +117,9 @@ async function main() {
 
   const page = context.pages()[0] ?? (await context.newPage());
   console.log(`\nOpened ${baseURL}`);
-  console.log("Complete login in the browser window (and skip onboarding if it appears).");
+  console.log(
+    "Complete login in the browser window (and skip onboarding if it appears).",
+  );
   console.log(`Waiting up to ${WAIT_MS / 60000} minutes…\n`);
 
   await page.goto(baseURL, { waitUntil: "domcontentloaded" });
@@ -156,9 +162,8 @@ async function main() {
   }
 
   const cookies = await context.cookies();
-  const sessionCookies = cookies.filter(
-    (c) =>
-      /agenta|clerk|auth|session|token|jwt/i.test(`${c.name} ${c.domain}`),
+  const sessionCookies = cookies.filter((c) =>
+    /agenta|clerk|auth|session|token|jwt/i.test(`${c.name} ${c.domain}`),
   );
   if (sessionCookies.length === 0 && cookies.length === 0) {
     await context.close();

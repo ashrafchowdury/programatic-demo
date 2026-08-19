@@ -29,7 +29,7 @@ calibrated so real Screen Studio clips pass. Needs a system ffmpeg.
 cd programatic-demo
 pnpm install
 pnpm exec playwright install chromium
-cp .env.example .env   # AGENTA_BASE_URL only for Agenta live demos
+cp .env.example .env   # APP_BASE_URL only for Agenta live demos
 ```
 
 ## Reference rhythm (do this for every flow)
@@ -84,7 +84,7 @@ Prefer **flow-local** tighter pacing (`const P = { ... }`) for ad-length clips (
 11. **Always end at base scale.** All four reference clips do, without exception.
     `END_TAIL_S` (2.5s) exists to leave room for the closing trail plus a beat at
     base — if you shorten it, the camera cannot get home and will cut zoomed in.
-12. Camera durations are authored in *output* time and scaled by `speed` inside
+12. Camera durations are authored in _output_ time and scaled by `speed` inside
     the track builder. Do not hand-compensate for `DEMO_SPEED`.
 13. A flow that MUTATES app state needs a `prepare` hook to undo the last take.
     It runs before the recording clock starts, so the reset is trimmed away.
@@ -244,23 +244,23 @@ Rules that are load-bearing:
 
 ## Tuning knobs
 
-| Area                      | File                                                     |
-| ------------------------- | -------------------------------------------------------- |
-| Easing / pose / duration  | `src/lib/camera.ts`                                      |
-| Track / framing / sticky  | `src/lib/zoom.ts`                                        |
-| LEAD / HOLD / DSF / speed | `src/lib/click-log.ts` (`DEMO_SPEED=1.25\|1.5\|2`)       |
-| Self-tour capture/replay  | `scripts/lib/tour.ts` (`DEMO_TOUR=capture\|replay`)      |
-| Light studio frame + blur | `src/DemoClip.tsx`                                       |
-| Cursor drawing / ripple   | `src/Cursor.tsx`, `src/lib/cursor.ts`                    |
-| Cursor glide / overshoot  | `scripts/lib/recorder.ts`                                |
-| Output forensics          | `scripts/analyze.ts` (`pnpm analyze <name>`)             |
+| Area                      | File                                                        |
+| ------------------------- | ----------------------------------------------------------- |
+| Easing / pose / duration  | `src/lib/camera.ts`                                         |
+| Track / framing / sticky  | `src/lib/zoom.ts`                                           |
+| LEAD / HOLD / DSF / speed | `src/lib/click-log.ts` (`DEMO_SPEED=1.25\|1.5\|2`)          |
+| Self-tour capture/replay  | `scripts/lib/tour.ts` (`DEMO_TOUR=capture\|replay`)         |
+| Light studio frame + blur | `src/DemoClip.tsx`                                          |
+| Cursor drawing / ripple   | `src/Cursor.tsx`, `src/lib/cursor.ts`                       |
+| Cursor glide / overshoot  | `scripts/lib/recorder.ts`                                   |
+| Output forensics          | `scripts/analyze.ts` (`pnpm analyze <name>`)                |
 | Live authed recording     | `scripts/record-live.ts` (`startUrl` / `ready` / `prepare`) |
-| Intro copy                | `intros/<name>.ts` (`defineIntro`)                       |
-| Intro timing / stagger    | `src/lib/intro.ts`                                       |
-| Intro look                | `src/Intro.tsx`                                          |
-| Reel structure / cuts     | `reels/<name>.ts` (`defineReel`)                         |
-| Pace                      | `pause()` / `BEAT` in the flow                           |
-| Drift                     | `offsetMs` in `public/<name>.clicks.json` then re-render |
+| Intro copy                | `intros/<name>.ts` (`defineIntro`)                          |
+| Intro timing / stagger    | `src/lib/intro.ts`                                          |
+| Intro look                | `src/Intro.tsx`                                             |
+| Reel structure / cuts     | `reels/<name>.ts` (`defineReel`)                            |
+| Pace                      | `pause()` / `BEAT` in the flow                              |
+| Drift                     | `offsetMs` in `public/<name>.clicks.json` then re-render    |
 
 ## Notes
 

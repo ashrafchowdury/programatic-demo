@@ -15,11 +15,10 @@
  *   pnpm record:batch a b c --concurrency 2
  *   pnpm record:batch a b --check      # selectors only, no video
  */
+import "dotenv/config";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import "dotenv/config";
-import { parseConcurrency, planLanes, laneOf } from "./lib/batch";
-import { runPool } from "./lib/batch";
+import { laneOf, parseConcurrency, planLanes, runPool } from "./lib/batch";
 import type { Flow } from "./lib/flow";
 import { loadFlow, recordFlow, type RecordResult } from "./lib/record";
 import { refreshSession } from "./lib/session";
@@ -60,9 +59,7 @@ async function main() {
   const flows: Flow[] = [];
   for (const n of names) flows.push(await loadFlow(n));
 
-  const missing = flows.filter(
-    (f) => !f.startUrl && !process.env.AGENTA_BASE_URL,
-  );
+  const missing = flows.filter((f) => !f.startUrl && !process.env.APP_BASE_URL);
   if (missing.length) {
     throw new Error(
       `These flows have no startUrl, so a batch cannot drive them: ` +

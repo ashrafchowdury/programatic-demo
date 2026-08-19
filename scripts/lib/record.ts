@@ -7,7 +7,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Page } from "playwright";
-import { type CursorSample, END_TAIL_S } from "../../src/lib/click-log";
+import { END_TAIL_S, type CursorSample } from "../../src/lib/click-log";
+import { OVERFLOW_PROBE, resolveCaptureScale } from "./capture-scale";
 import type { ClickEvent, Flow } from "./flow";
 import { buildContext, CURSOR_INIT_SCRIPT, useBakedCursor } from "./recorder";
 import { SelectorError } from "./selectors";
@@ -17,7 +18,6 @@ import {
   waitForReady,
   type SessionMode,
 } from "./session";
-import { resolveCaptureScale, OVERFLOW_PROBE } from "./capture-scale";
 
 const ROOT = path.resolve(import.meta.dirname, "..", "..");
 const RECORDINGS = path.join(ROOT, "recordings");
@@ -284,10 +284,10 @@ export async function recordFlow(
   const say = (m: string) => console.log(prefix + m);
   const warn = (m: string) => console.warn(prefix + m);
 
-  const startUrl = flow.startUrl ?? process.env.AGENTA_BASE_URL;
+  const startUrl = flow.startUrl ?? process.env.APP_BASE_URL;
   if (!startUrl)
     throw new Error(
-      `flows/${name}.ts has no startUrl and AGENTA_BASE_URL is not set.`,
+      `flows/${name}.ts has no startUrl and APP_BASE_URL is not set.`,
     );
 
   for (const d of [RECORDINGS, PUBLIC, DIAG])
