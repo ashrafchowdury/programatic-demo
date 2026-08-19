@@ -179,6 +179,156 @@ beat reads as dead air. Hoist those with `{ hoist: name }` during a beat where
 something else is already moving. Doing it after a typing beat once turned a
 0.7 s breath into a 1.9 s hole.
 
+## Intro title card
+
+An optional card that plays before a demo: wordmark, headline assembling word by
+word, then a still hold. It is rendered as its own composition and concatenated
+onto the demo, so nothing about the demo render changes.
+
+Write the copy — that is the whole storyboard, there is no animation to author.
+Author it as **JSON** (no code) or **TS** (`intros/<name>.json` is loaded before
+`intros/<name>.ts`):
+
+```json
+// intros/agent-skill.json  — name must match the demo
+{
+  "name": "agent-skill",
+  "headline": "Give your agent a *new skill*",
+  "subhead": "In under a minute.",
+  "wordmark": "Agenta"
+}
+```
+
+```ts
+// intros/<name>.ts — same fields, if you prefer code
+import { defineIntro } from "../src/lib/intro";
+
+export default defineIntro({
+  name: "agent-skill",              // must match the demo name
+  headline: "Give your agent a *new skill*",
+  subhead: "In under a minute.",    // optional
+  wordmark: "Agenta",               // optional
+});
+```
+
+**Emphasis is per-word and lives inside the headline string** — headlines are
+normal weight by default, and any word can opt into a style with inline markup,
+no code change:
+
+| Markup | Effect |
+| --- | --- |
+| `*word*` | **bold** |
+| `_word_` | _italic_ |
+| `==word==` | highlight in the palette colour |
+| `==word\|#ffd54a==` | highlight in a custom colour (ink auto-contrasts) |
+| `{chip}` | the live control (chip cards) — styling composes around it |
+
+A marked run may span words (`*two words*`); each word still appears on its own
+beat. `introProblem` validates the markup (a malformed `#hex`, a chip line too
+long once the markup is stripped) before a frame renders.
+
+Then, after the demo itself has been rendered:
+
+```bash
+pnpm clip <name>     # record -> convert -> render   (unchanged)
+pnpm intro <name>    # render:intro -> stitch
+```
+
+| Command | Writes |
+| --- | --- |
+| `pnpm render:intro <name>` | `out/<name>.intro.mp4` |
+| `pnpm stitch <name>` | `out/<name>.full.mp4` — the card + the demo |
+| `pnpm intro <name>` | both of the above |
+
+Pacing comes from the word count, in
+[`src/lib/intro.ts`](src/lib/intro.ts): words start 90 ms apart and overlap, so
+a headline assembles as one phrase. Keep headlines to 4–7 words. Unlike the demo
+body, the card does **not** speed up under `DEMO_SPEED` — the footage is a
+recording being replayed faster, the card is authored motion, and copy at 2x is
+copy nobody reads.
+
+The card uses the same `public/backdrop.jpg` the demo floats its window on, so
+the cut lands on an unchanged frame: the text leaves, the window arrives. That
+is also why the two halves must agree on geometry exactly —
+[`pnpm stitch`](scripts/stitch.ts) joins them with `-c copy`, and it probes both
+files and refuses rather than producing an mp4 that plays and then falls apart.
+
+**`pnpm analyze` works on a stitched or reel file too, now.** It used to be
+useless there — a title card was a long frozen run by design and tripped the
+dead-air thresholds. Cards no longer freeze, and the reel passes all six checks
+(0.7% frozen against a 15% ceiling). `out/<name>.mp4` is still never touched, so
+analyze also keeps measuring the demo alone.
+
+## Reels: cards cut with the demo
+
+A reel is the narrative cut — title cards interleaved with ranges of an
+already-rendered demo, in the style of a product launch film. The cards narrate,
+the clips prove.
+
+```ts
+// reels/<name>.ts
+import { defineReel } from "../src/lib/reel";
+
+export default defineReel({
+  name: "agent-skill",
+  segments: [
+    { card: { name: "agent-skill", headline: "Introducing Skills",
+              wordmark: "Agenta", background: "plain" } },
+    { clip: { fromS: 0, toS: 3.2, label: "open the drawer" } },
+    { card: { name: "agent-skill", headline: "Name it. Say when to use it.",
+              background: "plain", holdS: 0.5 } },
+    { clip: { fromS: 3.2, toS: 7.9, label: "name and describe" } },
+  ],
+});
+```
+
+```bash
+pnpm render <name>   # the demo itself, once
+pnpm reel <name>     # -> out/<name>.reel.mp4
+```
+
+Clip ranges are **seconds of `out/<name>.mp4`** — the numbers you read off a
+scrubber. `toS` is exclusive, so `0 → 3.2` and `3.2 → 7.9` do not share a frame.
+Cut on still beats, not mid-glide: the camera holds through every interaction,
+and a cut during a pan reads as a mistake.
+
+Clips are re-rendered from the `DemoClip` composition with `--frames` rather
+than cut out of the mp4, so the footage never picks up a second h264 generation.
+That would make every iteration cost a full render, so each segment is cached
+under `.diag/reel/<name>/` keyed by a hash of its own spec — change one card's
+copy and only that card re-renders.
+
+**Match the card's ground to the product.** `background` takes `"light"` (flat
+near-white), `"plain"` (flat near-black) or `"plate"` (the default —
+`public/backdrop.jpg`, the same image the demo floats its window on, so a card at
+the very start or end joins the footage on an unchanged frame).
+
+Pick it by measuring, not by taste. Agenta is a light-theme app whose footage
+averages Y 181; against near-black cards every cut was a ~157-level slam, where
+the reference ad we benchmark against averages 63. Switching to `"light"` put
+every cut at 42. For a dark-theme product the answer inverts.
+
+**A cold open** is a short clip in first position followed immediately by a card
+— a few frames of product before anything is claimed about it. That shape is
+recognised, so it is exempt from the rule that clip ranges move forward, and it
+can replay footage a later clip covers. Pick a range where something is already
+moving; opening on a static establish shot reads as a stuck decoder.
+
+**`drift: 1` on a clip** adds a slow push inside its long holds, so a multi-second
+typing beat is not perfectly inert. Off by default and never applied to
+`out/<name>.mp4`, so `pnpm render` and `pnpm analyze` are unaffected.
+
+**A chip card** puts a live-looking control inside the sentence, sends the cursor
+to it, and punches the camera into it — the click becomes the cut. Write
+`headline: "Hit {chip}. It's live."` with `chip: { label: "Create" }`. The
+sentence must fit one line; the chip is centred by a `1fr auto 1fr` grid so the
+camera never has to measure where it landed.
+
+Writing the copy: one short line per card, 4–7 words, saying what the next clip
+is about to show. Pacing is derived from the word count — there is nothing to
+time by hand. Give interstitials a short `holdS` (~0.5s); the 1.2s default is a
+title-card hold and reads as a stall mid-film.
+
 ## How it works
 
 ```
@@ -256,6 +406,11 @@ the constant it controls, not here:
 | `src/lib/camera.ts` | Pose interpolator + distance-aware durations |
 | `src/lib/zoom.ts` | Keyframe track + region framing |
 | `src/DemoClip.tsx` | Studio frame, backdrop, shuttered motion blur |
+| `src/Intro.tsx` | Title-card composition (no motion blur) |
+| `src/lib/intro.ts` | Storyboard type + card timing |
+| `intros/` | One title card per demo (`defineIntro`) — only the example is committed |
+| `reels/` | Narrative cuts: cards + clip ranges (`defineReel`) |
+| `src/lib/reel.ts` | Reel segment types + clip-range arithmetic |
 | `public/backdrop.jpg` | The studio backdrop (a committed design asset) |
 | `.agents/skills/` | Agent-readable pipeline docs |
 
@@ -265,7 +420,9 @@ Demo flows written against a private workspace are ignored too — they hardcode
 one account's URLs, agent names and data-specific selectors, so they would not
 run for anyone else. The engine is the open-source part; your demos stay yours.
 `flows/smoke.ts`, `flows/google-search.ts` and `flows/skillsmp-search.ts` are
-committed because they are deliberately generic.
+committed because they are deliberately generic. `intros/` follows the same
+rule for the same reason — a title card names that account's product — with
+`intros/smoke.ts` committed as the worked example.
 
 ## Reference
 

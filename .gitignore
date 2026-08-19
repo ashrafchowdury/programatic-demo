@@ -49,3 +49,12 @@ flows/*
 
 # Kept on purpose: public/backdrop.jpg is a design asset, not pipeline output.
 !public/backdrop.jpg
+
+# Intro copy is per-demo the same way flows are: it names that account's
+# product and features. Same carve-out — the worked example is committed.
+intros/*
+!intros/smoke.ts
+
+# Reel storyboards name a specific demo's product surface, same as flows/ and
+# intros/. Nothing generic to commit yet.
+reels/*

@@ -53,6 +53,14 @@ export type DemoClipProps = {
   chrome?: boolean;
   /** Composition vs shoot. 1 = realtime; 1.25 / 1.5 / 2 = faster. */
   speed?: number;
+  /**
+   * Slow push inside long holds, 0..1. Off unless a reel storyboard asks.
+   *
+   * scripts/render.ts does not pass it, so out/<name>.mp4 is unaffected — see
+   * driftPose in src/lib/zoom.ts, which returns its argument by reference when
+   * this is unset.
+   */
+  drift?: number;
 };
 
 /**
@@ -161,7 +169,7 @@ const RimLight: React.FC = () => {
  * an <Img> has decoded, so it cannot render a frame with the backdrop missing.
  * A CSS background is invisible to that handshake and flickers on cold workers.
  */
-const Backdrop: React.FC = () => (
+export const Backdrop: React.FC = () => (
   <AbsoluteFill>
     <Img
       src={staticFile(BACKDROP_FILE)}
@@ -179,7 +187,20 @@ const Backdrop: React.FC = () => (
  * CameraMotionBlur re-renders its subtree at offset frames, and only a
  * useCurrentFrame() call *inside* that subtree sees the offset.
  */
-function useCameraGroup(chrome: boolean, log: ClickLog, speed: number) {
+/**
+ * `drift` is read HERE and nowhere else, on purpose. ShadowGroup and WindowGroup
+ * both go through this hook, so they cannot disagree about the camera. If one
+ * group read the prop and the other did not, the shadow would separate from the
+ * window by up to a few percent of scale during a long hold — a halo that only
+ * appears on drifting clips, so a smoke test would never catch it. The parameter
+ * is required rather than defaulted so tsc forces both call sites to change.
+ */
+function useCameraGroup(
+  chrome: boolean,
+  log: ClickLog,
+  speed: number,
+  drift: number | undefined,
+) {
   const frame = useCurrentFrame();
   const { fps, height } = useVideoConfig();
   const chromeH = CHROME_H * useDesignScale();
@@ -188,7 +209,12 @@ function useCameraGroup(chrome: boolean, log: ClickLog, speed: number) {
   // footage keeps its aspect, so the denominator has to include the chrome.
   // Scale cancels here (both terms scale together), which is the point.
   const chromeFrac = chrome ? chromeH / (height + chromeH) : 0;
-  const z = zoomAt(frame, fps, log, { chromeFrac, speed, fit: WINDOW_FIT });
+  const z = zoomAt(frame, fps, log, {
+    chromeFrac,
+    speed,
+    fit: WINDOW_FIT,
+    drift,
+  });
 
   const style: React.CSSProperties = {
     width: "100%",
@@ -228,8 +254,9 @@ const ShadowGroup: React.FC<DemoClipProps> = ({
   log,
   chrome = false,
   speed = 1,
+  drift,
 }) => {
-  const { style } = useCameraGroup(chrome, log, speed);
+  const { style } = useCameraGroup(chrome, log, speed, drift);
   return (
     <Stage>
       <div style={style}>
@@ -249,8 +276,9 @@ const WindowGroup: React.FC<DemoClipProps> = ({
   log,
   chrome = false,
   speed = 1,
+  drift,
 }) => {
-  const { z, frame, fps, style } = useCameraGroup(chrome, log, speed);
+  const { z, frame, fps, style } = useCameraGroup(chrome, log, speed, drift);
   const k = useDesignScale();
   const trimBefore = log.trimBeforeMs
     ? round((log.trimBeforeMs / 1000) * fps)

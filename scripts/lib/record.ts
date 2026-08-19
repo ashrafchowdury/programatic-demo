@@ -17,6 +17,7 @@ import {
   waitForReady,
   type SessionMode,
 } from "./session";
+import { resolveCaptureScale, OVERFLOW_PROBE } from "./capture-scale";
 
 const ROOT = path.resolve(import.meta.dirname, "..", "..");
 const RECORDINGS = path.join(ROOT, "recordings");
@@ -292,10 +293,17 @@ export async function recordFlow(
   for (const d of [RECORDINGS, PUBLIC, DIAG])
     fs.mkdirSync(d, { recursive: true });
 
-  const { context, close } = await openContext(mode, {
+  const captureScale = resolveCaptureScale(process.env.CAPTURE_SCALE);
+  const { context, close, physicalViewport } = await openContext(mode, {
     viewport: flow.viewport,
     recordVideo: check ? undefined : { dir: RECORDINGS, size: flow.viewport },
+    captureScale,
   });
+  if (captureScale > 1)
+    console.log(
+      `capture    -> ${physicalViewport.width}x${physicalViewport.height} ` +
+        `(logical ${flow.viewport.width}x${flow.viewport.height} @ zoom ${captureScale})`,
+    );
   const recStart = Date.now();
   if (useBakedCursor())
     await context.addInitScript({ content: CURSOR_INIT_SCRIPT });
@@ -357,6 +365,19 @@ export async function recordFlow(
   let error: string | undefined;
   try {
     await flow.run(ctx);
+    if (captureScale > 1) {
+      const o = (await page.evaluate(OVERFLOW_PROBE)) as {
+        vOverflow: number;
+        hOverflow: number;
+      };
+      const bad = o.vOverflow > 1.02 || o.hOverflow > 1.02;
+      say(
+        `overflow   -> v=${o.vOverflow} h=${o.hOverflow}` +
+          (bad
+            ? `  ⚠ app overflows under zoom (vh/vw layout) — HD capture will clip it`
+            : `  ✓ layout fits`),
+      );
+    }
     await page.waitForTimeout(check ? 200 : END_TAIL_S * 1000);
   } catch (err) {
     ok = false;
@@ -412,7 +433,8 @@ export async function recordFlow(
   }
   const log = {
     name,
-    viewport: flow.viewport,
+    // PHYSICAL size (logical × captureScale) so the log matches the video.
+    viewport: physicalViewport,
     durationMs,
     trimBeforeMs,
     offsetMs: 0,

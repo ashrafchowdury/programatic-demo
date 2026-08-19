@@ -18,6 +18,40 @@ import {
   type ElementSnapshot,
 } from "./tour";
 
+/**
+ * Chromium is a genuine dependency of the two `captureTour` tests below, and it
+ * is not always present. A slim container has the Playwright package but not the
+ * system libraries it links against (libglib-2.0, libnss3, libdbus-1), and
+ * installing those needs root — so the browser downloads fine and then refuses
+ * to start. That is an environment gap, not a regression in this code, and it
+ * should not turn the whole suite red.
+ *
+ * Memoised, so the probe launch happens at most once per run. It cannot be a
+ * top-level await: tsx compiles these tests to CJS, where that is a syntax
+ * error.
+ *
+ * REQUIRE_BROWSER=1 turns the skip back into a failure. Use it anywhere a
+ * browser is supposed to exist — a skip that hides a real breakage is worse
+ * than the red build it replaced.
+ */
+let browserProbe: Promise<string | false> | null = null;
+
+function browserSkipReason(): Promise<string | false> {
+  browserProbe ??= (async () => {
+    if (process.env.REQUIRE_BROWSER === "1") return false;
+    try {
+      const browser = await chromium.launch({ headless: true });
+      await browser.close();
+      return false;
+    } catch (err) {
+      const first =
+        err instanceof Error ? err.message.split("\n")[0] : String(err);
+      return `no usable Chromium: ${first}`;
+    }
+  })();
+  return browserProbe;
+}
+
 const snap = (partial: Partial<ElementSnapshot>): ElementSnapshot => ({
   tag: "div",
   role: "",
@@ -219,7 +253,9 @@ describe("applyCaptureEvent", () => {
 });
 
 describe("captureTour", () => {
-  it("records ranked hints for clicks on the smoke fixture", async () => {
+  it("records ranked hints for clicks on the smoke fixture", async (t) => {
+    const skip = await browserSkipReason();
+    if (skip) return t.skip(skip);
     const fixture = pathToFileURL(
       path.resolve(import.meta.dirname, "../fixtures/smoke.html"),
     ).href;
@@ -264,7 +300,9 @@ describe("captureTour", () => {
     }
   });
 
-  it("captures a picker row that unmounts on pointerdown (no click)", async () => {
+  it("captures a picker row that unmounts on pointerdown (no click)", async (t) => {
+    const skip = await browserSkipReason();
+    if (skip) return t.skip(skip);
     const fixture = pathToFileURL(
       path.resolve(import.meta.dirname, "../fixtures/picker-pointerdown.html"),
     ).href;

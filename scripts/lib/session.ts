@@ -24,6 +24,7 @@ import {
   RECORD_SLOW_MO_MS,
 } from "../../src/lib/click-log";
 import type { Flow } from "./flow";
+import { scaledViewport, captureScaleInitScript } from "./capture-scale";
 
 const ROOT = path.resolve(import.meta.dirname, "..", "..");
 export const PROFILE = path.join(ROOT, ".session-profile");
@@ -35,16 +36,28 @@ export const READY_TIMEOUT_MS = 300_000;
 export type SessionMode = "profile" | "isolated";
 
 export type ContextSpec = {
+  /** LOGICAL viewport the flow authored against. Enlarged when captureScale > 1. */
   viewport: { width: number; height: number };
-  /** Omit for a check run — no video is written. */
+  /** Omit for a check run — no video is written. `size` is the LOGICAL size. */
   recordVideo?: { dir: string; size: { width: number; height: number } };
   headless?: boolean;
+  /**
+   * HD capture: record at this multiple of the logical viewport, with a matching
+   * root zoom, so elements rasterise with more pixels. See capture-scale.ts.
+   * Default 1 (today's behaviour).
+   */
+  captureScale?: number;
 };
 
 export type OpenContext = {
   context: BrowserContext;
   /** Closes the context AND its browser, when it owns one. */
   close: () => Promise<void>;
+  /**
+   * The PHYSICAL viewport the context actually records at (logical × captureScale).
+   * Callers write this into log.viewport so the click log matches the video.
+   */
+  physicalViewport: { width: number; height: number };
 };
 
 /** True once a state file exists to seed isolated contexts from. */
@@ -74,10 +87,25 @@ export async function openContext(
   spec: ContextSpec,
 ): Promise<OpenContext> {
   const headless = spec.headless ?? resolveHeadless();
+  const scale = spec.captureScale && spec.captureScale > 1 ? spec.captureScale : 1;
+  // The browser viewport and the recording are both PHYSICAL; the flow's own
+  // size is logical. At scale 1 these are equal, so nothing changes.
+  const physicalViewport = scaledViewport(spec.viewport, scale);
   const common = {
-    viewport: spec.viewport,
+    viewport: physicalViewport,
     deviceScaleFactor: DEVICE_SCALE_FACTOR,
-    recordVideo: spec.recordVideo,
+    recordVideo: spec.recordVideo
+      ? { dir: spec.recordVideo.dir, size: physicalViewport }
+      : undefined,
+  };
+
+  // Add the zoom+shim before any page script runs. Injected here (not by the
+  // caller) so every recorder path — profile and isolated — gets it identically.
+  const withScale = async (context: BrowserContext): Promise<void> => {
+    if (scale > 1)
+      await context.addInitScript({
+        content: captureScaleInitScript(scale, spec.viewport),
+      });
   };
 
   if (mode === "profile") {
@@ -86,7 +114,8 @@ export async function openContext(
       slowMo: RECORD_SLOW_MO_MS,
       ...common,
     });
-    return { context, close: () => context.close() };
+    await withScale(context);
+    return { context, close: () => context.close(), physicalViewport };
   }
 
   if (!hasStoredSession()) {
@@ -103,7 +132,8 @@ export async function openContext(
     ...common,
     storageState: STATE_FILE,
   });
-  return { context, close: () => browser.close() };
+  await withScale(context);
+  return { context, close: () => browser.close(), physicalViewport };
 }
 
 /**

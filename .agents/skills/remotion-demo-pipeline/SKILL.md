@@ -118,6 +118,12 @@ pnpm check:instructions                       # selectors only, no video
 pnpm record:instructions && pnpm convert agent-instructions && pnpm render agent-instructions
 pnpm record:live <flow-name>                  # any flow with a startUrl
 
+# Intro title card (optional, after the demo has been rendered)
+pnpm intro <flow-name>          # render:intro -> stitch -> out/<name>.full.mp4
+
+# Narrative cut: cards interleaved with clip ranges
+pnpm reel <flow-name>           # reels/<name>.ts -> out/<name>.reel.mp4
+
 # Generic
 pnpm clip <flow-name>
 pnpm record <flow-name> && pnpm convert <flow-name> && pnpm render <flow-name>
@@ -157,6 +163,85 @@ Unset `DEMO_TOUR` keeps the scripted `flows/<name>.ts` path.
 3. Authenticated app: `pnpm capture:session` once, then `pnpm record:live <name>`
 4. Or capture: `DEMO_TOUR=capture pnpm record <name>`, then `DEMO_TOUR=replay`
 
+## Add an intro title card
+
+1. `intros/<name>.ts` with `defineIntro` — copy only, no timings
+2. `pnpm intro <name>` after `pnpm clip <name>` has produced `out/<name>.mp4`
+3. Card lands in `out/<name>.intro.mp4`, joined file in `out/<name>.full.mp4`
+
+Rules that are load-bearing:
+
+- **Separate composition, never a `<Sequence>` inside `DemoClip`.** `zoomAt` and
+  `Cursor` map frame -> time as `(frame/fps)*speed` with t=0 at the first demo
+  frame. Prepending frames inside that composition desyncs the camera track and
+  the pointer together.
+- **No static registry of intros.** `intros/*.ts` are per-account and gitignored
+  like `flows/*.ts`, so a static import in `src/Root.tsx` would fail to resolve
+  on a clone that lacks them. `scripts/render-intro.ts` imports the file in Node
+  and passes the storyboard through `--props`; the cost is that `tsc` never sees
+  it, which is why `introProblem()` shape-checks it before a render starts.
+- **Geometry must match exactly.** The concat uses `-c copy`, so `compositionSize()`
+  in `src/lib/intro.ts` duplicates the size arithmetic from `src/Root.tsx`'s
+  DemoClip block on purpose, a test pins it, and `scripts/stitch.ts` re-probes the
+  real files and refuses on any mismatch. `--muted` on both renders is part of
+  this: a stray AAC track on one side breaks the copy.
+- **Intro timing does not scale with `DEMO_SPEED`.** The body is a recording
+  replayed faster; the card is authored motion, and copy at 2x is unreadable.
+- `pnpm analyze` is now meaningful on a reel or stitched file: cards move
+  through their cuts, so the reel passes all six checks rather than tripping the
+  dead-air ones. `out/<name>.mp4` is untouched either way.
+- Cards must be MOVING at their cut. The reference has motion on both sides of
+  8 of its 10 cuts and never lands on a frozen card; an early edit of ours
+  managed 2 of 9 and read as slides advancing. But do not overcorrect into
+  never resting — the reference is still 34% of the time, and rest is what
+  makes the motion legible. `pushAt` encodes both: move in, rest while the copy
+  is read, accelerate into the cut.
+
+## Cut a reel
+
+1. `pnpm render <name>` once, then scrub `out/<name>.mp4` for beat boundaries
+2. `reels/<name>.ts` with `defineReel` — cards and `{ fromS, toS }` clip ranges
+3. `pnpm reel <name>` -> `out/<name>.reel.mp4`
+
+- Clip ranges are SECONDS of the rendered demo; `toS` is exclusive so adjacent
+  ranges never share a frame. `reelProblem()` rejects overlapping, backwards or
+  past-the-end ranges before anything renders.
+- Cut on still beats. The camera holds through each interaction and glides
+  between them; a cut mid-glide reads as a mistake.
+- Clips are re-rendered via `--frames`, never cut out of the mp4 — no second
+  h264 generation on tuned footage. Segments are cached in `.diag/reel/<name>/`
+  by a hash of their spec, so editing one card re-renders only that card.
+- The reel refuses to run if `out/<name>.mp4` was rendered at a different
+  `DEMO_SPEED` than the current run, because the frame ranges would point
+  somewhere else.
+- Match the card ground to the product: `background: "light"` for a light-theme
+  app, `"plain"` for a dark one. This is measured, not taste — light-on-light
+  took our mean cut delta from 157 to 42 (reference: 63). Interstitials also
+  want a short `holdS` (~0.5s); the 1.2s default reads as a stall.
+- A cold open is a short leading clip followed by a card. It is exempt from the
+  forward-ordering rule and may replay footage a later clip covers. Choose a
+  range that is already moving.
+- `drift: 1` on a clip adds a slow push inside long holds. Opt-in by design, so
+  `out/<name>.mp4` and everything `analyze` measures are untouched.
+- Chip cards: `"Hit {chip}. It'''s live."` + `chip: {label}`. One line only. The
+  chip is centred by a `1fr auto 1fr` grid so its centre is known without
+  measuring the DOM — a measured origin would vary per worker and per font.
+- The chip renders inside CameraMotionBlur, so it uses HARD-EDGED elevation
+  only. A blurred box-shadow there bands (see DemoClip.tsx:100-138).
+- **Headlines are NORMAL weight by default.** Emphasis is per-word, written
+  inline in the `headline` string and parsed by `parseHeadline` (one source of
+  truth for stagger, chip split and render, so they cannot disagree):
+  - `*word*` bold, `_word_` italic, `==word==` highlight (palette colour)
+  - `==word|#ffd54a==` highlight with a custom colour; ink is auto-contrasted
+  - `{chip}` the live control (unchanged); marks compose around it
+  - A run may span words (`*two words*`); each stays its own stagger unit, so
+    the writing rhythm is per-word. An unbalanced marker renders literally.
+- Author a card as **JSON or TS** — `render:intro` loads `intros/<name>.json`
+  first, else `intros/<name>.ts`. JSON needs no schema beyond the string, since
+  the styling lives inside `headline`. `introProblem` validates both (bad hex,
+  chip-line length on the VISIBLE text) before a frame renders. Example:
+  `{ "name": "x", "headline": "Ship it with *confidence*", "background": "light" }`
+
 ## Tuning knobs
 
 | Area                      | File                                                     |
@@ -170,6 +255,10 @@ Unset `DEMO_TOUR` keeps the scripted `flows/<name>.ts` path.
 | Cursor glide / overshoot  | `scripts/lib/recorder.ts`                                |
 | Output forensics          | `scripts/analyze.ts` (`pnpm analyze <name>`)             |
 | Live authed recording     | `scripts/record-live.ts` (`startUrl` / `ready` / `prepare`) |
+| Intro copy                | `intros/<name>.ts` (`defineIntro`)                       |
+| Intro timing / stagger    | `src/lib/intro.ts`                                       |
+| Intro look                | `src/Intro.tsx`                                          |
+| Reel structure / cuts     | `reels/<name>.ts` (`defineReel`)                         |
 | Pace                      | `pause()` / `BEAT` in the flow                           |
 | Drift                     | `offsetMs` in `public/<name>.clicks.json` then re-render |
 
@@ -177,6 +266,9 @@ Unset `DEMO_TOUR` keeps the scripted `flows/<name>.ts` path.
 
 - ffmpeg comes from Remotion — no system install required.
 - Google is recorded **headed** by default (`HEADLESS=1` forces headless).
-- Failure dumps: `.diag/` (gitignored).
+- Failure dumps: `.diag/` (gitignored); `stitch` writes its concat list there too.
+- The bundled ffmpeg is filter-whitelisted: it has `concat` and `scale` but no
+  `fade` / `xfade` / `overlay`, so a dissolve at the join would need a system
+  ffmpeg or must be rendered inside Remotion.
 - Outputs under `out/` stay local until you copy an mp4 into docs static assets.
 - Older click logs without `tDepartMs` still render (camera falls back to `tMs − 0.75s`).

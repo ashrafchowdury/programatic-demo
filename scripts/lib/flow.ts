@@ -46,6 +46,32 @@ export type ActionOpts = {
   zoom?: boolean;
   /** Zoom frames this target (e.g. result card) while the click hits `target`. */
   frame?: Target;
+  /**
+   * Still beat between chunks when `text` is an array, in shoot-ms.
+   *
+   * Exists to shoot FOR the edit. A long field typed in one go is a solid block
+   * of motion — measured against a reference ad, our clips were still for 12% of
+   * their frames where its shots rest for 40%, and continuous typing is most of
+   * the difference. Splitting the text lets the picture actually stop partway
+   * through, which is what gives the surrounding movement something to read
+   * against. The camera stays put: typeEndMs is stamped after the LAST chunk, so
+   * the hold covers the whole beat rather than trailing out mid-sentence.
+   */
+  chunkPauseMs?: number;
+  /**
+   * Force the camera to this scale on this beat instead of fitting the framed
+   * rect — for cropping tight on a WIDE target (a menu) the fit would pull back
+   * from. Clamped to the sharpness ceiling. See ClickEvent.zoomScale.
+   */
+  zoomScale?: number;
+  /**
+   * Override the pointer glide duration (shoot-ms) for a deliberately SLOW move,
+   * so a short travel can be drawn out to be felt. Default is distance-based
+   * (~550 px/s). Pair with `hoverMs` to pause on the target before clicking.
+   */
+  travelMs?: number;
+  /** Pause on the target after arriving, before the click (shoot-ms). A hover. */
+  hoverMs?: number;
 };
 
 /**
@@ -64,7 +90,7 @@ export type FlowContext = {
   /** Click a field (logged) then type into it at a human speed. */
   typeInto: (
     target: Target,
-    text: string,
+    text: string | readonly string[],
     label?: string,
     opts?: ActionOpts,
   ) => Promise<void>;
@@ -149,6 +175,14 @@ type StepCommon = {
   frame?: Target;
   /** Beat after the action, in shoot-time ms. Replaces a trailing pause(). */
   after?: number;
+  /** Still beat between chunks of an array `text`. See ActionOpts. */
+  chunkPauseMs?: number;
+  /** Force the camera to this scale instead of fitting. See ActionOpts. */
+  zoomScale?: number;
+  /** Draw the pointer glide out to this duration (shoot-ms). See ActionOpts. */
+  travelMs?: number;
+  /** Pause on the target before clicking (shoot-ms) — a hover. See ActionOpts. */
+  hoverMs?: number;
 };
 
 /**
@@ -165,7 +199,7 @@ type StepCommon = {
  */
 export type Step =
   | ({ click: Target } & StepCommon)
-  | ({ type: Target; text: string } & StepCommon)
+  | ({ type: Target; text: string | readonly string[] } & StepCommon)
   | ({ focus: Target } & StepCommon)
   | ({ moveTo: Target } & StepCommon)
   /** Hold still. The opening establish beat is just this, first in the list. */
@@ -188,6 +222,10 @@ const actionOpts = (s: StepCommon) => ({
   cluster: s.cluster,
   zoom: s.zoom,
   frame: s.frame,
+  chunkPauseMs: s.chunkPauseMs,
+  zoomScale: s.zoomScale,
+  travelMs: s.travelMs,
+  hoverMs: s.hoverMs,
 });
 
 /** Drive a step list through the same helpers a hand-written `run` would use. */

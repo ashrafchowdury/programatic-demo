@@ -207,7 +207,12 @@ export function buildContext(
   };
   mark(last.x, last.y);
 
-  const glideTo = async (x: number, y: number, settleMs = 220) => {
+  const glideTo = async (
+    x: number,
+    y: number,
+    settleMs = 220,
+    travelMs?: number,
+  ) => {
     const dist = Math.hypot(x - last.x, y - last.y);
     lastDepartMs = getElapsedMs();
     if (dist < 6) {
@@ -216,8 +221,12 @@ export function buildContext(
       if (settleMs > 0) await pause(settleMs);
       return;
     }
-    // ~550 px/s mean, clamped to the measured 450–1350 ms travel window.
-    const durationMs = clamp(dist / 0.55, 450, 1350);
+    // ~550 px/s mean, clamped to the measured 450–1350 ms travel window — unless
+    // the caller asks for a deliberate duration (a slow, felt move).
+    const durationMs =
+      travelMs != null && travelMs > 0
+        ? travelMs
+        : clamp(dist / 0.55, 450, 1350);
     const nx = -(y - last.y) / dist;
     const ny = (x - last.x) / dist;
     const side = (x - last.x) * (y - last.y) >= 0 ? 1 : -1;
@@ -320,6 +329,7 @@ export function buildContext(
     if (tDownMs != null) event.tDownMs = tDownMs;
     if (opts?.cluster != null) event.cluster = opts.cluster;
     if (opts?.zoom === false) event.zoom = false;
+    if (opts?.zoomScale != null) event.zoomScale = opts.zoomScale;
     clicks.push(event);
     return event;
   };
@@ -348,7 +358,8 @@ export function buildContext(
     const frameBox = opts?.frame
       ? await boxOf(page, await resolve(opts.frame))
       : point;
-    await glideTo(point.cx, point.cy);
+    // Honour a slow, deliberate glide and a hover hold, same as moveAndClick.
+    await glideTo(point.cx, point.cy, opts?.hoverMs ?? 220, opts?.travelMs);
     // Zoom keyframe only — no mouse click (safe for "consequence" holds).
     logEvent(
       point.cx,
@@ -368,7 +379,8 @@ export function buildContext(
     const frameBox = opts?.frame
       ? await boxOf(page, await resolve(opts.frame))
       : point;
-    await glideTo(point.cx, point.cy);
+    // hoverMs is the settle after arriving, before the press — a held hover.
+    await glideTo(point.cx, point.cy, opts?.hoverMs ?? 220, opts?.travelMs);
     await clickAt(
       point.cx,
       point.cy,
@@ -407,7 +419,15 @@ export function buildContext(
     await page.keyboard.press(selectAll);
     await page.keyboard.press("Backspace");
     // Faster than "hunt-and-peck" so typing is not the longest dead beat.
-    await page.keyboard.type(text, { delay: 30 });
+    //
+    // An array types in chunks with a still beat between them. Select-all runs
+    // ONCE, before the first chunk — a second one would wipe what came before,
+    // which is why this cannot be expressed as two `type` steps.
+    const chunks = typeof text === "string" ? [text] : text;
+    for (let i = 0; i < chunks.length; i++) {
+      if (i > 0) await pause(opts?.chunkPauseMs ?? 0);
+      await page.keyboard.type(chunks[i], { delay: 30 });
+    }
     // Marks the window where the app's text caret owns the screen, so Remotion
     // can fade the arrow out for it.
     event.typeEndMs = getElapsedMs();

@@ -5,6 +5,7 @@ import type { ClickLog } from "./click-log";
 import {
   buildCameraTrack,
   clusterize,
+  driftPose,
   frameFor,
   sampleTrack,
   stickify,
@@ -429,5 +430,77 @@ describe("frameFor keeps the click in shot", () => {
     assert.ok(Number.isFinite(pose.cx) && Number.isFinite(pose.cy));
     assert.ok(pose.cx >= 1 / (2 * pose.scale) - 1e-9);
     assert.ok(pose.cy <= 1 - 1 / (2 * pose.scale) + 1e-9);
+  });
+});
+
+describe("hold drift", () => {
+  const SPEED = 1.25;
+  const track = buildCameraTrack(smokeLog, SPEED);
+  const tAt = (frame: number) => (frame / 30) * SPEED;
+
+  it("is off by default, so pnpm render is untouched", () => {
+    // scripts/render.ts passes only {name, speed}. If drift ever defaulted on,
+    // every mp4 in out/ would change silently and every cached reel segment
+    // would disagree with the code that drew it.
+    for (const f of [0, 30, 90, 150, 240]) {
+      assert.deepEqual(
+        zoomAt(f, 30, smokeLog, { speed: SPEED, fit: 0.86 }),
+        zoomAt(f, 30, smokeLog, { speed: SPEED, fit: 0.86, drift: 0 }),
+      );
+    }
+  });
+
+  it("never drifts downward, and never moves the framed point", () => {
+    // poseToCss re-clamps cx to [half, 1-half] with half = 1/(2S), and frameFor
+    // drives edge targets ONTO that clamp. Scaling up loosens the clamp and
+    // moves nothing; scaling down by the same amount tightens it and produces a
+    // pan of roughly 24 screen px that nobody authored.
+    for (let f = 0; f < 280; f++) {
+      const t = tAt(f);
+      const plain = sampleTrack(track, t);
+      const moved = driftPose(plain, track, t, SPEED, 1);
+      assert.ok(moved.scale >= plain.scale, `drifted DOWN at frame ${f}`);
+      assert.equal(moved.cx, plain.cx);
+      assert.equal(moved.cy, plain.cy);
+    }
+  });
+
+  it("stays inside the stillness budget and caps itself at S_MAX", () => {
+    // A hold still has to READ as still: under 0.01 of scale across any 0.35s
+    // window, the same budget this file pins on the track itself. And nothing
+    // re-checks S_MAX after frameFor, so the drift has to cap itself or a long
+    // hold on an already-tight framing walks past where the source holds up.
+    const driftAt = (f: number) => {
+      const t = tAt(f);
+      const plain = sampleTrack(track, t);
+      return driftPose(plain, track, t, SPEED, 1).scale - plain.scale;
+    };
+    for (let f = 0; f < 280; f++) {
+      const a = driftAt(f);
+      const b = driftAt(f + Math.round(0.35 * 30));
+      assert.ok(
+        Math.abs(a - b) < 0.01,
+        `drift moved ${Math.abs(a - b)} in 0.35s at frame ${f}`,
+      );
+      const t = tAt(f);
+      const scale = driftPose(sampleTrack(track, t), track, t, SPEED, 1).scale;
+      assert.ok(scale <= 1.74 + 1e-9, `drifted past S_MAX at frame ${f}`);
+    }
+  });
+
+  it("returns to the authored pose at both ends of every hold", () => {
+    // Drift lives inside a hold and has to join and leave it with a matched
+    // value, or there is a visible kick where the glide hands over.
+    for (const key of track) {
+      for (const t of [key.t + 1e-6, key.t - 1e-6]) {
+        if (t < 0) continue;
+        const plain = sampleTrack(track, t);
+        const moved = driftPose(plain, track, t, SPEED, 1);
+        assert.ok(
+          Math.abs(moved.scale - plain.scale) < 1e-5,
+          `seam at key t=${key.t}`,
+        );
+      }
+    }
   });
 });

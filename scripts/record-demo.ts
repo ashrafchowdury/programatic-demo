@@ -26,6 +26,12 @@ import {
 } from "../src/lib/click-log";
 import type { Flow, ClickEvent } from "./lib/flow";
 import {
+  resolveCaptureScale,
+  scaledViewport,
+  captureScaleInitScript,
+  OVERFLOW_PROBE,
+} from "./lib/capture-scale";
+import {
   buildContext,
   CURSOR_INIT_SCRIPT,
   useBakedCursor,
@@ -114,8 +120,15 @@ async function main() {
   const replayTour = tourMode === "replay" ? readTour(ROOT, name) : null;
   const shootViewport =
     replayTour?.viewport ?? flow?.viewport ?? { width: 1920, height: 1080 };
+  // HD capture: physically record larger than the logical layout (CAPTURE_SCALE),
+  // never during tour capture. shootViewport stays the LOGICAL size the flow
+  // authored against; captureViewport is the PHYSICAL size everything downstream
+  // (video, rects, cursor, log.viewport) lives in. See scripts/lib/capture-scale.ts.
+  const captureScale =
+    tourMode === "capture" ? 1 : resolveCaptureScale(process.env.CAPTURE_SCALE);
+  const captureViewport = scaledViewport(shootViewport, captureScale);
   const viewport =
-    tourMode === "capture" ? CAPTURE_VIEWPORT : shootViewport;
+    tourMode === "capture" ? CAPTURE_VIEWPORT : captureViewport;
 
   fs.mkdirSync(RECORDINGS, { recursive: true });
   fs.mkdirSync(PUBLIC, { recursive: true });
@@ -139,11 +152,21 @@ async function main() {
     recordVideo:
       tourMode === "capture"
         ? undefined
-        : { dir: RECORDINGS, size: shootViewport },
+        : { dir: RECORDINGS, size: captureViewport },
     userAgent:
       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
     locale: "en-US",
   });
+  // HD zoom+shim must run before any page script, so add it before navigation.
+  if (captureScale > 1) {
+    await context.addInitScript({
+      content: captureScaleInitScript(captureScale, shootViewport),
+    });
+    console.log(
+      `capture    -> ${captureViewport.width}x${captureViewport.height} ` +
+        `(logical ${shootViewport.width}x${shootViewport.height} @ zoom ${captureScale})`,
+    );
+  }
   if (tourMode !== "capture" && useBakedCursor())
     await context.addInitScript({ content: CURSOR_INIT_SCRIPT });
 
@@ -193,6 +216,19 @@ async function main() {
       await page.waitForTimeout(120);
       await flow.run(ctx);
     }
+    if (captureScale > 1) {
+      const o = (await page.evaluate(OVERFLOW_PROBE)) as {
+        vOverflow: number;
+        hOverflow: number;
+      };
+      const bad = o.vOverflow > 1.02 || o.hOverflow > 1.02;
+      console.log(
+        `overflow   -> v=${o.vOverflow} h=${o.hOverflow}` +
+          (bad
+            ? `  ⚠ app overflows under zoom (vh/vw layout) — HD capture will clip it`
+            : `  ✓ layout fits`),
+      );
+    }
     await page.waitForTimeout(END_TAIL_S * 1000);
   } finally {
     const rawDurationMs = getElapsedMs();
@@ -216,7 +252,8 @@ async function main() {
 
     const log = {
       name,
-      viewport: shootViewport,
+      // PHYSICAL size — rects, cursor and video are all in this space under zoom.
+      viewport: captureViewport,
       durationMs: trimmed.durationMs,
       trimBeforeMs: trimmed.trimBeforeMs || undefined,
       offsetMs: 0,

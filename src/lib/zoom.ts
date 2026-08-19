@@ -44,6 +44,13 @@ export type ZoomOptions = {
   speed?: number;
   /** Base shrink of the window on the backdrop (WINDOW_FIT). Default 1. */
   fit?: number;
+  /**
+   * Hold drift, 0..1. OPT-IN and off by default — see driftPose.
+   *
+   * scripts/render.ts never passes it, so every demo mp4 renders exactly as it
+   * does today. Only reel clips ask for it.
+   */
+  drift?: number;
 };
 
 // Region-framing knobs.
@@ -195,7 +202,13 @@ export function frameFor(
 
   const sByW = (FRAME_FRAC * W) / (extW + 2 * PAD);
   const sByH = (FRAME_FRAC * H) / (extH + 2 * PAD);
-  const S = clamp(Math.min(sByW, sByH), S_MIN, sMax);
+  // An explicit zoomScale overrides the fit: a wide target (a menu across most
+  // of the frame) fits at S_MIN, but the author may want to crop TIGHT on it.
+  // Still clamped to sMax, so "tight" never upscales past the sharpness ceiling.
+  const S =
+    c.zoomScale != null
+      ? clamp(c.zoomScale, S_MIN, sMax)
+      : clamp(Math.min(sByW, sByH), S_MIN, sMax);
 
   const contentCx = clamp(focusX / W, 0, 1);
   const contentCy = clamp(focusY / H, 0, 1);
@@ -292,7 +305,12 @@ export function buildCameraTrack(log: ClickLog, speed = 1): CameraKey[] {
   let prevPose = BASE_POSE;
   const meta = groups.map((group, i) => ({
     group,
-    poses: group.map((c) => frameFor(c, vp, i === 0 ? S_MAX_SOFT : S_MAX)),
+    poses: group.map((c) =>
+      // The first cluster is softened (S_MAX_SOFT) so a film does not open on
+      // its most aggressive push — but an explicit zoomScale is a deliberate
+      // request, so it gets the full sharp ceiling even in first position.
+      frameFor(c, vp, i === 0 && c.zoomScale == null ? S_MAX_SOFT : S_MAX),
+    ),
     tIn: Math.max(0, departS(group[0]) - CAMERA_LEAD_S),
   }));
 
@@ -407,6 +425,108 @@ export function sampleTrack(keys: CameraKey[], t: number): CameraPose {
 }
 
 /**
+ * Slow push inside a long hold.
+ *
+ * This is a LOOK choice, and deliberately not the thing that was tried and
+ * reverted before: src/lib/cursor.ts:76-84 and scripts/analyze.ts:70-79 record
+ * an idle-tremor experiment that was reverted, with the right conclusion that
+ * long frozen stretches are a script problem. That conclusion is accepted here
+ * — the script fix is to cut the beat shorter — and this only handles what is
+ * left. It is authored, deterministic, monotone into the middle of the shot,
+ * and off unless a storyboard asks for it.
+ *
+ * Peak velocity in scale units per SCREEN second. The budget is 0.029: a hold
+ * has to stay under |dscale| 0.01 across any 0.35s window to still read as
+ * still, which is the window src/lib/zoom.test.ts pins on the track itself.
+ */
+export const DRIFT_RATE = 0.02;
+/** Never more than this fraction of the authored scale. */
+export const DRIFT_PEAK_FRAC = 0.03;
+/** Shorter holds are intentional stillness — leave them alone. */
+export const DRIFT_MIN_HOLD_S = 2.0;
+/** Never drift at base pose, so a clip still starts and ends where it did. */
+export const DRIFT_MIN_SCALE = 0.02;
+
+/**
+ * The hold bracketing `t`, or null when the camera is moving.
+ *
+ * A hold is not a tagged state — buildCameraTrack encodes one as two keys
+ * carrying the SAME pose, so any interval whose endpoints match is a hold. This
+ * scans for that rather than refactoring sampleTrack, whose output is pinned by
+ * exact-equality assertions and must not grow a branch.
+ */
+export function holdSpanAt(
+  keys: CameraKey[],
+  t: number,
+): { startT: number; endT: number } | null {
+  if (keys.length < 2 || t <= keys[0].t) return null;
+  const last = keys[keys.length - 1];
+  if (t >= last.t) return null;
+  let i = 0;
+  while (i < keys.length - 1 && t > keys[i + 1].t) i++;
+  const a = keys[i];
+  const b = keys[i + 1];
+  return posesNearlyEqual(a.pose, b.pose) ? { startT: a.t, endT: b.t } : null;
+}
+
+/**
+ * Raised cosine: zero AND flat at both ends.
+ *
+ * The flatness is the point. Drift has to join and leave a hold with matched
+ * value and matched VELOCITY, or there is a visible kick where the glide hands
+ * over. A sine half-wave would match the value and step the velocity.
+ *
+ * The DRIFT_RATE * T / PI term is not a fudge factor: the peak derivative of
+ * this curve is peak*PI/T, so dividing by it makes the realised rate exactly
+ * DRIFT_RATE whatever the hold length. Without it a flat 3% peak over a 2.1s
+ * hold runs at 0.05 scale/s — nearly double the budget.
+ */
+export function driftScale(
+  scale: number,
+  u: number,
+  holdScreenS: number,
+  amount: number,
+): number {
+  const peak = Math.min(
+    DRIFT_PEAK_FRAC * scale,
+    (DRIFT_RATE * holdScreenS) / Math.PI,
+    Math.max(0, S_MAX - scale),
+  );
+  return scale + (amount * peak * (1 - Math.cos(2 * Math.PI * u))) / 2;
+}
+
+/**
+ * The drifted pose, or the SAME OBJECT when drift is off.
+ *
+ * Returning by reference matters: with drift unset, poseToCss receives the
+ * identical object today's code hands it, so a demo render is bit-identical
+ * rather than merely equal to within floating point.
+ *
+ * Scale-UP only, and that is load-bearing rather than a preference. poseToCss
+ * re-clamps cx to [half, 1-half] with half = 1/(2S), and frameFor drives edge
+ * targets onto that clamp — agent-skill's long typing hold sits at cx 0.66620
+ * with 1-half = 0.66620 exactly. Scaling up loosens the clamp and moves the
+ * framed point by nothing; scaling down tightens it and produces a pan of
+ * roughly 24 screen px that nobody authored.
+ */
+export function driftPose(
+  pose: CameraPose,
+  keys: CameraKey[],
+  t: number,
+  speed: number,
+  amount: number,
+): CameraPose {
+  if (!(amount > 0)) return pose;
+  if (pose.scale - BASE_POSE.scale < DRIFT_MIN_SCALE) return pose;
+  const span = holdSpanAt(keys, t);
+  if (!span) return pose;
+  const holdScreenS = (span.endT - span.startT) / (speed || 1);
+  if (holdScreenS < DRIFT_MIN_HOLD_S) return pose;
+  const u = (t - span.startT) / (span.endT - span.startT);
+  return { ...pose, scale: driftScale(pose.scale, u, holdScreenS, amount) };
+}
+
+/**
  * The track is a pure function of (log, speed) but zoomAt runs per frame — and
  * once per sub-sample under CameraMotionBlur, so ~8x that. Cache it per log.
  */
@@ -441,5 +561,13 @@ export function zoomAt(
   const fit = opts.fit && opts.fit > 0 ? opts.fit : 1;
   const offset = (log.offsetMs ?? 0) / 1000;
   const t = (frame / fps) * speed - offset;
-  return poseToCss(sampleTrack(cachedTrack(log, speed), t), chromeFrac, fit);
+  const track = cachedTrack(log, speed);
+  const pose = driftPose(
+    sampleTrack(track, t),
+    track,
+    t,
+    speed,
+    opts.drift ?? 0,
+  );
+  return poseToCss(pose, chromeFrac, fit);
 }

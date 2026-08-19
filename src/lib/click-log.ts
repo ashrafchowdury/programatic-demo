@@ -34,6 +34,15 @@ export type ClickEvent = {
   cluster?: string;
   /** When false, this event does not contribute to zoom (still in the video). */
   zoom?: boolean;
+  /**
+   * Force the camera to this scale on this beat, instead of fitting the framed
+   * rect. For a WIDE target (a menu spanning most of the width) the fit maths
+   * pulls back to S_MIN, which is the opposite of "zoom in on it"; setting this
+   * frames the rect's centre at the requested magnification instead. Clamped to
+   * the sharpness ceiling (S_MAX) so it can crop tight without upscaling past
+   * native. See frameFor.
+   */
+  zoomScale?: number;
 };
 
 /** One recorded pointer position, on the click-log clock. */
