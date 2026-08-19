@@ -30,6 +30,7 @@ import {
   type ReelSegment,
 } from "../src/lib/reel";
 import { compareStreams, type FileProbe } from "./lib/stitch";
+import { outPath, outPathOf } from "./lib/out";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const REMOTION_BIN = path.join(ROOT, "node_modules", ".bin", "remotion");
@@ -150,7 +151,7 @@ async function main() {
   const name = process.argv[2] ?? "agent-skill";
   const reel = await loadReel(name);
 
-  const demo = path.join(ROOT, "out", `${name}.mp4`);
+  const demo = outPathOf("demo", `${name}.mp4`);
   if (!fs.existsSync(demo))
     throw new Error(
       `Missing ${path.relative(ROOT, demo)} — the reel cuts ranges out of the ` +
@@ -261,7 +262,7 @@ async function main() {
 
   const list = path.join(workDir, "concat.txt");
   fs.writeFileSync(list, parts.map((p) => `file '${p}'`).join("\n") + "\n");
-  const out = path.join(ROOT, "out", `${name}.reel.mp4`);
+  const out = outPath("reel", `${name}.mp4`);
   execFileSync(
     REMOTION_BIN,
     [
