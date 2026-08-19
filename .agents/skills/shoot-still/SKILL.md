@@ -12,17 +12,9 @@ you actually want video, stop:** a recorded flow is a *demo*
 (`.agents/skills/shoot-demo-video/SKILL.md`), a cut film is a *reel*
 (`.agents/skills/intro-reel/SKILL.md`). See the table in `AGENTS.md`.
 
-> **Do not drive the app with a browser tool.** Not Claude-in-Chrome, not
-> computer-use, not an MCP browser. This pipeline drives its own Playwright
-> Chromium; a session you click yourself produces no recording and no click log.
-> A request phrased as a click-through is the input to a spec file — write it
-> into `steps:` and run the recorder. To *watch* a run, use `HEADED=1`.
->
-> First time on this machine: `pnpm exec playwright install --with-deps chromium`.
-> For a logged-in app, a human must run `pnpm capture:session` once PER HOST —
-> you cannot, and you must never type a credential into any field. Sessions live
-> in `.sessions/<host>.json`, so a cloud instance and a local one keep separate
-> logins and neither logs the other out.
+Driven by Playwright's Chromium, launched by these scripts — not your own
+browser. First time on this machine: `pnpm exec playwright install --with-deps
+chromium`.
 
 A still never touches the video pipeline. It drives the app itself, crops a
 region, and frames it. There is no recording and no click log.

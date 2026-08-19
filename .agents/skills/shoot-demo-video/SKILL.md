@@ -12,17 +12,9 @@ you actually want** a cut launch film, that is a *reel*
 (`.agents/skills/intro-reel/SKILL.md`); a still image of part of the screen is a
 *still* (`.agents/skills/shoot-still/SKILL.md`). See the table in `AGENTS.md`.
 
-> **Do not drive the app with a browser tool.** Not Claude-in-Chrome, not
-> computer-use, not an MCP browser. This pipeline drives its own Playwright
-> Chromium; a session you click yourself produces no recording and no click log.
-> A request phrased as a click-through is the input to a spec file — write it
-> into `steps:` and run the recorder. To *watch* a run, use `HEADED=1`.
->
-> First time on this machine: `pnpm exec playwright install --with-deps chromium`.
-> For a logged-in app, a human must run `pnpm capture:session` once PER HOST —
-> you cannot, and you must never type a credential into any field. Sessions live
-> in `.sessions/<host>.json`, so a cloud instance and a local one keep separate
-> logins and neither logs the other out.
+Driven by Playwright's Chromium, launched by these scripts — not your own
+browser. First time on this machine: `pnpm exec playwright install --with-deps
+chromium`.
 
 Three stages. A demo is a **flow file**; the camera work is derived from the
 click log, never authored by hand.
@@ -209,31 +201,6 @@ accessible name) or `css()` (layout anchor) when a name genuinely cannot work.
 
 **`cluster` groups clicks into one camera beat.** Same id = one punch, hold and
 trail. It is the only camera control you normally touch.
-
-## Secrets in a flow
-
-A demo often has to sign in, paste an API key, or fill a token field. You never
-type one and you never see one. Two patterns, both fine:
-
-```ts
-// 1. The recorder types it, from the environment. Document the key in
-//    .env.example; the value stays in the user's .env, which is gitignored.
-{ type: css("#api-key"), text: process.env.OPENROUTER_API_KEY ?? "" },
-
-// 2. Leave the field to the user. The flow still records the beats around it.
-//    Say so in the flow's doc comment so the next person knows it is deliberate.
-```
-
-If a required key is missing, fail loudly at the top of the flow rather than
-recording a take with an empty field:
-
-```ts
-if (!process.env.OPENROUTER_API_KEY)
-  throw new Error("OPENROUTER_API_KEY is not set — see .env.example");
-```
-
-Never paste a credential into a browser yourself, and never put one in a flow
-file, a commit, or a log — flows are gitignored for privacy, not for secrets.
 
 ## Shoot it
 
