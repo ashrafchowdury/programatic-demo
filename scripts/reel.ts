@@ -27,8 +27,17 @@ import {
   isCard,
   reelProblem,
   type Reel,
+  type ReelAudioPiece,
   type ReelSegment,
 } from "../src/lib/reel";
+import {
+  buildAudioMux,
+  clickReelTimes,
+  missingAudioFilters,
+  resolvePiece,
+  segmentBoundsSeconds,
+  type ResolvedPiece,
+} from "../src/lib/reel-audio";
 import { compareStreams, type FileProbe } from "./lib/stitch";
 import { outPath, outPathOf } from "./lib/out";
 
@@ -263,6 +272,14 @@ async function main() {
   const list = path.join(workDir, "concat.txt");
   fs.writeFileSync(list, parts.map((p) => `file '${p}'`).join("\n") + "\n");
   const out = outPath("reel", `${name}.mp4`);
+
+  // With audio, the -c copy concat writes a SILENT intermediate (you cannot mux
+  // a file onto itself), and the audio pass below reads it and writes `out`.
+  // Both live in workDir like concat.txt — created after the prune, overwritten
+  // each run. No audio → the concat writes `out` directly, byte-for-byte as before.
+  const hasAudio =
+    (Array.isArray(reel.audio) && reel.audio.length > 0) || reel.sfx != null;
+  const videoOnly = hasAudio ? path.join(workDir, `${name}.silent.mp4`) : out;
   execFileSync(
     REMOTION_BIN,
     [
@@ -278,23 +295,148 @@ async function main() {
       "copy",
       "-movflags",
       "+faststart",
-      out,
+      videoOnly,
     ],
     { stdio: "inherit" },
   );
 
   const counts = probes.map(frameCount);
   const sum = counts.reduce((a: number, b) => a + (b ?? 0), 0);
-  const joined = frameCount(probe(out));
+  const joined = frameCount(probe(videoOnly));
   if (joined != null && sum !== joined)
     throw new Error(
       `Frame count mismatch: segments total ${sum}, output has ${joined}.`,
     );
+
+  const runtimeS = (joined ?? sum) / FPS;
+  if (hasAudio)
+    muxAudio(
+      reel,
+      videoOnly,
+      out,
+      runtimeS,
+      counts.map((c) => c ?? 0),
+      log,
+      speed,
+    );
+
   console.log(
     `\nsegments   -> ${parts.length} (${counts.map((c) => c ?? "?").join(" + ")})`,
   );
-  console.log(`runtime    -> ${((joined ?? sum) / FPS).toFixed(1)}s`);
+  console.log(`runtime    -> ${runtimeS.toFixed(1)}s`);
   console.log(`reel       -> ${path.relative(ROOT, out)}`);
+}
+
+/**
+ * Mix reel.audio onto the silent cut, on the SYSTEM ffmpeg (the bundled remotion
+ * build has no audio filters). Probes each source's real duration so fades and
+ * lengths resolve exactly, then runs one filtergraph → `out`.
+ */
+function muxAudio(
+  reel: Reel,
+  videoOnly: string,
+  out: string,
+  totalReelS: number,
+  counts: number[],
+  log: ClickLog,
+  speed: number,
+): void {
+  requireFfmpegAudio();
+  const bounds = segmentBoundsSeconds(counts, FPS);
+  const resolved: ResolvedPiece[] = [];
+  const paths: string[] = [];
+  const durCache = new Map<string, number>();
+
+  const add = (piece: ReelAudioPiece) => {
+    const abs = path.join(ROOT, "public", piece.src);
+    if (!fs.existsSync(abs))
+      throw new Error(
+        `Missing audio file ${path.relative(ROOT, abs)} (src "${piece.src}").`,
+      );
+    let dur = durCache.get(abs);
+    if (dur == null) {
+      dur = audioDurationS(abs);
+      durCache.set(abs, dur);
+    }
+    const r = resolvePiece(piece, totalReelS, dur, bounds);
+    if (r.durationS > 0) {
+      resolved.push(r);
+      paths.push(abs);
+    }
+  };
+
+  // Authored music/voice pieces.
+  for (const piece of reel.audio ?? []) add(piece);
+
+  // Auto-SFX from the click log — each matching beat becomes an "sfx" piece.
+  if (reel.sfx) {
+    for (const kind of ["click", "whoosh", "typing"] as const) {
+      const cue = reel.sfx[kind];
+      if (!cue) continue;
+      for (const t of clickReelTimes(reel.segments, counts, FPS, log, speed, kind))
+        add({
+          src: cue.src,
+          start: t,
+          gain: cue.gain,
+          fadeOutS: cue.fadeOutS,
+          role: "sfx",
+        });
+    }
+  }
+
+  if (resolved.length === 0) {
+    // Nothing audible resolved — ship the silent cut unchanged.
+    fs.copyFileSync(videoOnly, out);
+    return;
+  }
+  const { inputs, filter, mapArgs } = buildAudioMux(resolved, paths, videoOnly, {
+    loudnessLUFS: reel.loudnessLUFS,
+    duck: reel.duck,
+  });
+  execFileSync("ffmpeg", ["-y", ...inputs, "-filter_complex", filter, ...mapArgs, out], {
+    stdio: "inherit",
+  });
+  const sfx = resolved.filter((r) => r.role === "sfx").length;
+  console.log(
+    `audio      -> ${resolved.length} piece(s) mixed` +
+      (sfx ? ` (${sfx} sfx)` : "") +
+      (reel.duck ? " · ducked" : "") +
+      (reel.loudnessLUFS != null ? ` @ ${reel.loudnessLUFS} LUFS` : ""),
+  );
+}
+
+/** Fail with the fix, not a stack trace, when the system ffmpeg is too minimal. */
+function requireFfmpegAudio(): void {
+  let filters = "";
+  try {
+    filters = execFileSync("ffmpeg", ["-hide_banner", "-filters"], {
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+    });
+  } catch {
+    throw new Error(
+      "Reel audio needs a system ffmpeg on PATH — `brew install ffmpeg`.",
+    );
+  }
+  const missing = missingAudioFilters(filters);
+  if (missing.length)
+    throw new Error(
+      `This ffmpeg build lacks the ${missing.join(", ")} audio filter(s). ` +
+        "Install a full build: `brew install ffmpeg`.",
+    );
+}
+
+/** Source duration in seconds, via the system ffprobe. */
+function audioDurationS(file: string): number {
+  const out = execFileSync(
+    "ffprobe",
+    ["-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", file],
+    { encoding: "utf8" },
+  );
+  const d = Number(out.trim());
+  if (!Number.isFinite(d) || d <= 0)
+    throw new Error(`Could not read audio duration from ${path.relative(ROOT, file)}.`);
+  return d;
 }
 
 main().catch((err) => {

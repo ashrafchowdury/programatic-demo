@@ -28,6 +28,7 @@ recordings
 public/*.mp4
 public/*.webm
 public/*.clicks.json
+public/audio/
 tours/*.json
 .diag
 
