@@ -4,6 +4,46 @@ Programmatic product demo videos. Playwright records a real app flow and logs
 every click; Remotion turns that log into a camera (zoom on click, easing,
 motion blur, vector cursor) over a studio backdrop.
 
+## STOP: you do not click this app yourself
+
+This repo drives **exactly one** browser — the Chromium that Playwright launches
+from these scripts. Do not use Claude-in-Chrome, computer-use, an MCP browser
+tool, or any browser you can see, for **any** part of this work: not to shoot,
+not to explore, not to "just check whether that selector exists".
+
+**A request that reads like a click-through is the input to a spec file, not an
+instruction to start clicking.** "Go to the playground, add OpenRouter, paste
+the key, hit Test" is not a browsing task — it is a `steps:` list. Write it into
+`flows/<name>.ts` (or `shots/<name>.ts`) and run the recorder.
+
+This has gone wrong before, in this exact shape: an agent read the skill, decided
+"the skill describes the flow-file pipeline, but this request is a live
+click-through", and drove the visible browser instead. It produced no recording,
+no click log, and nothing anyone could re-run. If you catch yourself reasoning
+that this particular request is different, it is not. The phrasing of a request
+never changes which tool records it.
+
+Concretely, if you are about to:
+
+| do this instead |
+| --- |
+| take a browser screenshot to see the app → run `HEADED=1 pnpm record:live <name>` and watch, or `--check` |
+| click around to find a selector → put a name in `steps:` and let the ladder resolve it; on failure the recorder prints every visible element |
+| navigate to check a page exists → it does not matter; the flow's `ready` predicate decides |
+| type an API key into a field → **never.** See Secrets below |
+
+Setup, once per machine — the second line is the one that gets skipped:
+
+```bash
+pnpm install
+pnpm exec playwright install --with-deps chromium   # NOT your system browser
+pnpm capture:session                                 # headed; a HUMAN logs in
+```
+
+`pnpm capture:session` is the only step you cannot do. It opens a real window and
+waits for someone to sign in. If a run reports "Not signed in", ask the user to
+run it — do not try to log in, and do not fall back to a browser tool.
+
 ## Three features. Work out which one you are in before you touch anything.
 
 This repo makes three different things. They share a look — the same backdrop,
@@ -67,6 +107,10 @@ Needs **system ffmpeg** (`brew install ffmpeg`); the bundled one lacks
 
 - **Never hardcode a start URL.** They embed private workspace/project/app ids.
   Read `process.env.DEMO_URL_<NAME>` and document the key in `.env.example`.
+- **Never type a secret into the app.** API keys, tokens and passwords are read
+  from `process.env` inside the flow so the recorder types them and you never
+  see the value — or the step is left out and the user fills the field by hand.
+  Document the key in `.env.example`. Never paste one into a browser yourself.
 - **Never commit pipeline output**: `out/` (all three features), `recordings/`,
   `public/*.mp4`, `public/*.clicks.json`, `public/shots/`, `tours/*.json`.
   `public/backdrop.jpg` is the one committed asset — a design file, not output.

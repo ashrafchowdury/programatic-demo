@@ -12,6 +12,16 @@ rendered first** (`.agents/skills/shoot-demo-video/SKILL.md`). A still image of
 part of the screen is a *still* (`.agents/skills/shoot-still/SKILL.md`). See the
 table in `AGENTS.md`.
 
+> **Do not drive the app with a browser tool.** Not Claude-in-Chrome, not
+> computer-use, not an MCP browser. This pipeline drives its own Playwright
+> Chromium; a session you click yourself produces no recording and no click log.
+> A request phrased as a click-through is the input to a spec file — write it
+> into `steps:` and run the recorder. To *watch* a run, use `HEADED=1`.
+>
+> First time on this machine: `pnpm exec playwright install --with-deps chromium`.
+> For a logged-in app, a human must run `pnpm capture:session` once — you cannot,
+> and you must never type a credential into any field.
+
 A reel is **cards + clips**: title cards narrate in a few words what the next
 clip is about to show, the clip proves it, a logo signs off. ~15s, 6-ish beats.
 

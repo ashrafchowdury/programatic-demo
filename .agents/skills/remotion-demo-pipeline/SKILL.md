@@ -7,6 +7,12 @@ metadata:
 
 # Docs video pipeline
 
+> **Do not drive the app with a browser tool.** Not Claude-in-Chrome, not
+> computer-use, not an MCP browser. This pipeline drives its own Playwright
+> Chromium; a session you click yourself produces no recording and no click log.
+> A request phrased as a click-through is the input to a spec file. Use
+> `HEADED=1` to watch a real run.
+
 ```
 Playwright records the flow  ──►  ffmpeg (Remotion bundled)  ──►  Remotion
   recordings/<name>.webm            public/<name>.mp4              out/demo/<name>.mp4
