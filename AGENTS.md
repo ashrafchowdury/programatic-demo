@@ -7,7 +7,12 @@ motion blur, vector cursor) over a studio backdrop.
 ## Browser
 
 Demos and stills are driven by Playwright's Chromium, launched by the scripts in
-this repo. Use those scripts, not your own browser.
+this repo. Use those scripts for **every** interaction with the app — recording
+*and* inspecting element names. Never open the app in any other browser,
+including the in-app Browser / preview tools, even just to read the DOM. This ban
+covers authoring, not only filming: to discover selectors while writing a flow,
+run `pnpm record:live <name> --check`, which resolves them through Playwright
+without recording — never a manual DOM peek in another browser.
 
 ```bash
 pnpm exec playwright install --with-deps chromium
