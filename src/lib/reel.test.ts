@@ -230,4 +230,25 @@ describe("audio anchors + loudness validation (F12/F9)", () => {
       /loudnessLUFS/,
     );
   });
+
+  const withSfx = (sfx: object) =>
+    reelProblem({ name: "x", segments: [{ clip: { fromS: 0, toS: 2 } }], sfx }, 90);
+
+  it("accepts auto-kind sfx cues without atLabels", () => {
+    assert.equal(withSfx({ click: { src: "a.wav" }, typing: { src: "b.wav", gain: 0.3 } }), null);
+  });
+
+  it("requires a src on an sfx cue", () => {
+    assert.match(withSfx({ click: { gain: 0.5 } }) ?? "", /sfx\.click. needs a .src/);
+  });
+
+  it("requires atLabels on label-only kinds", () => {
+    assert.match(withSfx({ confirm: { src: "c.wav" } }) ?? "", /needs .atLabels/);
+    assert.equal(withSfx({ confirm: { src: "c.wav", atLabels: ["Allow all"] } }), null);
+  });
+
+  it("rejects an empty or non-string atLabels", () => {
+    assert.match(withSfx({ key: { src: "k.wav", atLabels: [] } }) ?? "", /atLabels/);
+    assert.match(withSfx({ key: { src: "k.wav", atLabels: [""] } }) ?? "", /atLabels/);
+  });
 });

@@ -26,6 +26,7 @@ import {
   clipFrames,
   isCard,
   reelProblem,
+  SFX_KINDS,
   type Reel,
   type ReelAudioPiece,
   type ReelSegment,
@@ -368,12 +369,21 @@ function muxAudio(
   // Authored music/voice pieces.
   for (const piece of reel.audio ?? []) add(piece);
 
-  // Auto-SFX from the click log — each matching beat becomes an "sfx" piece.
+  // SFX from the click log — each matching beat becomes an "sfx" piece. Kinds in
+  // SFX_LABEL_KINDS place only via atLabels; the rest use their built-in detector.
   if (reel.sfx) {
-    for (const kind of ["click", "whoosh", "typing"] as const) {
+    for (const kind of SFX_KINDS) {
       const cue = reel.sfx[kind];
       if (!cue) continue;
-      for (const t of clickReelTimes(reel.segments, counts, FPS, log, speed, kind))
+      for (const t of clickReelTimes(
+        reel.segments,
+        counts,
+        FPS,
+        log,
+        speed,
+        kind,
+        cue.atLabels,
+      ))
         add({
           src: cue.src,
           start: t,

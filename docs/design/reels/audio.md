@@ -172,12 +172,21 @@ a temp path then rename (can't read+write the same file).
 ## Phase 2 & 3 — IMPLEMENTED
 
 > Status: **all shipped.** F9 loudness (`Reel.loudnessLUFS`), F12 sync-to-beat
-> (`start`/`end` accept a `{ segment, edge }` anchor), F13 auto-SFX (`Reel.sfx`
-> with click/whoosh/typing cues from the click log), F11 ducking (`role: "bed"`
-> + `Reel.duck`), F10 crossfade (`crossfadePrevS`). Placeholder SFX come from
-> `scripts/gen-sfx.ts`. All in `src/lib/reel-audio.ts` (pure) + `muxAudio` in
-> `scripts/reel.ts`, unit-tested in `src/lib/reel-audio.test.ts`. The design
-> below is the record of how each was built.
+> (`start`/`end` accept a `{ segment, edge }` anchor), F13 SFX (`Reel.sfx`), F11
+> ducking (`role: "bed"` + `Reel.duck`), F10 crossfade (`crossfadePrevS`). All in
+> `src/lib/reel-audio.ts` (pure) + `muxAudio` in `scripts/reel.ts`, unit-tested in
+> `src/lib/reel-audio.test.ts`. The design below is the record of how each was built.
+>
+> **SFX palette (updated).** `Reel.sfx` is a six-sound palette, not the original
+> click/whoosh/typing. Whoosh is **removed** (no camera-move SFX). Three kinds
+> auto-place from the click log: `click` (a real press that isn't a typing run),
+> `typing` (a bed over a real typed string, span ≥ `TYPING_MIN_MS`), and `pop`
+> (the UI's response `POP_DELAY_MS` after any typed input — a menu opening). Three
+> place only via `SfxCue.atLabels` (case-insensitive label match on the beat):
+> `key` (Enter / a single key), `confirm` (payoff, e.g. "Allow all"), `error`.
+> The stock lives in `public/audio/sfx/` (gitignored, per-machine) with a
+> `manifest.json` + `README.md`; only `confirm.wav` is synthesized by
+> `scripts/gen-sfx.ts` — the rest are supplied samples.
 
 Every feature below extends the **same** Phase-1 spine (one post-concat mux on
 the system ffmpeg, built by `src/lib/reel-audio.ts`, run by `muxAudio` in

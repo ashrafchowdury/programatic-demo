@@ -79,15 +79,45 @@ export type ReelAudioPiece = {
   crossfadePrevS?: number;
 };
 
-/** One auto-SFX cue: the sample to place, and how loud. */
-export type SfxCue = { src: string; gain?: number; fadeOutS?: number };
+/**
+ * One SFX cue: the sample to place, and how loud. `atLabels` overrides the kind's
+ * built-in detector — the cue then fires on every beat whose click-log `label`
+ * includes one of these strings (case-insensitive). Kinds without a built-in
+ * detector (`key`, `confirm`, `error`) REQUIRE `atLabels`.
+ */
+export type SfxCue = {
+  src: string;
+  gain?: number;
+  fadeOutS?: number;
+  atLabels?: string[];
+};
 
 /**
- * Auto-SFX driven by the demo's click log: a tick on each real click, a whoosh
- * on each camera zoom, a soft cue at each typing span. Each present kind places
- * its sample at every matching beat, mapped into reel time.
+ * SFX placed from the demo's click log, mapped into reel time. Three kinds have a
+ * built-in detector; the other three are placed by `atLabels`:
+ *
+ * - `click`   — a real press that isn't a typing run (tDownMs, no typeEndMs).
+ * - `typing`  — a real typed string (a bed over the run); short taps don't count.
+ * - `pop`     — the UI's response ~120ms after any typed input (a menu opening).
+ * - `key`     — one discrete key (Enter, an intro-text key); `atLabels` only.
+ * - `confirm` — the payoff action (e.g. label "Allow all"); `atLabels` only.
+ * - `error`   — a blocked/error action; `atLabels` only.
  */
-export type ReelSfx = { click?: SfxCue; whoosh?: SfxCue; typing?: SfxCue };
+export type ReelSfx = {
+  click?: SfxCue;
+  typing?: SfxCue;
+  pop?: SfxCue;
+  key?: SfxCue;
+  confirm?: SfxCue;
+  error?: SfxCue;
+};
+
+/** SFX kinds that place from a built-in click-log detector. */
+export const SFX_AUTO_KINDS = ["click", "typing", "pop"] as const;
+/** SFX kinds that only place via `atLabels`. */
+export const SFX_LABEL_KINDS = ["key", "confirm", "error"] as const;
+export const SFX_KINDS = [...SFX_AUTO_KINDS, ...SFX_LABEL_KINDS] as const;
+export type SfxKind = (typeof SFX_KINDS)[number];
 
 /** Sidechain-ducking of `bed` pieces under `lead`/`sfx`. `true` = defaults. */
 export type ReelDuck = {
@@ -241,7 +271,7 @@ export function reelProblem(
   if (reel.sfx !== undefined) {
     if (typeof reel.sfx !== "object" || reel.sfx === null)
       return "`sfx` must be an object";
-    for (const kind of ["click", "whoosh", "typing"] as const) {
+    for (const kind of SFX_KINDS) {
       const cue = reel.sfx[kind];
       if (cue === undefined) continue;
       if (
@@ -254,6 +284,16 @@ export function reelProblem(
       for (const k of ["gain", "fadeOutS"] as const)
         if (cue[k] !== undefined && !(typeof cue[k] === "number" && cue[k]! >= 0))
           return `\`sfx.${kind}.${k}\` must be a number >= 0`;
+      if (cue.atLabels !== undefined) {
+        if (
+          !Array.isArray(cue.atLabels) ||
+          cue.atLabels.length === 0 ||
+          cue.atLabels.some((l) => typeof l !== "string" || l === "")
+        )
+          return `\`sfx.${kind}.atLabels\` must be a non-empty array of non-empty strings`;
+      } else if ((SFX_LABEL_KINDS as readonly string[]).includes(kind)) {
+        return `\`sfx.${kind}\` needs \`atLabels\` (it has no built-in detector)`;
+      }
     }
   }
   if (reel.duck !== undefined && typeof reel.duck !== "boolean") {

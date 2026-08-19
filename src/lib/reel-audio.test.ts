@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import type { ClickEvent } from "./click-log";
 import {
   AUDIO_FILTERS,
   buildAudioMux,
@@ -249,6 +250,49 @@ describe("clickReelTimes (F13 auto-SFX)", () => {
     assert.deepEqual(
       clickReelTimes(segments, counts, 30, outside, 1, "click"),
       [],
+    );
+  });
+
+  // clip1 covers demo [0,2), starts at reel 1s (speed 1).
+  const typed = (clicks: ClickEvent[]) => ({ ...log, clicks });
+
+  it("typing fires as a bed only for a real string (span >= 500ms)", () => {
+    const l = typed([
+      { tMs: 500, typeEndMs: 1300, x: 0, y: 0 }, // span 800 -> typing
+      { tMs: 100, typeEndMs: 300, x: 0, y: 0 }, // span 200 -> not typing
+    ]);
+    // long span at demo 0.5 -> reel 1.5; short one excluded.
+    assert.deepEqual(clickReelTimes(segments, counts, 30, l, 1, "typing"), [1.5]);
+  });
+
+  it("pop fires ~120ms after any typed input, long or short", () => {
+    const l = typed([{ tMs: 500, typeEndMs: 1300, x: 0, y: 0 }]);
+    // typeEndMs 1300 + 120 = 1420ms -> demo 1.42 -> reel 2.42.
+    assert.deepEqual(clickReelTimes(segments, counts, 30, l, 1, "pop"), [2.42]);
+  });
+
+  it("click excludes typing beats (press that is also a typed run)", () => {
+    const l = typed([{ tMs: 500, tDownMs: 450, typeEndMs: 1300, x: 0, y: 0 }]);
+    assert.deepEqual(clickReelTimes(segments, counts, 30, l, 1, "click"), []);
+  });
+
+  it("label kinds fire on matching beat labels, at the press", () => {
+    const l = typed([
+      { tMs: 1000, tDownMs: 1000, label: "click Allow all", x: 0, y: 0 },
+      { tMs: 1600, tDownMs: 1550, label: "hover model", x: 0, y: 0 },
+    ]);
+    // "Allow all" beat press at demo 1.0 -> reel 2.0; the other label doesn't match.
+    assert.deepEqual(
+      clickReelTimes(segments, counts, 30, l, 1, "confirm", ["allow all"]),
+      [2],
+    );
+  });
+
+  it("label matching is case-insensitive and substring", () => {
+    const l = typed([{ tMs: 1000, tDownMs: 1000, label: "Press ENTER now", x: 0, y: 0 }]);
+    assert.deepEqual(
+      clickReelTimes(segments, counts, 30, l, 1, "key", ["enter"]),
+      [2],
     );
   });
 });

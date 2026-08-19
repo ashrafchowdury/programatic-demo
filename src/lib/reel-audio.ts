@@ -18,6 +18,7 @@ import {
   type ReelAudioPiece,
   type ReelDuck,
   type ReelSegment,
+  type SfxKind,
 } from "./reel";
 
 /** Reel-time start and duration of every segment, in seconds. */
@@ -139,7 +140,8 @@ export function clickReelTimes(
   fps: number,
   log: ClickLog,
   speed: number,
-  kind: "click" | "whoosh" | "typing",
+  kind: SfxKind,
+  labels?: string[],
 ): number[] {
   const bounds = segmentBoundsSeconds(counts, fps);
   const cold = coldOpenIndex(segments);
@@ -152,10 +154,8 @@ export function clickReelTimes(
     const { fromS, toS } = seg.clip;
     const segStart = bounds.startS[i];
     for (const beat of log.clicks) {
-      if (!beatMatches(beat, kind)) continue;
-      // Whoosh fires as the camera departs; click/typing at the beat itself.
-      const beatMs = kind === "whoosh" ? (beat.tDepartMs ?? beat.tMs) : beat.tMs;
-      const demoSec = beatMs / 1000 / speed - offsetS;
+      if (!beatMatches(beat, kind, labels)) continue;
+      const demoSec = beatTimeMs(beat, kind, labels) / 1000 / speed - offsetS;
       if (demoSec >= fromS && demoSec < toS)
         times.push(segStart + (demoSec - fromS));
     }
@@ -163,10 +163,33 @@ export function clickReelTimes(
   return times.sort((a, b) => a - b);
 }
 
-function beatMatches(beat: ClickEvent, kind: string): boolean {
-  if (kind === "click") return beat.tDownMs != null; // a real press
-  if (kind === "whoosh") return beat.zoom !== false; // a camera move
-  return beat.typeEndMs != null; // typing
+/** A typed span shorter than this is a keystroke, not a "typing a string" run. */
+export const TYPING_MIN_MS = 500;
+/** How long after input the UI's pop/response lands. */
+export const POP_DELAY_MS = 120;
+
+/** Length of a beat's typed span, or 0 if it isn't a typing beat. */
+const typeSpanMs = (beat: ClickEvent): number =>
+  beat.typeEndMs != null ? beat.typeEndMs - beat.tMs : 0;
+
+function labelHit(beat: ClickEvent, labels?: string[]): boolean {
+  if (!labels || labels.length === 0) return false;
+  const l = beat.label?.toLowerCase();
+  return l != null && labels.some((s) => l.includes(s.toLowerCase()));
+}
+
+function beatMatches(beat: ClickEvent, kind: SfxKind, labels?: string[]): boolean {
+  if (labels && labels.length) return labelHit(beat, labels);
+  if (kind === "click") return beat.tDownMs != null && beat.typeEndMs == null;
+  if (kind === "typing") return typeSpanMs(beat) >= TYPING_MIN_MS;
+  if (kind === "pop") return beat.typeEndMs != null;
+  return false; // key/confirm/error have no built-in detector — need labels
+}
+
+function beatTimeMs(beat: ClickEvent, kind: SfxKind, labels?: string[]): number {
+  if (labels && labels.length) return beat.tDownMs ?? beat.tMs;
+  if (kind === "pop") return (beat.typeEndMs ?? beat.tMs) + POP_DELAY_MS;
+  return beat.tMs;
 }
 
 /** sidechaincompress args for ducking, from a `ReelDuck` (or defaults). */
