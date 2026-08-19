@@ -43,15 +43,16 @@ export type IntroStoryboard = {
    */
   chip?: IntroChip;
   /**
-   * Show the Agenta brand mark (public/agenta-mark.png) above the text, for a
-   * logo sign-off card. The mark is the yellow glyph on a dark ground, so pair
-   * it with `background: "plain"`; on a light card it has little contrast.
+   * Show your brand mark (public/logo-mark.png) above the text, for a logo
+   * sign-off card. Drop your own file in at that path. If it is a light glyph
+   * on a dark ground, pair it with `background: "plain"` — on a light card it
+   * will have little contrast.
    */
   logo?: boolean;
 };
 
-/** The brand mark asset, rendered above a logo card's text. */
-export const LOGO_FILE = "agenta-mark.png";
+/** The brand mark asset, rendered above a logo card's text. Supply your own. */
+export const LOGO_FILE = "logo-mark.png";
 
 export const BACKGROUNDS = ["plate", "plain", "light"] as const;
 export type IntroBackground = (typeof BACKGROUNDS)[number];

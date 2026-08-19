@@ -20,7 +20,11 @@ const STATE_FILE = path.join(ROOT, "storageState.json");
 const URL_FILE = path.join(PROFILE, "session-url.txt");
 const PLAYGROUND_URL_FILE = path.join(PROFILE, "playground-url.txt");
 
-const DEFAULT_URL = "https://eu.cloud.agenta.ai/";
+/**
+ * Where to open the browser for the login. Required — this tool is not tied to
+ * any one app, so there is no sensible default host to fall back to.
+ */
+const BASE_URL = process.env.APP_BASE_URL;
 const WAIT_MS = 15 * 60 * 1000;
 const POLL_MS = 1500;
 const SETTLE_MS = 2500;
@@ -68,11 +72,20 @@ function isLoginUrl(raw: string): boolean {
   }
 }
 
+/**
+ * Is this URL still on the app we were pointed at?
+ *
+ * Derived from APP_BASE_URL rather than hardcoded, so the check follows
+ * whatever app you are recording. Subdomains count: a login often bounces
+ * through `auth.<host>` before landing back on the app.
+ */
 function isAppHost(raw: string): boolean {
   try {
     const host = new URL(raw).hostname.toLowerCase();
+    const appHost = BASE_URL ? new URL(BASE_URL).hostname.toLowerCase() : "";
+    const root = appHost.split(".").slice(-2).join(".");
     return (
-      host.endsWith("agenta.ai") ||
+      (root !== "" && (host === appHost || host.endsWith(`.${root}`) || host === root)) ||
       host === "localhost" ||
       host.endsWith(".localhost")
     );
@@ -105,7 +118,13 @@ function cookieSummary(
 }
 
 async function main() {
-  const baseURL = process.env.APP_BASE_URL || DEFAULT_URL;
+  if (!BASE_URL) {
+    throw new Error(
+      "APP_BASE_URL is not set. Point it at the app you want to record " +
+        "(see .env.example), then rerun.",
+    );
+  }
+  const baseURL = BASE_URL;
   fs.mkdirSync(PROFILE, { recursive: true });
 
   const context = await chromium.launchPersistentContext(PROFILE, {
@@ -163,7 +182,7 @@ async function main() {
 
   const cookies = await context.cookies();
   const sessionCookies = cookies.filter((c) =>
-    /agenta|clerk|auth|session|token|jwt/i.test(`${c.name} ${c.domain}`),
+    /clerk|auth|session|token|jwt|sid|csrf/i.test(`${c.name} ${c.domain}`),
   );
   if (sessionCookies.length === 0 && cookies.length === 0) {
     await context.close();
