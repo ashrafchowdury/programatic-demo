@@ -25,7 +25,7 @@
  *     `100vh` comes out `scale`x too tall. There is no JS fix — `vh` is a CSS
  *     primitive. An app whose shell is built on `vh` will overflow by exactly
  *     `scale`, and HD capture is not usable for it without per-app CSS
- *     counter-scaling. Confirmed on Agenta's login page (overflowed 1.333x).
+ *     counter-scaling. Confirmed on a real app's login page (overflowed 1.333x).
  *     The recorder logs the measured overflow so a bad target is obvious.
  *
  * Everything downstream (click rects, cursor track, log.viewport, the video)

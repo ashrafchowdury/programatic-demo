@@ -1,5 +1,5 @@
 /**
- * Open Agenta in a headed persistent profile, wait for you to finish login,
+ * Open the app in a headed persistent profile, wait for you to finish login,
  * then save the session so later demo recordings can reuse it.
  *
  * Writes (all gitignored):
@@ -170,7 +170,7 @@ async function main() {
   if (!ready) {
     await context.close();
     throw new Error(
-      `Timed out waiting for an authenticated Agenta page. Last URL: ${lastUrl || page.url()}`,
+      `Timed out waiting for an authenticated page. Last URL: ${lastUrl || page.url()}`,
     );
   }
 

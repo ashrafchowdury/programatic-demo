@@ -1,5 +1,5 @@
 /**
- * Records one authenticated flow against a live Agenta instance.
+ * Records one authenticated flow against a live app instance.
  *
  * Uses the persistent profile in `.session-profile/`, so it reuses whatever
  * `pnpm capture:session` logged in as. Runs HEADLESS by default — a window that

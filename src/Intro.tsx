@@ -135,7 +135,7 @@ const Line: React.FC<LineProps> = ({ progress, children, style }) => (
 
 /**
  * A short label rendered with the same inline markup as a headline, but as ONE
- * unit — no per-word timing. Used for the wordmark, so `==Agenta==` (or a bold /
+ * unit — no per-word timing. Used for the wordmark, so `==Acme==` (or a bold /
  * italic brand lockup) works with exactly the vocabulary the headline uses.
  * Spacing is a leading margin, matching the headline, so tight punctuation hugs.
  */
@@ -410,7 +410,7 @@ export const Intro: React.FC<IntroProps> = ({ intro }) => {
         {intro.logo ? (
           // A logo card IS the lockup — mark + wordmark on one line, the wordmark
           // written in. It replaces the normal wordmark/headline/subhead stack,
-          // so the headline copy ("Agenta") becomes the lockup's text.
+          // so the headline copy ("Acme") becomes the lockup's text.
           <LogoLockup text={intro.headline} look={look} k={k} tS={tS} />
         ) : (
           <>

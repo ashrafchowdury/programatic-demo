@@ -166,7 +166,7 @@ export async function refreshSession(flow: Flow): Promise<void> {
       );
     }
     // A default storageState carries cookies + localStorage only, silently
-    // dropping IndexedDB. Agenta has not been shown to need it — isolated
+    // dropping IndexedDB. No app tested has needed it — isolated
     // contexts read and write fine either way — but the omission is invisible
     // until an app happens to keep a token there, and asking for the complete
     // picture costs nothing.

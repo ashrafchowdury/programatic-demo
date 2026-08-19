@@ -14,7 +14,7 @@ import { BEAT, defineFlow, type FlowContext } from "../scripts/lib/flow";
  * Default engine: DuckDuckGo HTML. Optional: USE_GOOGLE=1.
  * Run: pnpm clip:google
  */
-const QUERY = process.env.SEARCH_QUERY ?? "Agenta LLM ops playground";
+const QUERY = process.env.SEARCH_QUERY ?? "programmatic product demo videos";
 
 type Move = FlowContext["moveAndClick"];
 type Pause = FlowContext["pause"];

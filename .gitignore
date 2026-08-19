@@ -33,7 +33,7 @@ tours/*.json
 
 # --- Account-specific demo flows -------------------------------------------
 # The ENGINE is open source; the demos driven through it are not. Every flow
-# below is written against one Agenta workspace: it hardcodes that account's
+# below is written against one app workspace: it hardcodes that account's
 # playground URL, its agent names, and selectors for data only that account has.
 # They would not run for anyone else and they describe private content.
 #
@@ -49,6 +49,11 @@ flows/*
 
 # Kept on purpose: public/backdrop.jpg is a design asset, not pipeline output.
 !public/backdrop.jpg
+
+# Your brand mark, drawn on logo cards (LOGO_FILE in src/lib/intro.ts). Ignored
+# for the same reason the flows are: it is one company's logo, not the engine's.
+# Drop your own PNG here under this name.
+public/logo-mark.png
 
 # Intro copy is per-demo the same way flows are: it names that account's
 # product and features. Same carve-out — the worked example is committed.

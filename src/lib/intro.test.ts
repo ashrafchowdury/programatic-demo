@@ -29,7 +29,7 @@ const CARD: IntroStoryboard = defineIntro({
   name: "smoke",
   headline: "Give your agent a new skill",
   subhead: "In under a minute.",
-  wordmark: "Agenta",
+  wordmark: "Acme",
 });
 
 const logWith = (width: number, height: number): ClickLog => ({

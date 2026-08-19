@@ -195,7 +195,7 @@ Author it as **JSON** (no code) or **TS** (`intros/<name>.json` is loaded before
   "name": "agent-skill",
   "headline": "Give your agent a *new skill*",
   "subhead": "In under a minute.",
-  "wordmark": "Agenta"
+  "wordmark": "Acme"
 }
 ```
 
@@ -207,7 +207,7 @@ export default defineIntro({
   name: "agent-skill",              // must match the demo name
   headline: "Give your agent a *new skill*",
   subhead: "In under a minute.",    // optional
-  wordmark: "Agenta",               // optional
+  wordmark: "Acme",                 // optional
 });
 ```
 
@@ -273,7 +273,7 @@ export default defineReel({
   name: "agent-skill",
   segments: [
     { card: { name: "agent-skill", headline: "Introducing Skills",
-              wordmark: "Agenta", background: "plain" } },
+              wordmark: "Acme", background: "plain" } },
     { clip: { fromS: 0, toS: 3.2, label: "open the drawer" } },
     { card: { name: "agent-skill", headline: "Name it. Say when to use it.",
               background: "plain", holdS: 0.5 } },
@@ -303,10 +303,11 @@ near-white), `"plain"` (flat near-black) or `"plate"` (the default —
 `public/backdrop.jpg`, the same image the demo floats its window on, so a card at
 the very start or end joins the footage on an unchanged frame).
 
-Pick it by measuring, not by taste. Agenta is a light-theme app whose footage
-averages Y 181; against near-black cards every cut was a ~157-level slam, where
-the reference ad we benchmark against averages 63. Switching to `"light"` put
-every cut at 42. For a dark-theme product the answer inverts.
+Pick it by measuring, not by taste. The app these numbers come from is
+light-theme and its footage averages Y 181; against near-black cards every cut
+was a ~157-level slam, where the reference ad we benchmark against averages 63.
+Switching to `"light"` put every cut at 42. For a dark-theme product the answer
+inverts.
 
 **A cold open** is a short clip in first position followed immediately by a card
 — a few frames of product before anything is claimed about it. That shape is

@@ -3,7 +3,7 @@
  *   recordings/<name>.webm         — the raw screen recording (with fake cursor)
  *   public/<name>.clicks.json      — click log the Remotion composition reads
  *
- * Used for smoke, google-search, and any flow that does not need the Agenta
+ * Used for smoke, google-search, and any flow that does not need the
  * persistent profile. Authenticated demos go through `pnpm record:live <name>`.
  *
  * Usage: pnpm record <flow-name>            (default: smoke)

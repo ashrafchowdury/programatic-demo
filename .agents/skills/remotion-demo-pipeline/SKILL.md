@@ -29,7 +29,7 @@ calibrated so real Screen Studio clips pass. Needs a system ffmpeg.
 cd programatic-demo
 pnpm install
 pnpm exec playwright install chromium
-cp .env.example .env   # APP_BASE_URL only for Agenta live demos
+cp .env.example .env   # APP_BASE_URL only for live-app demos
 ```
 
 ## Reference rhythm (do this for every flow)
@@ -132,7 +132,7 @@ DEMO_SPEED=1.5 pnpm exec tsx scripts/render.ts skillsmp-search
 pnpm studio
 ```
 
-Agenta live (persistent profile in `.session-profile/`):
+Live app (persistent profile in `.session-profile/`):
 
 ```bash
 pnpm capture:session       # first run: log in, once
