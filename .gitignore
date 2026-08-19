@@ -63,3 +63,10 @@ intros/*
 # Reel storyboards name a specific demo's product surface, same as flows/ and
 # intros/. Nothing generic to commit yet.
 reels/*
+
+# Shot specs name one account's screens, same as flows/ and intros/. The
+# captured PNGs and their sidecars are pipeline output; out/shots/ is already
+# covered by the `out` rule above.
+shots/*
+!shots/smoke.ts
+public/shots/

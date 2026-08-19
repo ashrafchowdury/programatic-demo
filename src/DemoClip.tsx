@@ -9,38 +9,11 @@ import {
 import { Video } from "@remotion/media";
 import { CameraMotionBlur } from "@remotion/motion-blur";
 import { zoomAt, type ClickLog } from "./lib/zoom";
-import { DESIGN_WIDTH } from "./lib/click-log";
+import { CHROME_H, WINDOW_FIT } from "./lib/window";
 import { Cursor } from "./Cursor";
+import { RimLight, Stage, useDesignScale, WindowFrame } from "./WindowFrame";
 
 const round = (n: number) => Math.round(n);
-
-/**
- * Every length below is written at DESIGN_WIDTH and multiplied by this at render.
- *
- * Without it the design is accidentally pinned to 1080p: raise the output to
- * 2560 and the shadow radii, cursor and corner radius all render at 75% of their
- * tuned size, which reads as a flatter, harder-edged window rather than a
- * higher-resolution one. Scaling them keeps the composition looking identical at
- * any output size — only the rasterisation gets finer.
- */
-const useDesignScale = (): number => useVideoConfig().width / DESIGN_WIDTH;
-
-/** macOS titlebar height inside the window group (px at DESIGN_WIDTH). */
-const CHROME_H = 38;
-/**
- * Base float size of the window on the studio backdrop, before camera zoom.
- *
- * Trades gradient against legibility. The reference clips sit near 0.69, but
- * they frame a far simpler UI — Agenta at 1920px went unreadably small there.
- * 0.86 keeps a clear gradient margin with the app still legible at base scale.
- *
- * Coupled to S_MAX in src/lib/zoom.ts: what the viewer sees is WINDOW_FIT *
- * scale, and the 1080p source starts to soften past ~1.5x. Raise this and lower
- * S_MAX to match, or the zooms quietly start upscaling harder.
- */
-const WINDOW_FIT = 0.86;
-/** Corner radius of the floating window, shared by the window and its shadow. */
-const WINDOW_RADIUS = 14;
 
 export type DemoClipProps = {
   name: string;
@@ -106,63 +79,6 @@ export type DemoClipProps = {
  */
 const BACKDROP_FILE = "backdrop.jpg";
 
-/**
- * Window elevation, as a light rim rather than a cast shadow.
- *
- * ---------------------------------------------------------------------------
- * THE BANDING RULE: A SOFT GRADIENT MUST NOT LIVE INSIDE <CameraMotionBlur>.
- * ---------------------------------------------------------------------------
- * Measured on a still (frame 8, one pixel column just below the window, blue
- * channel):
- *
- *   samples={1}  184 195 198 199 205 205 208 ... 235 237   ~1 level/px, smooth
- *   samples={8}  188 189 197 195 204 203 204 ... 232 232   plateaus, steps of 7
- *
- * CameraMotionBlur renders N copies of its subtree and composites them at
- * fractional opacity. Every composite rounds to 8 bits, so a value that should
- * drift by a fraction of a level per pixel is pinned until it can jump a whole
- * step. Any soft falloff inside that tree is destroyed, at any blur radius.
- * So this lives OUTSIDE the shutter, as a sibling carrying the same camera
- * transform (see DemoClip). The glow below is exactly such a falloff.
- *
- * WHY A RIM AND NOT A SHADOW. A cast shadow works by being darker than what is
- * behind it, and on a near-black backdrop there is nothing darker — the old
- * violet shadow rendered but was invisible, leaving the window a hard white
- * rectangle cut out of the dark. Lifting the edge instead is the device
- * ray.so's dark frames use (Auth0: `0 0 0 1px rgb(255 255 255 / 10%)`).
- *
- * Judge changes from a magnified crop of the window's bottom-left corner; none
- * of this shows up in a scanline diff of the whole frame.
- */
-const RimLight: React.FC = () => {
-  const k = useDesignScale();
-  return (
-    <>
-      {/* Broad ambient lift: the pool of light the window sits in. */}
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          borderRadius: 60 * k,
-          background: "rgba(255,255,255,0.10)",
-          transform: "translateY(2%) scale(0.97, 0.96)",
-          filter: `blur(${90 * k}px)`,
-          pointerEvents: "none",
-        }}
-      />
-      {/* Hairline. A 1px step, so the shutter's stacking cannot band it. */}
-      <div
-        style={{
-          position: "absolute",
-          inset: -k,
-          borderRadius: (WINDOW_RADIUS + 1) * k,
-          boxShadow: `0 0 0 ${k}px rgba(255,255,255,0.14)`,
-          pointerEvents: "none",
-        }}
-      />
-    </>
-  );
-};
 
 /**
  * Drawn with <Img>, not a CSS background-image: Remotion blocks the frame until
@@ -233,19 +149,6 @@ function useCameraGroup(
   return { z, frame, fps, style };
 }
 
-/** Centres a camera group in the frame. */
-const Stage: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <AbsoluteFill
-    style={{
-      justifyContent: "center",
-      alignItems: "center",
-      overflow: "hidden",
-    }}
-  >
-    {children}
-  </AbsoluteFill>
-);
-
 /**
  * The window's shadow, tracking the camera but drawn outside the shutter.
  * See RimLight for why it cannot live with the window.
@@ -279,7 +182,6 @@ const WindowGroup: React.FC<DemoClipProps> = ({
   drift,
 }) => {
   const { z, frame, fps, style } = useCameraGroup(chrome, log, speed, drift);
-  const k = useDesignScale();
   const trimBefore = log.trimBeforeMs
     ? round((log.trimBeforeMs / 1000) * fps)
     : undefined;
@@ -288,113 +190,25 @@ const WindowGroup: React.FC<DemoClipProps> = ({
   return (
     <Stage>
       <div style={style}>
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            borderRadius: WINDOW_RADIUS * k,
-            overflow: "hidden",
-            background: "#fff",
-            display: "flex",
-            flexDirection: "column",
-            filter: "saturate(1.05) contrast(1.025) brightness(1.01)",
-            // Hard edges only: the top inner highlight, and nothing else. The
-            // outer hairline that used to sit here was a dark violet, sized to
-            // stop white dissolving into a light gradient; against the dark
-            // backdrop it read as a seam. Separation is RimLight's job now.
-            // Both are 1px steps, which the shutter's 8-bit stacking cannot
-            // band — every soft falloff belongs outside the shutter.
-            boxShadow: `inset 0 ${k}px 0 rgba(255,255,255,0.9)`,
-          }}
-        >
-          {chrome ? (
-            <div
-              style={{
-                flex: `0 0 ${CHROME_H * k}px`,
-                display: "flex",
-                alignItems: "center",
-                gap: 10 * k,
-                padding: `0 ${14 * k}px`,
-                background: "linear-gradient(180deg, #fafbfc 0%, #f0f2f5 100%)",
-                borderBottom: "1px solid rgba(15, 23, 42, 0.07)",
-                boxShadow: "inset 0 -1px 0 rgba(255,255,255,0.6)",
-              }}
-            >
-              <div style={{ display: "flex", gap: 7 * k, flexShrink: 0 }}>
-                {(
-                  [
-                    ["#ff5f57", "#e0443e"],
-                    ["#febc2e", "#dea123"],
-                    ["#28c840", "#1aab29"],
-                  ] as const
-                ).map(([fill, rim], i) => (
-                  <div
-                    key={i}
-                    style={{
-                      width: 11 * k,
-                      height: 11 * k,
-                      borderRadius: 99,
-                      background: `radial-gradient(circle at 35% 30%, ${fill} 0%, ${rim} 100%)`,
-                      boxShadow: `inset 0 0 0 ${0.5 * k}px rgba(0,0,0,0.12)`,
-                    }}
-                  />
-                ))}
-              </div>
-              <div
-                style={{
-                  flex: 1,
-                  height: 22 * k,
-                  borderRadius: 7 * k,
-                  background: "rgba(15, 23, 42, 0.045)",
-                  border: `${k}px solid rgba(15, 23, 42, 0.05)`,
-                  color: "rgba(15, 23, 42, 0.42)",
-                  fontSize: 11.5 * k,
-                  fontFamily:
-                    'ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif',
-                  fontWeight: 450,
-                  letterSpacing: "0.01em",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  padding: `0 ${12 * k}px`,
-                  overflow: "hidden",
-                  whiteSpace: "nowrap",
-                  textOverflow: "ellipsis",
-                }}
-              >
-                {hostLabel}
-              </div>
-              <div style={{ width: 52 * k, flexShrink: 0 }} />
-            </div>
-          ) : null}
-
-          <div
-            style={{
-              flex: 1,
-              position: "relative",
-              overflow: "hidden",
-              minHeight: 0,
-            }}
-          >
-            <Video
-              src={staticFile(`${name}.mp4`)}
-              trimBefore={trimBefore}
-              playbackRate={speed}
-              objectFit="fill"
-              style={{ width: "100%", height: "100%" }}
-            />
-            {/*
+        <WindowFrame chrome={chrome} hostLabel={hostLabel}>
+          <Video
+            src={staticFile(`${name}.mp4`)}
+            trimBefore={trimBefore}
+            playbackRate={speed}
+            objectFit="fill"
+            style={{ width: "100%", height: "100%" }}
+          />
+          {/*
             Drawn over the footage, inside the camera transform. No-ops on
             logs without a cursorTrack — those have the pointer baked into the
             recording already.
           */}
-            <Cursor
-              log={log}
-              timeS={(frame / fps) * speed - (log.offsetMs ?? 0) / 1000}
-              cameraScale={z.scale}
-            />
-          </div>
-        </div>
+          <Cursor
+            log={log}
+            timeS={(frame / fps) * speed - (log.offsetMs ?? 0) / 1000}
+            cameraScale={z.scale}
+          />
+        </WindowFrame>
       </div>
     </Stage>
   );

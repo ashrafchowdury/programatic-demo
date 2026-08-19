@@ -1,7 +1,8 @@
 import React from "react";
-import { Composition, staticFile } from "remotion";
+import { Composition, Still, staticFile } from "remotion";
 import { DemoClip, type DemoClipProps } from "./DemoClip";
 import { Intro, type IntroProps } from "./Intro";
+import { StillShot, type StillShotProps } from "./StillShot";
 import {
   DEFAULT_PLAYBACK_RATE,
   EMPTY_LOG,
@@ -10,6 +11,14 @@ import {
   type ClickLog,
 } from "./lib/click-log";
 import { compositionSize, introDurationInFrames } from "./lib/intro";
+import {
+  DEFAULT_PRESET,
+  fallbackShotMeta,
+  resolvePreset,
+  shotMetaProblem,
+  STILL_PRESETS,
+  type ShotMeta,
+} from "./lib/still";
 import smokeIntro from "../intros/smoke";
 
 const FPS = 30;
@@ -105,6 +114,49 @@ export const RemotionRoot: React.FC = () => {
             durationInFrames: introDurationInFrames(props.intro, FPS),
             ...compositionSize(log),
           };
+        }}
+      />
+      {/*
+        A 4K social image: one captured region of the app, framed on the same
+        backdrop the clips use. Unlike the two above it takes its SIZE from a
+        preset rather than from the recording, because the point of a still is
+        to fit somewhere specific — a link card, a 9:16 story — and the region's
+        own shape has nothing to do with that. See src/lib/still.ts.
+
+        Pass the preset through props: remotion still Still out.png
+          --props='{"name":"smoke","preset":"og"}'
+      */}
+      <Still
+        id="Still"
+        component={StillShot}
+        width={STILL_PRESETS[DEFAULT_PRESET].width}
+        height={STILL_PRESETS[DEFAULT_PRESET].height}
+        defaultProps={
+          {
+            name: CLIP_NAME,
+            meta: fallbackShotMeta(CLIP_NAME),
+          } satisfies StillShotProps
+        }
+        calculateMetadata={async ({ props }) => {
+          // The sidecar is written by scripts/shoot-still.ts and carries the
+          // region's real shape. Without it the window would be sized from a
+          // guess, so a missing or malformed one is worth saying out loud —
+          // but not worth refusing to open Studio over.
+          let meta: ShotMeta = fallbackShotMeta(props.name);
+          try {
+            const res = await fetch(staticFile(`shots/${props.name}.json`));
+            const raw = (await res.json()) as unknown;
+            const problem = shotMetaProblem(raw);
+            if (problem)
+              console.warn(`shots/${props.name}.json is ${problem} — using a default size`);
+            else meta = raw as ShotMeta;
+          } catch {
+            // Nothing shot yet. Studio still opens on the fallback.
+          }
+          const preset = resolvePreset(
+            (props as { preset?: string }).preset ?? process.env.DEMO_PRESET,
+          );
+          return { ...STILL_PRESETS[preset], props: { ...props, meta } };
         }}
       />
     </>

@@ -100,9 +100,13 @@ const SOURCES = {
     "src/Cursor.tsx",
     "src/lib/cursor.ts",
     "src/DemoClip.tsx",
+    "src/WindowFrame.tsx",
+    "src/lib/window.ts",
   ],
   clip: [
     "src/DemoClip.tsx",
+    "src/WindowFrame.tsx",
+    "src/lib/window.ts",
     "src/Cursor.tsx",
     "src/lib/zoom.ts",
     "src/lib/camera.ts",

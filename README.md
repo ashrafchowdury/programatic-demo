@@ -330,6 +330,82 @@ is about to show. Pacing is derived from the word count — there is nothing to
 time by hand. Give interstitials a short `holdS` (~0.5s); the 1.2s default is a
 title-card hold and reads as a stall mid-film.
 
+## Stills: one part of the app, at 4K
+
+Demos are video, and video from this pipeline can never be 4K — Playwright's
+screencast emits CSS-viewport pixels no matter what you ask it for. A
+**screenshot** is different: it reads the real compositor surface, so at a
+1920×1080 viewport with `deviceScaleFactor: 2` it really is 3840×2160.
+
+That is what a still is: a captured region of the app, framed on the same
+backdrop and in the same window as the clips, sized for wherever you are posting
+it.
+
+```bash
+pnpm still smoke                # capture + frame, 3840×2160
+pnpm still smoke og             # a 1200×630-shaped link card, at 2×
+pnpm still smoke --all          # every preset
+```
+
+A shot is authored like a flow, because the hard part is getting the app into
+the state worth photographing — not the photograph:
+
+```ts
+// shots/agent-skill.ts
+import { css } from "../scripts/lib/flow";
+import { defineShot } from "../scripts/lib/shot";
+
+export default defineShot({
+  name: "agent-skill",
+  viewport: { width: 1920, height: 1080 },
+  startUrl: process.env.DEMO_URL_AGENT_SKILL,
+  steps: [
+    { click: "Skills" },
+    { click: "Add skill", after: 800 },
+  ],
+  region: css("[data-panel=skills]"),   // the part to keep
+  padding: 24,
+});
+```
+
+`region` takes three forms. A **visible name** goes through the same ladder
+clicks use, so `region: "Save"` finds the Save button — but that ladder resolves
+*controls*, and most interesting regions (a sidebar, a results panel) have no
+accessible name, so **`css(...)`** is the usual answer. An explicit
+**`{ x, y, w, h }`** covers the rest. To pick one by eye:
+
+```bash
+pnpm shot smoke --probe
+```
+
+which drives the steps and then writes `.diag/shots/<name>.probe.png` — the full
+viewport under a 100px coordinate grid — plus a listing of what was on screen.
+Read the numbers off it and paste them in as a rect.
+
+### Presets
+
+| Preset | Canvas | For |
+| --- | --- | --- |
+| `wide` | 3840×2160 | 16:9 — the default, matches the demo videos |
+| `og` | 2400×1260 | X / LinkedIn / OpenGraph link cards (2× the canonical 1200×630) |
+| `square` | 2160×2160 | 1:1 feed posts |
+| `portrait` | 2160×2700 | 4:5 — the tallest an Instagram feed post may be |
+| `story` | 2160×3840 | 9:16 — stories, Reels, Shorts |
+
+Every preset holds its **short** edge at 2160, so the same capture carries the
+same detail whichever frame it lands in. The window takes the region's own
+shape and is fitted into the canvas on whichever axis binds first, so a wide
+region in a 9:16 frame letterboxes rather than being cropped.
+
+### Resolution
+
+`deviceScaleFactor` can only be set when the browser context is created, so the
+capture runs once at 2×, measures what the region actually came out to, and
+re-runs at a higher factor if it fell short. Set `scale` in the spec once a shot
+is settled to skip the second pass. If a region is too small to reach 4K even at
+4× — anything under about 960 CSS px — you get a warning saying so rather than a
+quietly upscaled image.
+
 ## How it works
 
 ```
@@ -387,13 +463,14 @@ a loud warning.
 
 ### Knobs
 
-Three env vars, all optional. Each one's reasoning and measurements live beside
+Four env vars, all optional. Each one's reasoning and measurements live beside
 the constant it controls, not here:
 
 | Var | Default | Does | Measured in |
 | --- | --- | --- | --- |
 | `DEMO_GL` | `angle` | Chromium's rasteriser, and the biggest lever here — `angle` is the real GPU, worth **roughly 10×** (a 23s demo renders in 2-3 min instead of 24). `swiftshader` is the no-GPU fallback — it works everywhere, but it is software too, so expect roughly the un-accelerated time | [`scripts/render.ts`](scripts/render.ts) |
 | `DEMO_SPEED` | `1.25` | Playback rate vs the shoot. `1` is realtime | [`src/lib/click-log.ts`](src/lib/click-log.ts) |
+| `DEMO_PRESET` | `wide` | Default still preset, when none is given on the command line | [`src/lib/still.ts`](src/lib/still.ts) |
 | `DEMO_CONCURRENCY` | Remotion's own | Frames rendered in parallel. Leave it unset — 6 workers measured 33% *slower* than the default. `1` is useful for debugging a render | [`scripts/render.ts`](scripts/render.ts) |
 
 ## Layout
@@ -408,6 +485,10 @@ the constant it controls, not here:
 | `src/lib/zoom.ts` | Keyframe track + region framing |
 | `src/DemoClip.tsx` | Studio frame, backdrop, shuttered motion blur |
 | `src/Intro.tsx` | Title-card composition (no motion blur) |
+| `src/StillShot.tsx` | Still composition: a captured region on a preset canvas |
+| `src/WindowFrame.tsx` | The floating window and its rim light, shared by both |
+| `src/lib/still.ts` | Social presets + window-fit geometry |
+| `shots/` | One file per still (`defineShot`) — only the example is committed |
 | `src/lib/intro.ts` | Storyboard type + card timing |
 | `intros/` | One title card per demo (`defineIntro`) — only the example is committed |
 | `reels/` | Narrative cuts: cards + clip ranges (`defineReel`) |
@@ -416,14 +497,15 @@ the constant it controls, not here:
 | `.agents/skills/` | Agent-readable pipeline docs |
 
 **What is not committed.** `out/`, `recordings/`, `public/*.mp4`,
-`public/*.clicks.json` and `tours/*.json` are all regenerated by the pipeline.
+`public/*.clicks.json`, `public/shots/` and `tours/*.json` are all regenerated
+by the pipeline.
 Demo flows written against a private workspace are ignored too — they hardcode
 one account's URLs, agent names and data-specific selectors, so they would not
 run for anyone else. The engine is the open-source part; your demos stay yours.
 `flows/smoke.ts`, `flows/google-search.ts` and `flows/skillsmp-search.ts` are
 committed because they are deliberately generic. `intros/` follows the same
 rule for the same reason — a title card names that account's product — with
-`intros/smoke.ts` committed as the worked example.
+`intros/smoke.ts` committed as the worked example, and `shots/` likewise.
 
 ## Reference
 

@@ -47,6 +47,19 @@ export type ContextSpec = {
    * Default 1 (today's behaviour).
    */
   captureScale?: number;
+  /**
+   * Device pixels per CSS px. Defaults to DEVICE_SCALE_FACTOR.
+   *
+   * Only the STILL pipeline overrides this. Video cannot use it — the screencast
+   * emits CSS-viewport pixels whatever the surface is (see DEVICE_SCALE_FACTOR)
+   * — but a screenshot is rasterised from the surface, so this is the one knob
+   * that makes a capture genuinely sharper. Measured: layout is byte-identical
+   * at 1/2/3/4 (same innerWidth, same bounding boxes), and only the raster
+   * changes, so raising it cannot move the page. It must be set HERE, at context
+   * creation: Playwright re-applies its own device-metrics override during
+   * every screenshot, so a later CDP override is silently discarded.
+   */
+  deviceScaleFactor?: number;
 };
 
 export type OpenContext = {
@@ -94,7 +107,7 @@ export async function openContext(
   const physicalViewport = scaledViewport(spec.viewport, scale);
   const common = {
     viewport: physicalViewport,
-    deviceScaleFactor: DEVICE_SCALE_FACTOR,
+    deviceScaleFactor: spec.deviceScaleFactor ?? DEVICE_SCALE_FACTOR,
     recordVideo: spec.recordVideo
       ? { dir: spec.recordVideo.dir, size: physicalViewport }
       : undefined,
@@ -179,7 +192,7 @@ export async function refreshSession(flow: Flow): Promise<void> {
 /** Poll a flow's readiness predicate, tolerating the auth redirect. */
 export async function waitForReady(
   page: import("playwright").Page,
-  flow: Flow,
+  flow: Pick<Flow, "ready">,
   timeoutMs = READY_TIMEOUT_MS,
 ): Promise<boolean> {
   if (!flow.ready) {
