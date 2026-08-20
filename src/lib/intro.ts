@@ -972,6 +972,7 @@ export function wordSchedule(
   headline: string,
   startS: number = HEADLINE_START_S,
   staggerS: number = WORD_STAGGER_S,
+  fadeS: number = WORD_IN_S,
 ): WordCue[] {
   // parseHeadline already yields the units in order — including the {chip} as a
   // single unit in sentence position — each carrying its own inline style.
@@ -991,7 +992,7 @@ export function wordSchedule(
       word: token.chip ? CHIP_TOKEN : token.text,
       index,
       startS: at,
-      endS: at + WORD_IN_S,
+      endS: at + fadeS,
     };
     if (token.style) cue.style = token.style;
     if (token.chip) cue.chip = true;
@@ -1051,7 +1052,12 @@ export function introTiming(intro: IntroStoryboard): IntroTiming {
     cadence.kind === "fitted"
       ? fittedStagger(wordsOf(intro.headline).length, trimInS, cadence, length)
       : cadence.staggerS;
-  const words = wordSchedule(intro.headline, headlineStartS, staggerS);
+  const words = wordSchedule(
+    intro.headline,
+    headlineStartS,
+    staggerS,
+    cadence.fadeS,
+  );
   const last = words[words.length - 1];
   // An empty headline still has to produce a coherent schedule, or Studio
   // cannot open a half-written storyboard.

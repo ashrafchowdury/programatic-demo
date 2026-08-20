@@ -27,6 +27,8 @@ import {
   type ClickLog,
 } from "../src/lib/click-log";
 import { cropUpscale, SHARPNESS_CEILING } from "../src/lib/crop";
+import { resolvePreset } from "../src/lib/style";
+import { buildXfadeFilter, dissolvedFrameCount } from "./lib/xfade";
 import {
   clipFrames,
   isCard,
@@ -345,30 +347,62 @@ async function main() {
   const hasAudio =
     (Array.isArray(reel.audio) && reel.audio.length > 0) || reel.sfx != null;
   const videoOnly = hasAudio ? path.join(workDir, `${name}.silent.mp4`) : out;
-  execFileSync(
-    REMOTION_BIN,
-    [
-      "ffmpeg",
-      "-y",
-      "-f",
-      "concat",
-      "-safe",
-      "0",
-      "-i",
-      list,
-      "-c",
-      "copy",
-      "-movflags",
-      "+faststart",
-      videoOnly,
-    ],
-    { stdio: "inherit" },
-  );
+  // A style that does not hard-cut cannot be stream-copied: xfade has to blend
+  // two decoded streams, so the whole film is re-encoded. Everything else still
+  // takes the -c copy path and stays byte-for-byte as before.
+  const join = resolvePreset(reel).join;
+  const overlapF = join.kind === "dissolve" ? join.frames : 0;
+  const counts = probes.map((p) => frameCount(p) ?? 0);
 
-  const counts = probes.map(frameCount);
-  const sum = counts.reduce((a: number, b) => a + (b ?? 0), 0);
+  if (overlapF > 0) {
+    // System ffmpeg: the bundled Remotion build is filter-whitelisted and has
+    // no xfade, the same reason the audio mux uses the system binary.
+    requireFfmpegVideo();
+    const inputs = parts.flatMap((f) => ["-i", f]);
+    execFileSync(
+      "ffmpeg",
+      [
+        "-y",
+        ...inputs,
+        "-filter_complex",
+        buildXfadeFilter(counts, FPS, overlapF),
+        "-map",
+        "[v]",
+        "-movflags",
+        "+faststart",
+        videoOnly,
+      ],
+      { stdio: "inherit" },
+    );
+  } else {
+    execFileSync(
+      REMOTION_BIN,
+      [
+        "ffmpeg",
+        "-y",
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+        list,
+        "-c",
+        "copy",
+        "-movflags",
+        "+faststart",
+        videoOnly,
+      ],
+      { stdio: "inherit" },
+    );
+  }
+
+  // Every join eats `overlapF` frames from both sides, so the expected total is
+  // not the plain sum once a style dissolves.
+  const sum = dissolvedFrameCount(counts, overlapF);
   const joined = frameCount(probe(videoOnly));
-  if (joined != null && sum !== joined)
+  // xfade lands within a frame of the arithmetic; -c copy is exact.
+  const slack = overlapF > 0 ? 1 : 0;
+  if (joined != null && Math.abs(sum - joined) > slack)
     throw new Error(
       `Frame count mismatch: segments total ${sum}, output has ${joined}.`,
     );
@@ -380,13 +414,15 @@ async function main() {
       videoOnly,
       out,
       runtimeS,
-      counts.map((c) => c ?? 0),
+      counts,
       log,
       speed,
+      overlapF,
     );
 
   console.log(
-    `\nsegments   -> ${parts.length} (${counts.map((c) => c ?? "?").join(" + ")})`,
+    `\nsegments   -> ${parts.length} (${counts.join(" + ")})` +
+      (overlapF > 0 ? `  dissolve ${overlapF}f` : ""),
   );
   console.log(`runtime    -> ${runtimeS.toFixed(1)}s`);
   console.log(`reel       -> ${path.relative(ROOT, out)}`);
@@ -405,9 +441,12 @@ function muxAudio(
   counts: number[],
   log: ClickLog,
   speed: number,
+  overlapF = 0,
 ): void {
   requireFfmpegAudio();
-  const bounds = segmentBoundsSeconds(counts, FPS);
+  // The bounds must be the DISSOLVED ones, or every tick fires progressively
+  // later than the footage it belongs to. See scripts/lib/xfade.ts.
+  const bounds = segmentBoundsSeconds(counts, FPS, overlapF);
   const resolved: ResolvedPiece[] = [];
   const paths: string[] = [];
   const durCache = new Map<string, number>();
@@ -497,6 +536,30 @@ function requireFfmpegAudio(): void {
     throw new Error(
       `This ffmpeg build lacks the ${missing.join(", ")} audio filter(s). ` +
         "Install a full build: `brew install ffmpeg`.",
+    );
+}
+
+/**
+ * The system ffmpeg must have `xfade`, which the bundled Remotion build lacks.
+ * Mirrors requireFfmpegAudio — fail before spending minutes on a render that
+ * cannot finish.
+ */
+function requireFfmpegVideo(): void {
+  let filters = "";
+  try {
+    filters = execFileSync("ffmpeg", ["-hide_banner", "-filters"], {
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+    });
+  } catch {
+    throw new Error(
+      "A dissolving style needs a system ffmpeg on PATH — `brew install ffmpeg`.",
+    );
+  }
+  if (!/\bxfade\b/.test(filters))
+    throw new Error(
+      "This ffmpeg build lacks the xfade filter, which a dissolving style " +
+        "needs. Install a full build: `brew install ffmpeg`.",
     );
 }
 

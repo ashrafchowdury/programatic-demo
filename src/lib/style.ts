@@ -41,7 +41,7 @@ import type { PushAxis } from "./push";
  * added when a reference film has been analysed into `docs/reel/<name>/` — see
  * "Adding a style" at the bottom of this file.
  */
-export const STYLES = ["classic", "proof", "narration"] as const;
+export const STYLES = ["classic", "proof", "narration", "ledger"] as const;
 export type ReelStyle = (typeof STYLES)[number];
 
 /**
@@ -77,9 +77,19 @@ export type MotionLayer = "cards" | "shots" | "both";
  * hardest rule, and the reason a 15-word card and a 7-word card end on the same
  * beat.
  */
-export type WordCadence =
+export type WordCadence = {
+  /**
+   * How long each word takes to arrive, in seconds. ZERO IS THE COMMON CASE and
+   * is not an omission: both Cursor films snap each word on in a single frame,
+   * because a word fading in over a card that is also moving reads as mush.
+   * A grammar whose cards hold perfectly still can afford a fade — monid ramps
+   * its type over 6 frames — which is why this is a field and not a constant.
+   */
+  fadeS: number;
+} & (
   | { kind: "fixed"; staggerS: number }
-  | { kind: "fitted"; staggerS: number; minStaggerS: number };
+  | { kind: "fitted"; staggerS: number; minStaggerS: number }
+);
 
 /**
  * How a shot arrives or leaves.
@@ -224,11 +234,33 @@ export type GrammarTargets = {
   cutDelta: "slam" | "matched";
 };
 
+/**
+ * How one shot joins the next.
+ *
+ * Named `join`, not `transition`: in a Remotion codebase `transition` reads as
+ * a CSS transition — which flickers, because it does not run off
+ * useCurrentFrame — and the lint rule for that fires on the word alone. This is
+ * an edit decision about two shots, not a property of an element.
+ *
+ * `cut` is a hard boundary and is what both Cursor films use exclusively.
+ * `dissolve` ramps between them over `frames` — monid's only transition,
+ * MEASURED at 6 frames (its luma walks 228 -> 216 -> 198 -> 165 -> 132 -> 114
+ * -> 98 with no single-frame jump anywhere in it).
+ *
+ * ⚠️ A dissolve cannot be stream-copied. The two segments it joins have to be
+ * re-encoded, so a reel using one is NOT byte-comparable against a cut reel —
+ * see scripts/reel.ts.
+ */
+export type ShotJoin =
+  | { kind: "cut" }
+  | { kind: "dissolve"; frames: number };
+
 export type StylePreset = {
   look: ReelLook;
   motionLayer: MotionLayer;
   card: CardStyle;
   shot: ShotStyle;
+  join: ShotJoin;
   chip: ChipStyle;
   palette: PaletteStyle;
   bookend: BookendStyle;
@@ -260,8 +292,9 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
   classic: {
     look: "framed",
     motionLayer: "both",
+    join: { kind: "cut" },
     card: {
-      cadence: { kind: "fixed", staggerS: 0.16 },
+      cadence: { kind: "fixed", staggerS: 0.16, fadeS: 0 },
       length: {
         holdS: 1.2,
         holdFrom: "settled",
@@ -329,8 +362,9 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
   proof: {
     look: "fullbleed",
     motionLayer: "cards",
+    join: { kind: "cut" },
     card: {
-      cadence: { kind: "fitted", staggerS: 0.16, minStaggerS: 0.1 },
+      cadence: { kind: "fitted", staggerS: 0.16, minStaggerS: 0.1, fadeS: 0 },
       length: {
         holdS: 2.07,
         holdFrom: "lastWord",
@@ -411,10 +445,11 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
   narration: {
     look: "fullbleed",
     motionLayer: "shots",
+    join: { kind: "cut" },
     card: {
       // 6f binary reveal — no fade, the word is simply there. Per shot 4 in
       // docs/reel/04-design-system.md.
-      cadence: { kind: "fixed", staggerS: 0.2 },
+      cadence: { kind: "fixed", staggerS: 0.2, fadeS: 0 },
       length: {
         // MEASURED here, over three cards, because the reference does NOT hold
         // this constant the way Film A does: shot 2 runs 39f of tail, shot 10
@@ -508,6 +543,103 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
       longestStillF: 75,
       // Film B keeps tonal continuity and lets MOTION carry the cut: white card
       // (235) to warm grey (210) is a delta of 25, where Film A slams ~200.
+      cutDelta: "matched",
+    },
+  },
+
+  /**
+   * monid's grammar: THE FILM THAT DOES NOT CUT.
+   *
+   * Named for its signature — a running cost counter that survives every change
+   * of content. Two thirds of the reference is ONE 22.73-second take in which
+   * components swap in place; its only transitions are two 6-frame dissolves.
+   * 6.9 cuts/min against Film B's 31.1, from the same composited-component
+   * framing. Same vocabulary, opposite pacing.
+   *
+   * Measured in docs/design/reels/choreography-references.md §3.
+   *
+   * ⚠️ WHAT IS NOT HERE YET. The persistent HUD — the `SPENT $0.00 -> $0.07`
+   * counter and the monospace step line — is what buys those 22 seconds: it
+   * carries the continuity that cutting would otherwise supply. It cannot be a
+   * preset field, because it spans segments and every segment renders
+   * independently. It needs a post-concat overlay pass, the way audio already
+   * works. Until then a `ledger` cut has this grammar's pacing and palette but
+   * not the thing that makes it hold together.
+   */
+  ledger: {
+    look: "fullbleed",
+    motionLayer: "shots",
+    // MEASURED: luma walks 228 -> 98 across six frames with no single-frame
+    // jump. The only reference of the four that does not hard-cut.
+    join: { kind: "dissolve", frames: 6 },
+    card: {
+      // Type FADES here rather than snapping — a 6-frame ink ramp, MEASURED on
+      // the opening card. A grammar whose cards hold still can afford it.
+      cadence: { kind: "fixed", staggerS: 0.2, fadeS: 0.2 },
+      length: {
+        // ⧗ Not separately measured. monid's cards hold far longer than either
+        // Cursor film (mean shot 6.93s), but its card tails were not isolated
+        // from its component beats. Carried from narration as the nearest
+        // measured grammar; re-measure before treating this as monid's.
+        holdS: 1.16,
+        holdFrom: "lastWord",
+        minS: null,
+        maxS: null,
+        trimInS: 0,
+      },
+      enter: { kind: "none" },
+      exit: { kind: "none" },
+    },
+    shot: {
+      framing: "isolate",
+      chrome: false,
+      windowFit: null,
+      cursor: true,
+      ripple: false,
+      enter: { kind: "none" },
+      exit: { kind: "none" },
+    },
+    // ⧗ monid has no chip punch. Carried from narration for structural
+    // completeness; a ledger reel using a chip is off-reference.
+    chip: {
+      punchScale: 4,
+      punchS: 0.1,
+      leadS: 0.03,
+      settleS: 0.03,
+      afterPressS: 0.03,
+    },
+    // MEASURED. Cream with a green cast, NOT white — rgb(247,251,243) — and one
+    // saturated accent ground carrying the price payoff. There is no third
+    // register: monid says everything in two grounds.
+    palette: {
+      plate: { ground: "#3255f6", ink: "#ffffff", muted: "rgba(255,255,255,0.72)" },
+      plain: { ground: "#f7fbf3", ink: "#0a0a0a", muted: "rgba(10,10,10,0.55)" },
+      light: { ground: "#f7fbf3", ink: "#0a0a0a", muted: "rgba(10,10,10,0.55)" },
+    },
+    // ⧗ monid's sign-off is a static wordmark, not a tumble. Carried.
+    bookend: {
+      tumbleS: 0.85,
+      turns: 1,
+      driftPxPerFrame: 2,
+      driftFrames: 14,
+    },
+    // ⧗ monid has no recap card. Carried.
+    recap: {
+      leadS: 0.17,
+      lockupStaggerS: 0.27,
+      itemsLeadS: 0.37,
+      itemStaggerS: 0.533,
+    },
+    source: {
+      file: "monid-claude-for-prospecting.mp4",
+      shots: 5,
+      durationS: 34.633,
+    },
+    targets: {
+      meanShotS: 6.93,
+      cutsPerMin: 6.9,
+      movingFrac: 0.261,
+      longestStillF: 77,
       cutDelta: "matched",
     },
   },

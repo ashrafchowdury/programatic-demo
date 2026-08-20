@@ -15,7 +15,8 @@
  * 1920 capture upscaled. This is REAL detail, not the upscaling a bigger render
  * gives — the source pixels genuinely exist.
  *
- * TWO THINGS THE ZOOM BREAKS, and how this handles them:
+ * THREE THINGS THE ZOOM BREAKS. Two are handled here; the third is a reason
+ * not to raise the scale on a given app at all:
  *
  *  1. `window.innerWidth/innerHeight` still report the PHYSICAL size, so apps
  *     that size panes off them overflow. The init script shims both getters to
@@ -36,6 +37,25 @@
  *
  *     The recorder still logs the measured overflow, so a target this does not
  *     rescue is still obvious.
+ *
+ *  3. FLOATING PORTALS CAN LAND OFF-SCREEN, and the overflow probe does not see
+ *     it. A popover positioned by a computed offset — Radix/floating-ui reading
+ *     getBoundingClientRect, which under `zoom` already returns zoomed pixels —
+ *     has the root zoom applied to that offset a SECOND time. Measured on the
+ *     agenta schedule drawer's cadence popover: 586px wide at scale 1, 2344px
+ *     at scale 2 (should be 1172) and 5274px at x6462 of a 5760-wide viewport
+ *     at scale 3, i.e. entirely outside the frame. The dropdown menu's items go
+ *     the same way and Playwright refuses to click them ("element is outside of
+ *     the viewport").
+ *
+ *     There is no fix on this side; it needs the app to position portals in a
+ *     way that survives a root zoom. What matters here is that it is INVISIBLE
+ *     to the checks above: vOverflow and hOverflow both read 1.000, the page
+ *     lays out perfectly, and anything positioned by CSS inset — a full-height
+ *     drawer, a modal — is pixel-correct at every scale. So a probe that opens
+ *     the drawer and measures it will report that HD capture works on an app
+ *     where the demo's own popovers are gone. Open every popover the flow
+ *     touches and check its box is inside the viewport before trusting a scale.
  *
  * Everything downstream (click rects, cursor track, log.viewport, the video)
  * lives in the PHYSICAL space and stays internally consistent — under `zoom`,
