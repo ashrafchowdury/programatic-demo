@@ -21,7 +21,12 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
-import { resolvePlaybackRate, type ClickLog } from "../src/lib/click-log";
+import {
+  OUTPUT_WIDTH,
+  resolvePlaybackRate,
+  type ClickLog,
+} from "../src/lib/click-log";
+import { cropUpscale, SHARPNESS_CEILING } from "../src/lib/crop";
 import {
   clipFrames,
   isCard,
@@ -253,7 +258,20 @@ async function main() {
       );
     } else {
       const { first, last } = clipFrames(segment.clip, FPS);
-      const { drift, crop, push, pageBg, cursor, ripple } = segment.clip;
+      const { drift, crop, push, pageBg, cursor, ripple, freeze } =
+        segment.clip;
+      // Report the framing's cost in source pixels before spending minutes on
+      // it. A `rect` framing derives its magnification from the component, so
+      // it can silently ask for more resolution than the shoot has — which is
+      // exactly the trade the author should be making on purpose. See
+      // SHARPNESS_CEILING in src/lib/crop.ts.
+      if (reel.look === "fullbleed" && crop) {
+        const up = cropUpscale(crop, log.viewport.width, OUTPUT_WIDTH);
+        const how = up > SHARPNESS_CEILING ? "OVER the ceiling" : "ok";
+        console.log(
+          `    framing  -> ${up.toFixed(2)}x source->output (${how}, ceiling ${SHARPNESS_CEILING})`,
+        );
+      }
       // Every key below is omitted when unset, so a framed clip renders with
       // exactly the props scripts/render.ts uses and its output stays
       // byte-identical to a plain `pnpm render`.
@@ -270,6 +288,7 @@ async function main() {
               ...(pageBg ? { pageBg } : {}),
               ...(cursor != null ? { cursor } : {}),
               ...(ripple != null ? { ripple } : {}),
+              ...(freeze ? { freeze } : {}),
             }
           : {};
       render(
