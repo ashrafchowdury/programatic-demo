@@ -54,6 +54,65 @@ export type CursorSample = {
   y: number;
 };
 
+/**
+ * A keyboard chord worth showing on screen.
+ *
+ * Separate from ClickEvent on purpose: a key press is not a pointer target, so
+ * it must not feed the zoom camera, the cursor track, or the click SFX
+ * detectors — all three key off ClickEvent and would misread it.
+ *
+ * The reference film is keyboard-first and has NO pointer anywhere; it
+ * announces every interaction with a keycap pill instead. See src/KeycapHUD.tsx.
+ */
+export type KeyEvent = {
+  /** Elapsed ms of the keydown, on the same clock as ClickEvent.tMs. */
+  tMs: number;
+  /** The chord as display glyphs, e.g. "⌥⏎". See chordGlyphs. */
+  chord: string;
+  /** What the chord did, for the log and for `atLabels` SFX cues. */
+  label?: string;
+};
+
+/**
+ * Playwright chord ("Alt+Enter") to the glyphs a viewer reads ("⌥⏎").
+ *
+ * Mac glyphs because the footage is shot on a Mac and the app draws its own
+ * hints the same way — the reference's own affordance reads "⌥↵ to Use as Mode",
+ * so a spelled-out "Alt+Enter" pill beside it would look like a different
+ * product.
+ */
+const KEY_GLYPHS: Record<string, string> = {
+  alt: "\u2325",
+  option: "\u2325",
+  meta: "\u2318",
+  cmd: "\u2318",
+  command: "\u2318",
+  control: "\u2303",
+  ctrl: "\u2303",
+  shift: "\u21e7",
+  enter: "\u23ce",
+  return: "\u23ce",
+  tab: "\u21e5",
+  escape: "esc",
+  esc: "esc",
+  backspace: "\u232b",
+  delete: "\u2326",
+  arrowup: "\u2191",
+  arrowdown: "\u2193",
+  arrowleft: "\u2190",
+  arrowright: "\u2192",
+  space: "space",
+};
+
+export const chordGlyphs = (chord: string): string =>
+  chord
+    .split("+")
+    .map((part) => {
+      const key = part.trim();
+      return KEY_GLYPHS[key.toLowerCase()] ?? key.toUpperCase();
+    })
+    .join("");
+
 export type ClickLog = {
   name: string;
   viewport: { width: number; height: number };
@@ -80,6 +139,12 @@ export type ClickLog = {
    */
   backdrop?: string;
   clicks: ClickEvent[];
+  /**
+   * Keyboard chords to surface as an on-screen keycap. Absent on every existing
+   * log, and drawn only under the full-bleed look, so nothing already recorded
+   * changes.
+   */
+  keys?: KeyEvent[];
 };
 
 export const EMPTY_LOG: ClickLog = {
