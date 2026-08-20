@@ -87,7 +87,19 @@ export type ReelClip = {
     freeze?: boolean;
   };
 };
-export type ReelSegment = ReelCard | ReelClip;
+/**
+ * How a segment arrives from the one before it, overriding its style's default.
+ *
+ * `segments[0].join` is meaningless — nothing precedes it — and is ignored.
+ *
+ * Exists because a dissolving style should not dissolve EVERYTHING. monid has
+ * ~4 boundaries and blends 2, both between sections; cross-fading a card into
+ * live UI on every join reads as muddy. So a ledger reel cuts by default within
+ * a section and asks for the blend where a section changes.
+ */
+export type SegmentJoin = "cut" | "dissolve";
+
+export type ReelSegment = (ReelCard | ReelClip) & { join?: SegmentJoin };
 
 /**
  * One audio piece laid onto the finished reel's timeline.

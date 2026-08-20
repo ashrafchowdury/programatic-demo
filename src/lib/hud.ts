@@ -70,9 +70,9 @@ export function hudSteps(
   log: ClickLog,
   speed: number,
   totalS: number,
-  overlapF = 0,
+  overlaps: number[] = [],
 ): HudStep[] {
-  const bounds = segmentBoundsSeconds(counts, fps, overlapF);
+  const bounds = segmentBoundsSeconds(counts, fps, overlaps);
   const offsetS = (log.offsetMs ?? 0) / 1000;
   const found: { label: string; startS: number }[] = [];
 

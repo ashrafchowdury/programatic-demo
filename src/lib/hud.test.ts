@@ -117,8 +117,8 @@ describe("hudSteps", () => {
     const beats = log([
       { tMs: 3000, tDownMs: 3000, label: "Enable harness", x: 0, y: 0 },
     ]);
-    const cut = hudSteps(SEGMENTS, COUNTS, FPS, beats, 1, TOTAL, 0);
-    const dis = hudSteps(SEGMENTS, COUNTS, FPS, beats, 1, TOTAL, 6);
+    const cut = hudSteps(SEGMENTS, COUNTS, FPS, beats, 1, TOTAL, [0, 0, 0]);
+    const dis = hudSteps(SEGMENTS, COUNTS, FPS, beats, 1, TOTAL, [6, 6, 6]);
     // segment 3 is pulled 3 * 6 frames = 0.6s earlier.
     assert.ok(Math.abs(cut[0].startS - dis[0].startS - 0.6) < 1e-9);
   });

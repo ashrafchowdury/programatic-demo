@@ -27,10 +27,11 @@ export type SegmentBounds = { startS: number[]; durS: number[] };
 /**
  * Prefix-sum the per-segment frame counts into reel-second boundaries.
  *
- * `overlapF` is the dissolve length for a style that does not hard-cut. Every
- * join before segment i has eaten `overlapF` frames, so its start pulls earlier
- * by `i * overlapF` — cumulative, not constant. Zero for a cutting style, which
- * is every reel today.
+ * `overlaps` is the dissolve length of each JOIN — one entry per boundary, so
+ * `overlaps[i-1]` precedes segment i. Segment i pulls earlier by the SUM of
+ * every join before it. A list rather than one number because a style may blend
+ * only some of its boundaries. Empty for a cutting style, which is every reel
+ * on disk.
  *
  * This has to agree with dissolvedStarts in scripts/lib/xfade.ts, which drives
  * the PICTURE while this drives SFX placement. xfade.test.ts asserts they do:
@@ -39,13 +40,15 @@ export type SegmentBounds = { startS: number[]; durS: number[] };
 export function segmentBoundsSeconds(
   counts: number[],
   fps: number,
-  overlapF = 0,
+  overlaps: number[] = [],
 ): SegmentBounds {
   const startS: number[] = [];
   const durS: number[] = [];
   let acc = 0;
+  let eaten = 0;
   for (let i = 0; i < counts.length; i++) {
-    startS.push((acc - i * overlapF) / fps);
+    if (i > 0) eaten += overlaps[i - 1] ?? 0;
+    startS.push((acc - eaten) / fps);
     durS.push(counts[i] / fps);
     acc += counts[i];
   }

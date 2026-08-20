@@ -11,11 +11,15 @@
  *     therefore NOT byte-comparable against one that cuts, and the byte-identity
  *     contract used everywhere else has to carve this out explicitly.
  *
- *  2. **It shortens the film.** Every dissolve consumes `overlapF` frames from
- *     BOTH sides, so N segments joined by N-1 dissolves lose (N-1) * overlapF
- *     frames in total. Segment starts shift earlier as they go, which matters
- *     well beyond the picture: SFX are placed against segment bounds, so a
- *     dissolving reel whose bounds were computed for cuts would fire every tick
+ *  2. **It shortens the film.** Every dissolve consumes its own `overlaps[i]`
+ *     frames from BOTH sides, so the film loses their sum. The joins are a LIST,
+ *     not one number, because the reference dissolves SELECTIVELY: monid blends
+ *     2 of its ~4 boundaries, both between sections, and blending every join
+ *     instead cross-fades cards into live UI, which reads as muddy.
+ *
+ *     Segment starts therefore shift earlier cumulatively, which matters well
+ *     beyond the picture: SFX are placed against segment bounds, so a dissolving
+ *     reel whose bounds were computed for cuts would fire every tick
  *     progressively later than its own footage.
  *
  * Pure string assembly, so the offsets can be checked without spawning ffmpeg.
@@ -34,30 +38,33 @@ const n = (x: number): string => String(Number(x.toFixed(6)));
  */
 export function dissolvedFrameCount(
   counts: number[],
-  overlapF: number,
+  overlaps: number[],
 ): number {
   const sum = counts.reduce((a, b) => a + b, 0);
-  if (counts.length < 2 || overlapF <= 0) return sum;
-  return sum - (counts.length - 1) * overlapF;
+  if (counts.length < 2) return sum;
+  return sum - overlaps.reduce((a, b) => a + b, 0);
 }
 
 /**
  * Reel-time start of each segment once the dissolves have pulled them together.
  *
- * Segment i loses `i * overlapF` frames of lead-in, because every join before it
- * overlapped. The value returned is where the segment BEGINS to appear — the
- * midpoint of its incoming dissolve is `overlapF / 2` later, which is the frame
- * a viewer would call the cut.
+ * Segment i loses the SUM of every join before it, not a multiple of one value —
+ * joins may differ, and a style that blends only some of them is the normal
+ * case. The value returned is where the segment begins to appear; the midpoint
+ * of its incoming dissolve is half that join later, which is the frame a viewer
+ * would call the cut.
  */
 export function dissolvedStarts(
   counts: number[],
   fps: number,
-  overlapF: number,
+  overlaps: number[],
 ): number[] {
   const starts: number[] = [];
   let acc = 0;
+  let eaten = 0;
   for (let i = 0; i < counts.length; i++) {
-    starts.push((acc - i * overlapF) / fps);
+    if (i > 0) eaten += overlaps[i - 1] ?? 0;
+    starts.push((acc - eaten) / fps);
     acc += counts[i];
   }
   return starts;
@@ -75,21 +82,24 @@ export function dissolvedStarts(
 export function buildXfadeFilter(
   counts: number[],
   fps: number,
-  overlapF: number,
+  overlaps: number[],
 ): string {
   if (counts.length < 2) return "";
-  const d = overlapF / fps;
   const parts: string[] = [];
   // Length of the chain built so far, in seconds.
   let acc = counts[0] / fps;
   let label = "[0:v]";
   for (let i = 1; i < counts.length; i++) {
     const out = i === counts.length - 1 ? "[v]" : `[x${i}]`;
+    // A join of zero is still an xfade node, with a duration of one frame —
+    // xfade cannot express "butt these together", and dropping the node would
+    // break the chain. Callers that want a pure cut should not be here at all.
+    const d = Math.max(overlaps[i - 1] ?? 0, 0) / fps;
     const offset = acc - d;
     parts.push(
       `${label}[${i}:v]xfade=transition=fade:duration=${n(d)}:offset=${n(offset)}${out}`,
     );
-    acc = offset + d + counts[i] / fps - d;
+    acc = offset + counts[i] / fps;
     label = out;
   }
   return parts.join(";");

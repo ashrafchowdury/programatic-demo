@@ -10,7 +10,7 @@ import { segmentBoundsSeconds } from "../../src/lib/reel-audio";
 // Three 30-frame segments at 30fps joined by monid's measured 6-frame dissolve.
 const COUNTS = [30, 30, 30];
 const FPS = 30;
-const OVERLAP = 6;
+const OVERLAP = [6, 6];
 
 describe("dissolvedFrameCount", () => {
   it("loses one overlap per join, not per segment", () => {
@@ -20,9 +20,9 @@ describe("dissolvedFrameCount", () => {
   });
 
   it("is the plain sum when nothing dissolves", () => {
-    assert.equal(dissolvedFrameCount(COUNTS, 0), 90);
-    assert.equal(dissolvedFrameCount([30], OVERLAP), 30, "one segment has no join");
-    assert.equal(dissolvedFrameCount([], OVERLAP), 0);
+    assert.equal(dissolvedFrameCount(COUNTS, [0, 0]), 90);
+    assert.equal(dissolvedFrameCount([30], []), 30, "one segment has no join");
+    assert.equal(dissolvedFrameCount([], []), 0);
   });
 });
 
@@ -34,7 +34,7 @@ describe("dissolvedStarts", () => {
   });
 
   it("matches a plain concat when the overlap is zero", () => {
-    assert.deepEqual(dissolvedStarts(COUNTS, FPS, 0), [0, 1, 2]);
+    assert.deepEqual(dissolvedStarts(COUNTS, FPS, [0, 0]), [0, 1, 2]);
   });
 
   it("keeps the last start inside the shortened film", () => {
@@ -97,11 +97,44 @@ describe("the picture and the audio agree", () => {
     // together, and the failure it prevents is silent: SFX drifting later and
     // later behind the footage they belong to.
     for (const counts of [[30, 30, 30], [96, 99, 126, 96], [50]])
-      for (const overlap of [0, 6, 12])
+      for (const o of [0, 6, 12]) {
+        const overlap = counts.slice(1).map(() => o);
         assert.deepEqual(
           dissolvedStarts(counts, FPS, overlap),
           segmentBoundsSeconds(counts, FPS, overlap).startS,
-          `counts=${counts} overlap=${overlap}`,
+          `counts=${counts} overlap=${o}`,
         );
+      }
+  });
+});
+
+describe("selective dissolves", () => {
+  it("blends only the joins that ask for it", () => {
+    // The reference dissolves 2 of ~4 boundaries. Blending all of them
+    // cross-fades cards into live UI, which is what the first ledger cut of
+    // harness looked like.
+    const f = buildXfadeFilter([30, 30, 30], FPS, [0, 6]);
+    const durs = [...f.matchAll(/duration=([0-9.]+)/g)].map((m) => Number(m[1]));
+    assert.deepEqual(durs, [0, 0.2]);
+  });
+
+  it("counts only the frames the blended joins actually eat", () => {
+    // 90 raw, one 6-frame join -> 84. Charging for both would report 78 and
+    // the frame-count check would then reject a correct render.
+    assert.equal(dissolvedFrameCount([30, 30, 30], [0, 6]), 84);
+  });
+
+  it("shifts starts by the joins BEFORE each segment, not a flat multiple", () => {
+    // segment 1 loses nothing, segment 2 loses the 6-frame join before it.
+    assert.deepEqual(dissolvedStarts([30, 30, 30], FPS, [0, 6]), [0, 1, 1.8]);
+  });
+
+  it("still agrees with the audio bounds when joins differ", () => {
+    for (const overlaps of [[0, 6], [6, 0], [3, 9], [0, 0]])
+      assert.deepEqual(
+        dissolvedStarts([30, 30, 30], FPS, overlaps),
+        segmentBoundsSeconds([30, 30, 30], FPS, overlaps).startS,
+        `overlaps=${overlaps}`,
+      );
   });
 });

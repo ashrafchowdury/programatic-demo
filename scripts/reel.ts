@@ -52,6 +52,7 @@ import { compareStreams, type FileProbe } from "./lib/stitch";
 import { outPath, outPathOf } from "./lib/out";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
+const DEFAULT_DISSOLVE_F = 6;
 const REMOTION_BIN = path.join(ROOT, "node_modules", ".bin", "remotion");
 const FPS = 30;
 
@@ -372,10 +373,20 @@ async function main() {
   // two decoded streams, so the whole film is re-encoded. Everything else still
   // takes the -c copy path and stays byte-for-byte as before.
   const join = preset.join;
-  const overlapF = join.kind === "dissolve" ? join.frames : 0;
+  const styleOverlapF = join.kind === "dissolve" ? join.frames : 0;
+  // One entry per BOUNDARY: overlaps[i] joins segment i to segment i+1. A
+  // segment's own `join` overrides its style's, so a dissolving style can still
+  // cut inside a section and blend only where a section changes — which is what
+  // the reference does. See SegmentJoin in src/lib/reel.ts.
+  const overlaps = reel.segments.slice(1).map((seg) => {
+    if (seg.join === "cut") return 0;
+    if (seg.join === "dissolve") return styleOverlapF || DEFAULT_DISSOLVE_F;
+    return styleOverlapF;
+  });
+  const dissolving = overlaps.some((o) => o > 0);
   const counts = probes.map((p) => frameCount(p) ?? 0);
 
-  if (overlapF > 0) {
+  if (dissolving) {
     // System ffmpeg: the bundled Remotion build is filter-whitelisted and has
     // no xfade, the same reason the audio mux uses the system binary.
     requireFfmpegVideo();
@@ -386,7 +397,7 @@ async function main() {
         "-y",
         ...inputs,
         "-filter_complex",
-        buildXfadeFilter(counts, FPS, overlapF),
+        buildXfadeFilter(counts, FPS, overlaps),
         "-map",
         "[v]",
         "-movflags",
@@ -419,10 +430,10 @@ async function main() {
 
   // Every join eats `overlapF` frames from both sides, so the expected total is
   // not the plain sum once a style dissolves.
-  const sum = dissolvedFrameCount(counts, overlapF);
+  const sum = dissolvedFrameCount(counts, overlaps);
   const joined = frameCount(probe(videoOnly));
   // xfade lands within a frame of the arithmetic; -c copy is exact.
-  const slack = overlapF > 0 ? 1 : 0;
+  const slack = dissolving ? overlaps.length : 0;
   if (joined != null && Math.abs(sum - joined) > slack)
     throw new Error(
       `Frame count mismatch: segments total ${sum}, output has ${joined}.`,
@@ -436,7 +447,7 @@ async function main() {
   // stream. Like a dissolve, it re-encodes.
   const hudSrc =
     preset.hud.kind === "steps"
-      ? overlayHud(reel, preset, videoOnly, workDir, counts, log, speed, overlapF, runtimeS)
+      ? overlayHud(reel, preset, videoOnly, workDir, counts, log, speed, overlaps, runtimeS)
       : videoOnly;
 
   if (hasAudio)
@@ -448,7 +459,7 @@ async function main() {
       counts,
       log,
       speed,
-      overlapF,
+      overlaps,
     );
 
   if (!hasAudio && hudSrc !== videoOnly) fs.copyFileSync(hudSrc, out);
@@ -457,7 +468,7 @@ async function main() {
 
   console.log(
     `\nsegments   -> ${parts.length} (${counts.join(" + ")})` +
-      (overlapF > 0 ? `  dissolve ${overlapF}f` : ""),
+      (dissolving ? `  dissolve ${overlaps.filter((o) => o > 0).length}x${styleOverlapF}f` : ""),
   );
   console.log(`runtime    -> ${runtimeS.toFixed(1)}s`);
   console.log(`reel       -> ${path.relative(ROOT, out)}`);
@@ -476,12 +487,12 @@ function muxAudio(
   counts: number[],
   log: ClickLog,
   speed: number,
-  overlapF = 0,
+  overlaps: number[] = [],
 ): void {
   requireFfmpegAudio();
   // The bounds must be the DISSOLVED ones, or every tick fires progressively
   // later than the footage it belongs to. See scripts/lib/xfade.ts.
-  const bounds = segmentBoundsSeconds(counts, FPS, overlapF);
+  const bounds = segmentBoundsSeconds(counts, FPS, overlaps);
   const resolved: ResolvedPiece[] = [];
   const paths: string[] = [];
   const durCache = new Map<string, number>();
@@ -594,7 +605,7 @@ function overlayHud(
   counts: number[],
   log: ClickLog,
   speed: number,
-  overlapF: number,
+  overlaps: number[],
   runtimeS: number,
 ): string {
   const steps = hudSteps(
@@ -604,7 +615,7 @@ function overlayHud(
     log,
     speed,
     runtimeS,
-    overlapF,
+    overlaps,
   );
   if (steps.length === 0) {
     console.log("hud        -> no labelled beats in any clip; skipped");
