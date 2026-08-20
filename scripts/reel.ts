@@ -620,6 +620,7 @@ function overlayHud(
     speed,
     runtimeS,
     overlaps,
+    reel.hud?.skipLabels ?? [],
   );
   if (steps.length === 0) {
     console.log("hud        -> no labelled beats in any clip; skipped");

@@ -43,12 +43,17 @@ export type HudStep = {
  * every internal move stops reading as a summary, which is the one thing it is
  * for.
  */
-function isStepworthy(beat: ClickEvent): boolean {
+function isStepworthy(beat: ClickEvent, skip: string[]): boolean {
   if (!beat.label) return false;
   // A real press. `focus()` beats place a camera keyframe without acting, and
   // narrating them would describe something the viewer cannot see happen.
   if (beat.tDownMs == null) return false;
-  return beat.label.trim().length > 1;
+  if (beat.label.trim().length <= 1) return false;
+  // Author's blacklist. The automatic rules above cannot tell a story beat from
+  // a plumbing one — both are real presses with real labels — because that
+  // distinction lives in the script, not in the recording.
+  const l = beat.label.toLowerCase();
+  return !skip.some((s) => s.length > 0 && l.includes(s.toLowerCase()));
 }
 
 /**
@@ -71,6 +76,7 @@ export function hudSteps(
   speed: number,
   totalS: number,
   overlaps: number[] = [],
+  skipLabels: string[] = [],
 ): HudStep[] {
   const bounds = segmentBoundsSeconds(counts, fps, overlaps);
   const offsetS = (log.offsetMs ?? 0) / 1000;
@@ -82,7 +88,7 @@ export function hudSteps(
     if (seg.clip.freeze) continue;
     const { fromS, toS } = seg.clip;
     for (const beat of log.clicks) {
-      if (!isStepworthy(beat)) continue;
+      if (!isStepworthy(beat, skipLabels)) continue;
       const demoSec = (beat.tDownMs ?? beat.tMs) / 1000 / speed - offsetS;
       if (demoSec < fromS || demoSec >= toS) continue;
       found.push({

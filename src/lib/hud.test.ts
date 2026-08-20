@@ -175,3 +175,39 @@ describe("stepAt", () => {
     assert.equal(stepAt([], 3), null);
   });
 });
+
+describe("skipLabels", () => {
+  const beats = [
+    { tMs: 1000, tDownMs: 1000, label: "Add schedule", x: 0, y: 0 },
+    { tMs: 1400, tDownMs: 1400, label: "open cadence", x: 0, y: 0 },
+    { tMs: 1800, tDownMs: 1800, label: "Daily", x: 0, y: 0 },
+  ];
+
+  it("drops plumbing beats and renumbers what is left", () => {
+    // The automatic rules cannot tell a story beat from a plumbing one — both
+    // are real presses with real labels — because that distinction lives in the
+    // script, not in the recording. Renumbering matters: a line reading 1, 3, 4
+    // tells the viewer they missed something.
+    const steps = hudSteps(SEGMENTS, COUNTS, FPS, log(beats), 1, TOTAL, [], [
+      "open cadence",
+    ]);
+    assert.deepEqual(
+      steps.map((s) => `${s.index} ${s.label}`),
+      ["1 Add schedule", "2 Daily"],
+    );
+  });
+
+  it("matches case-insensitively and on substrings", () => {
+    const steps = hudSteps(SEGMENTS, COUNTS, FPS, log(beats), 1, TOTAL, [], [
+      "CADENCE",
+    ]);
+    assert.equal(steps.length, 2);
+  });
+
+  it("keeps every beat when the list is empty or blank", () => {
+    // A blank entry must not match everything — `"".includes` is always true,
+    // which would silently empty the HUD.
+    assert.equal(hudSteps(SEGMENTS, COUNTS, FPS, log(beats), 1, TOTAL, [], []).length, 3);
+    assert.equal(hudSteps(SEGMENTS, COUNTS, FPS, log(beats), 1, TOTAL, [], [""]).length, 3);
+  });
+});

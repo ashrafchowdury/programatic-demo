@@ -99,6 +99,25 @@ export type ReelClip = {
  */
 export type SegmentJoin = "cut" | "dissolve";
 
+/**
+ * Tuning for the step HUD, when the style draws one.
+ *
+ * The steps derive from the click log for free, which is the point — but a flow
+ * is labelled for the RECORDER, so some of its beats are plumbing. On the
+ * schedule flow, "open cadence", "close cadence" and "open 09:00" are internal
+ * moves the viewer does not need named, and a line that narrates all nine reads
+ * as a click log rather than the three-or-four-step summary the reference
+ * shows.
+ *
+ * A blacklist rather than a whitelist on purpose: the derived list stays the
+ * default, so a reel that says nothing still gets a HUD, and adding a beat to
+ * the flow does not silently drop it from the film.
+ */
+export type ReelHud = {
+  /** Drop beats whose label contains any of these (case-insensitive). */
+  skipLabels?: string[];
+};
+
 export type ReelSegment = (ReelCard | ReelClip) & { join?: SegmentJoin };
 
 /**
@@ -211,6 +230,8 @@ export type Reel = {
   sfx?: ReelSfx;
   /** Duck `bed` pieces under `lead`/`sfx`. Absent = off. */
   duck?: boolean | ReelDuck;
+  /** Step-HUD tuning. Only read when the style draws one. */
+  hud?: ReelHud;
   /** Visual treatment of the footage. Absent = "framed", i.e. unchanged. */
   look?: ReelLook;
   /**
