@@ -595,7 +595,12 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
       settleS: 0.03,
       afterPressS: 0.03,
     },
-    // ⧗ Film B's headline metrics were not measured. Carried from proof.
+    // MEASURED, and it turns out to match proof: Film B's headline cap runs
+    // 51, 51, 52, 54 px across shots 2, 10, 14 and 16 — mean 52, the same scale
+    // Film A uses. Its cards are also SINGLE LINE throughout, which is why no
+    // pitch is quoted: nothing wraps, so the reference has no line pitch to
+    // measure. The two films share a type scale and disagree on everything
+    // else, which is itself worth knowing.
     type: {
       sizePx: 72,
       lineHeight: 1.194,
@@ -616,8 +621,11 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
       // the narration voice — every sentence that states a capability
       light: { ground: "#ffffff", ink: "#0a0a0a", muted: "rgba(10,10,10,0.55)" },
     },
-    // ⧗ Tumble duration and turn count were never measured; carried from proof.
-    // The LENGTH was: Film B's logo card is shot 17, f837-926 = 90f = 3.0s.
+    // ⧗ Tumble duration and turn count carried from proof. NOT for want of
+    // trying: shot 17's cube sits on a purple field, so its ink is ~1.3M px and
+    // the tumble moves it by ~2000 — under the noise. Isolating it needs a
+    // colour-band pass on the cube itself. The LENGTH is MEASURED: shot 17 runs
+    // f837-926 = 90f = 3.0s.
     bookend: {
       tumbleS: 0.85,
       turns: 1,
@@ -625,8 +633,10 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
       driftFrames: 14,
       minS: 3.0,
     },
-    // ⧗ Film B has no recap card. These are proof's, kept so the preset is
-    // structurally complete; a narration reel with a recap is off-reference.
+    // ⧗ UNMEASURABLE, not unmeasured: Film B has no recap card at all. These
+    // are proof's, kept so the preset is structurally complete. A narration
+    // reel that uses a recap is off-reference by construction, and no amount of
+    // looking at the film will produce a number for it.
     recap: {
       leadS: 0.17,
       lockupStaggerS: 0.27,
@@ -681,10 +691,11 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
       // the opening card. A grammar whose cards hold still can afford it.
       cadence: { kind: "fixed", staggerS: 0.2, fadeS: 0.2 },
       length: {
-        // ⧗ Not separately measured. monid's cards hold far longer than either
-        // Cursor film (mean shot 6.93s), but its card tails were not isolated
-        // from its component beats. Carried from narration as the nearest
-        // measured grammar; re-measure before treating this as monid's.
+        // ⧗ STRUCTURALLY UNMEASURABLE on this reference. A card tail is the gap
+        // between the last word and the CUT — and monid does not cut between
+        // its cards. Its copy is replaced within one continuous 22.7s take, so
+        // there is no boundary to measure to. Carried from narration as the
+        // nearest measured grammar. Closing this needs a reference that cuts.
         holdS: 1.16,
         holdFrom: "lastWord",
         minS: null,
@@ -703,8 +714,8 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
       enter: { kind: "none" },
       exit: { kind: "none" },
     },
-    // ⧗ monid has no chip punch. Carried from narration for structural
-    // completeness; a ledger reel using a chip is off-reference.
+    // ⧗ UNMEASURABLE — monid has no chip punch at all. Carried from narration
+    // for structural completeness; a ledger reel using a chip is off-reference.
     chip: {
       punchScale: 4,
       punchS: 0.1,
@@ -739,7 +750,7 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
       driftFrames: 14,
       minS: 2.63,
     },
-    // ⧗ monid has no recap card. Carried.
+    // ⧗ UNMEASURABLE — monid has no recap card. Carried, same as narration.
     recap: {
       leadS: 0.17,
       lockupStaggerS: 0.27,
