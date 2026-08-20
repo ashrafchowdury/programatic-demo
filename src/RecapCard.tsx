@@ -11,6 +11,7 @@ import {
   type IntroStoryboard,
 } from "./lib/intro";
 import { settle } from "./lib/push";
+import { DEFAULT_LOOK } from "./lib/look";
 import { useDesignScale } from "./WindowFrame";
 
 /**
@@ -45,6 +46,21 @@ export const RECAP_ITEM_SIZE = 64;
 /** The mark rises 8px as it lands, the only motion inside the card. */
 export const RECAP_RISE = 8;
 export const RECAP_RISE_S = 0.2;
+/**
+ * ITEMS RISE TOO — the same 8px, on the same clock. The constant was already
+ * here; only the mark was using it.
+ *
+ * An item's APPEARANCE is binary, which is what docs/reel/02-motion.md records:
+ * ink goes 0 -> 14749 between two frames. But it is not finished when it
+ * appears. Tracking the ink band of the reference's first recap item across its
+ * reveal, the top edge reads
+ *
+ *     f1115 317   f1116 314   f1117 312   f1118 311   f1119 310   f1122 309
+ *
+ * — an 8px rise decelerating over six frames, i.e. RECAP_RISE on RECAP_RISE_S,
+ * which is exactly what the mark does. The doc even says "no per-item rise
+ * larger than the 8px already in RECAP_RISE"; the items simply never got it.
+ */
 
 /** When each element lands, in seconds from the card's first frame. */
 export function recapSchedule(n: number): {
@@ -70,13 +86,15 @@ export const RecapCard: React.FC<{ intro: IntroStoryboard }> = ({ intro }) => {
   const { fps } = useVideoConfig();
   const k = useDesignScale();
   const tS = frame / fps;
-  const look = introLook(intro.background);
+  const look = introLook(intro.background, intro.look ?? DEFAULT_LOOK);
   const items = intro.items ?? [];
   const at = recapSchedule(items.length);
 
-  // Binary reveal, exactly like a headline word: measured, each item appears
-  // complete in a single frame with no ramp.
+  // Presence is binary — an item is on screen or it is not, never part-way —
+  // but what happens AFTER it lands is a settle. See RECAP_ITEM_RISE.
   const shown = (s: number): boolean => tS >= s;
+  const riseAfter = (s: number): number =>
+    settle(RECAP_RISE_S > 0 ? (tS - s) / RECAP_RISE_S : 1);
   // The mark is the one thing that moves, and only 8px.
   const markRise =
     settle(RECAP_RISE_S > 0 ? (tS - at.markS) / RECAP_RISE_S : 1) * RECAP_RISE;
@@ -129,6 +147,7 @@ export const RecapCard: React.FC<{ intro: IntroStoryboard }> = ({ intro }) => {
               fontSize: RECAP_ITEM_SIZE * k,
               lineHeight: 1,
               whiteSpace: "pre",
+              transform: `translateY(${riseAfter(at.itemsS[i]) * RECAP_RISE * k}px)`,
             }}
           >
             {item}
