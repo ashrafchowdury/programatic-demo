@@ -18,9 +18,7 @@ import {
   CHIP_PUNCH_SCALE,
   flooredEntry,
   FONT_STACK,
-  FULLBLEED_HEADLINE_SIZE,
   FULLBLEED_LETTER_SPACING,
-  FULLBLEED_LINE_HEIGHT,
   headlineParts,
   introLook,
   introTiming,
@@ -58,7 +56,6 @@ const useDesignScale = (): number => useVideoConfig().width / DESIGN_WIDTH;
 
 /** Left inset of the text column. */
 const MARGIN_X = 168;
-const HEADLINE_SIZE = 96;
 /**
  * Logo sign-off lockup: mark and wordmark on ONE line. The mark height is set
  * a touch above the wordmark's cap so the two read as a pair rather than the
@@ -551,10 +548,13 @@ const SentenceCard: React.FC<IntroProps> = ({ intro }) => {
             // reference (see FULLBLEED_HEADLINE_SIZE for why it is specified by
             // rendered metrics). The framed values below were tuned against a
             // photographic backdrop and stay as they were.
-            fontSize: (fullbleed ? FULLBLEED_HEADLINE_SIZE : HEADLINE_SIZE) * k,
+            // The style owns the type scale. See TypeStyle in src/lib/style.ts
+            // for why it is specified by rendered metrics rather than by
+            // nominal size, and for where the four reference films sit.
+            fontSize: preset.type.sizePx * k,
             fontWeight: HEADLINE_WEIGHT,
-            letterSpacing: fullbleed ? FULLBLEED_LETTER_SPACING : "-0.022em",
-            lineHeight: fullbleed ? FULLBLEED_LINE_HEIGHT : 1.12,
+            letterSpacing: preset.type.letterSpacing,
+            lineHeight: preset.type.lineHeight,
             color: look.headline,
             // BALANCED, not greedy. The reference does not fill each line to the
             // column before wrapping: on its 3-line card the lines run 54%/52%/47%

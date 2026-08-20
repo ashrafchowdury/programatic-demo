@@ -16,7 +16,7 @@
  *
  * Usage: pnpm reel <name>   (default: agent-skill)
  */
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -420,6 +420,8 @@ async function main() {
       overlapF,
     );
 
+  reportLoudness(reel, hasAudio ? out : null);
+
   console.log(
     `\nsegments   -> ${parts.length} (${counts.join(" + ")})` +
       (overlapF > 0 ? `  dissolve ${overlapF}f` : ""),
@@ -537,6 +539,57 @@ function requireFfmpegAudio(): void {
       `This ffmpeg build lacks the ${missing.join(", ")} audio filter(s). ` +
         "Install a full build: `brew install ffmpeg`.",
     );
+}
+
+/**
+ * Print the cut's loudness beside its style's reference. ADVISORY — it sets
+ * nothing.
+ *
+ * Audio deliberately stays per-reel: a style that silently mutes or un-mutes a
+ * film is a nasty surprise. But the four references span 23 LU — Film B ships
+ * silent, Film A sits at -31.3, monid at -14.5, Uber at a brick-walled -8.2 —
+ * so "is this reel in the right register for the grammar it is cut in" is a
+ * real question that used to have no answer at all.
+ *
+ * Never throws. A missing ffmpeg or an unreadable file costs an advisory line,
+ * not a render.
+ */
+function reportLoudness(reel: Reel, file: string | null): void {
+  const ref = resolvePreset(reel).source?.loudnessLUFS ?? null;
+  if (!file) {
+    if (ref != null)
+      console.log(
+        `loudness   -> this reel is SILENT; its reference sits at ${ref} LUFS`,
+      );
+    return;
+  }
+  let measured: number | null = null;
+  try {
+    // ebur128 writes its summary to STDERR, not stdout — execFileSync returns
+    // only stdout, so reading that gets an empty string and silently no line.
+    const r = spawnSync(
+      "ffmpeg",
+      ["-nostats", "-i", file, "-filter_complex", "ebur128", "-f", "null", "-"],
+      { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 },
+    );
+    // ebur128 prints a RUNNING integrated value every frame and the true one
+    // only in its Summary. The first match is the pre-roll (-70.0, i.e.
+    // silence); take the last.
+    const all = [...(r.stderr ?? "").matchAll(/I:\s*(-?[0-9.]+)\s*LUFS/g)];
+    if (all.length) measured = Number(all[all.length - 1][1]);
+  } catch {
+    return;
+  }
+  if (measured == null) return;
+  if (ref == null) {
+    console.log(`loudness   -> ${measured.toFixed(1)} LUFS (no reference)`);
+    return;
+  }
+  const d = measured - ref;
+  const how = Math.abs(d) < 1 ? "on reference" : `${d > 0 ? "+" : ""}${d.toFixed(1)} LU`;
+  console.log(
+    `loudness   -> ${measured.toFixed(1)} LUFS · reference ${ref} · ${how}`,
+  );
 }
 
 /**

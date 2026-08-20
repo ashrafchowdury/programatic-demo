@@ -63,11 +63,16 @@ export const DEFAULT_STYLE: ReelStyle = "classic";
  * Which layer carries the motion. The invariant that makes a grammar a grammar
  * rather than a bag of numbers.
  *
- * Both reference films obey it strictly and OPPOSITELY: Film A's shots are
- * static so its cards move; Film B's cards are static so its shots move. A
- * grammar that moves both at once reads as busy.
+ * Film A's shots are static so its cards move; Film B's cards are static so its
+ * shots move. A grammar that moves both at once reads as busy.
+ *
+ * `"type"` is OBSERVED BUT NOT IMPLEMENTED. Uber's film puts the motion on
+ * neither layer — the glyphs themselves transform, along curved baselines, as
+ * outlines, as ghost stacks, which is why it moves 81.2% of its frames against
+ * Film A's 24.1%. No preset can express that; it is a component library. The
+ * value exists so the axis is recorded rather than quietly missing.
  */
-export type MotionLayer = "cards" | "shots" | "both";
+export type MotionLayer = "cards" | "shots" | "both" | "type";
 
 /**
  * How words arrive on a card.
@@ -208,6 +213,29 @@ export type Ground = { ground: string; ink: string; muted: string };
  */
 export type PaletteStyle = Record<GroundKey, Ground>;
 
+/**
+ * The headline type scale.
+ *
+ * SPECIFIED BY RENDERED METRICS, not by nominal font-size: `font-size` only
+ * means something once you know the face's cap ratio, and a reader with a
+ * different face cannot reproduce a film from it. `sizePx` is what CSS gets;
+ * the cap height and pitch it produces are recorded beside it so a face change
+ * is checkable.
+ *
+ * Worth knowing where the references sit, because our full-bleed is the
+ * smallest of the four: Film A caps at 52px, monid at ~70px on a 181px pitch,
+ * Uber at ~75px. Type scale is the single most visible difference between them
+ * and it was hard-coded until now.
+ */
+export type TypeStyle = {
+  sizePx: number;
+  lineHeight: number;
+  letterSpacing: string;
+  /** MEASURED cap height and line pitch at 1920 wide, for cross-checking. */
+  capPx: number;
+  pitchPx: number;
+};
+
 export type RecapStyle = {
   leadS: number;
   lockupStaggerS: number;
@@ -220,6 +248,16 @@ export type StyleSource = {
   file: string;
   shots: number;
   durationS: number;
+  /**
+   * The reference's own integrated loudness, or null if it ships silent.
+   *
+   * ADVISORY ONLY — nothing reads this to set a level. Audio stays per-reel
+   * because a style that silently mutes or un-mutes a film is a nasty surprise.
+   * But the four references span 23 LU, from Film B's silence to Uber's
+   * brick-walled -8.2, and that spread is a grammar decision worth surfacing:
+   * scripts/reel.ts prints how far a cut sits from its own reference.
+   */
+  loudnessLUFS: number | null;
 };
 
 /**
@@ -263,6 +301,7 @@ export type StylePreset = {
   join: ShotJoin;
   chip: ChipStyle;
   palette: PaletteStyle;
+  type: TypeStyle;
   bookend: BookendStyle;
   recap: RecapStyle;
   source: StyleSource | null;
@@ -320,6 +359,14 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
       leadS: 0.18,
       settleS: 0.03,
       afterPressS: 0.3,
+    },
+    // Tuned against a photographic backdrop, not measured off a film.
+    type: {
+      sizePx: 96,
+      lineHeight: 1.12,
+      letterSpacing: "-0.022em",
+      capPx: 69,
+      pitchPx: 108,
     },
     // One voice: the framed look has always had a dark plate and a light
     // alternative, chosen per card rather than assigned by role.
@@ -392,6 +439,15 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
       settleS: 0.03,
       afterPressS: 0.3,
     },
+    // MEASURED off Film A: 72px on a 1.194 pitch with no tracking, giving a
+    // 52px cap on an 86px line pitch.
+    type: {
+      sizePx: 72,
+      lineHeight: 1.194,
+      letterSpacing: "0em",
+      capPx: 52,
+      pitchPx: 86,
+    },
     // Film A runs two grounds and alternates them on every cut, which is what
     // makes its ~200-level slams. MEASURED off the reference.
     palette: {
@@ -415,6 +471,7 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
       file: "cursor-agent-ux-imrpovments-intro.mp4",
       shots: 12,
       durationS: 43.87,
+      loudnessLUFS: -31.3,
     },
     targets: {
       meanShotS: 3.66,
@@ -502,6 +559,14 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
       settleS: 0.03,
       afterPressS: 0.03,
     },
+    // ⧗ Film B's headline metrics were not measured. Carried from proof.
+    type: {
+      sizePx: 72,
+      lineHeight: 1.194,
+      letterSpacing: "0em",
+      capPx: 52,
+      pitchPx: 86,
+    },
     // GROUNDS BY ROLE — the whole point, see PaletteStyle. Hexes MEASURED in
     // docs/reel/03-composition.md: pure white (unlike Film A's warm off-white),
     // the #E6E4E0 warm grey that every isolated component stands on, and the
@@ -535,6 +600,8 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
       file: "cursor_origin_intro.mp4",
       shots: 17,
       durationS: 30.9,
+      // Film B ships with no audio at all. Silence is a design decision.
+      loudnessLUFS: null,
     },
     targets: {
       meanShotS: 1.817,
@@ -608,6 +675,16 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
       settleS: 0.03,
       afterPressS: 0.03,
     },
+    // MEASURED on monid's opening card: cap ~70px on a 181px line pitch. The
+    // pitch is unusually open — 2.6x the cap against Film A's 1.65x — which is
+    // what makes a card of two lines read as two separate statements.
+    type: {
+      sizePx: 98,
+      lineHeight: 1.85,
+      letterSpacing: "-0.01em",
+      capPx: 70,
+      pitchPx: 181,
+    },
     // MEASURED. Cream with a green cast, NOT white — rgb(247,251,243) — and one
     // saturated accent ground carrying the price payoff. There is no third
     // register: monid says everything in two grounds.
@@ -634,6 +711,7 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
       file: "monid-claude-for-prospecting.mp4",
       shots: 5,
       durationS: 34.633,
+      loudnessLUFS: -14.5,
     },
     targets: {
       meanShotS: 6.93,
@@ -644,6 +722,75 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
     },
   },
 };
+
+/**
+ * Every reference film we have measured, including the ones no style implements.
+ *
+ * Separate from STYLE_PRESETS on purpose. A film here is a MEASUREMENT; a style
+ * is something we can build. Uber sits in this table and nowhere else, because
+ * its grammar is a typography engine rather than a set of numbers — see
+ * docs/design/reels/choreography-references.md §4. Recording it keeps the
+ * measurements addressable without implying a preset that would render a film
+ * nobody chose.
+ */
+export const REFERENCE_FILMS: {
+  file: string;
+  label: string;
+  style: ReelStyle | null;
+  durationS: number;
+  shots: number;
+  movingFrac: number;
+  cutsPerMin: number;
+  loudnessLUFS: number | null;
+  note?: string;
+}[] = [
+  {
+    file: "cursor-agent-ux-imrpovments-intro.mp4",
+    label: "Cursor — Agent UX improvements",
+    style: "proof",
+    durationS: 43.87,
+    shots: 12,
+    movingFrac: 0.241,
+    cutsPerMin: 15.0,
+    loudnessLUFS: -31.3,
+  },
+  {
+    file: "cursor_origin_intro.mp4",
+    label: "Cursor — Origin / Code Hosting",
+    style: "narration",
+    durationS: 30.9,
+    shots: 17,
+    movingFrac: 0.368,
+    cutsPerMin: 31.1,
+    loudnessLUFS: null,
+  },
+  {
+    file: "monid-claude-for-prospecting.mp4",
+    label: "monid — Claude for prospecting",
+    style: "ledger",
+    durationS: 34.633,
+    shots: 5,
+    movingFrac: 0.261,
+    cutsPerMin: 6.9,
+    loudnessLUFS: -14.5,
+    note: "Delivered mislabelled as a Replit film. Its persistent HUD is unbuilt.",
+  },
+  {
+    file: "uber-base-icon-system.mp4",
+    label: "Uber — A new icon system",
+    style: null,
+    durationS: 40.768,
+    shots: 11,
+    movingFrac: 0.812,
+    cutsPerMin: 14.7,
+    loudnessLUFS: -8.2,
+    note:
+      "NOT IMPLEMENTABLE as a preset. Kinetic typography — glyphs transform " +
+      "continuously along curved baselines, as outlines, as ghost stacks. " +
+      "Its transferable findings (75px cap, exact #000/#FFF grounds, the " +
+      'motionLayer "type" axis) are taken without it.',
+  },
+];
 
 // ---------------------------------------------------------------------------
 // Resolution

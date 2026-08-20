@@ -6,6 +6,7 @@ import { BACKGROUNDS } from "./intro";
 import {
   DEFAULT_STYLE,
   STYLES,
+  REFERENCE_FILMS,
   STYLE_PRESETS,
   isStyle,
   resolvePreset,
@@ -279,5 +280,84 @@ describe("palettes", () => {
         const d = Math.abs(lum(g.ground) - lum(g.ink));
         assert.ok(d > 0.5, `${name}.${key}: ground/ink luma gap ${d.toFixed(2)}`);
       }
+  });
+});
+
+describe("reference films", () => {
+  it("points every style-bearing film at a real style", () => {
+    for (const f of REFERENCE_FILMS)
+      if (f.style !== null)
+        assert.ok(STYLE_PRESETS[f.style], `${f.label} -> unknown style`);
+  });
+
+  it("keeps Uber measured but unimplemented", () => {
+    // The judgement this whole table exists to record. Uber's grammar is a
+    // typography engine, not a set of numbers; a preset for it would render a
+    // film sharing its palette and nothing that matters. If someone ever adds
+    // one, this test should be what stops them doing it by accident.
+    const uber = REFERENCE_FILMS.find((f) => f.label.startsWith("Uber"));
+    assert.ok(uber);
+    assert.equal(uber.style, null);
+    assert.match(String(uber.note), /NOT IMPLEMENTABLE/);
+    // And it is the outlier that motivates the "type" motion layer.
+    assert.ok(uber.movingFrac > 0.8, `moving ${uber.movingFrac}`);
+  });
+
+  it("agrees with the targets each style already carries", () => {
+    // Two records of one measurement. They drifting apart is how a preset ends
+    // up claiming a reference it no longer matches.
+    for (const f of REFERENCE_FILMS) {
+      if (f.style === null) continue;
+      const t = STYLE_PRESETS[f.style].targets;
+      assert.ok(t, `${f.label}: style has no targets`);
+      assert.equal(t.cutsPerMin, f.cutsPerMin, `${f.label}: cutsPerMin`);
+      assert.equal(t.movingFrac, f.movingFrac, `${f.label}: movingFrac`);
+      assert.equal(
+        STYLE_PRESETS[f.style].source?.loudnessLUFS ?? null,
+        f.loudnessLUFS,
+        `${f.label}: loudness`,
+      );
+    }
+  });
+
+  it("spans the loudness range that reopened the audio question", () => {
+    // Audio was ruled out of presets when two films disagreed. Four films now
+    // span >20 LU, which is why it is surfaced as an advisory.
+    const l = REFERENCE_FILMS.map((f) => f.loudnessLUFS).filter(
+      (x): x is number => x != null,
+    );
+    assert.ok(Math.max(...l) - Math.min(...l) > 20, `span ${l}`);
+    assert.ok(
+      REFERENCE_FILMS.some((f) => f.loudnessLUFS === null),
+      "one reference ships silent, and that is a finding",
+    );
+  });
+});
+
+describe("type scale", () => {
+  it("gives every style a scale whose cap and pitch are consistent", () => {
+    for (const name of STYLES) {
+      const t = STYLE_PRESETS[name].type;
+      // pitch = size * lineHeight, within a pixel of the recorded measurement.
+      assert.ok(
+        Math.abs(t.sizePx * t.lineHeight - t.pitchPx) < 2,
+        `${name}: ${t.sizePx} * ${t.lineHeight} != ${t.pitchPx}`,
+      );
+      // cap ~0.715 of nominal for a grotesque; loose bound, it only has to
+      // catch a transposed or invented number.
+      assert.ok(
+        Math.abs(t.capPx / t.sizePx - 0.715) < 0.12,
+        `${name}: cap ratio ${(t.capPx / t.sizePx).toFixed(2)}`,
+      );
+    }
+  });
+
+  it("opens ledger's line pitch well beyond the others", () => {
+    // MEASURED at 2.6x its cap against Film A's 1.65x — what makes a two-line
+    // monid card read as two separate statements rather than a wrapped one.
+    const led = STYLE_PRESETS.ledger.type;
+    assert.ok(led.pitchPx / led.capPx > 2.4, "ledger pitch/cap");
+    const pf = STYLE_PRESETS.proof.type;
+    assert.ok(pf.pitchPx / pf.capPx < 1.8, "proof pitch/cap");
   });
 });
