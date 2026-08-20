@@ -12,14 +12,31 @@ import { Cursor } from "./Cursor";
 import { cameraEase, poseToCss } from "./lib/camera";
 import { DESIGN_WIDTH } from "./lib/click-log";
 import {
+  CARD_EXIT_DEFAULT,
+  CARD_RISE,
+  CARD_RISE_FRAMES,
   cardPointerLog,
   CHIP_AT,
   CHIP_PUNCH_SCALE,
-  headlineParts,
   flooredEntry,
+  FONT_STACK,
+  FULLBLEED_HEADLINE_SIZE,
+  FULLBLEED_INK,
+  FULLBLEED_LETTER_SPACING,
+  FULLBLEED_LINE_HEIGHT,
+  headlineParts,
   introLook,
   introTiming,
+  LOGO_DRIFT_FRAMES,
+  LOGO_DRIFT_PX_PER_FRAME,
   LOGO_FILE,
+  LOGO_IN_S,
+  LOGO_IN_SCALE,
+  LOGO_PERSPECTIVE,
+  LOGO_RISE,
+  LOGO_TUMBLE_AXIS,
+  LOGO_TUMBLE_S,
+  LOGO_TUMBLE_TURNS,
   parseHeadline,
   progressAt,
   punchEase,
@@ -33,6 +50,9 @@ import {
   type StyledToken,
   type WordStyle,
 } from "./lib/intro";
+import { pushEnvelope, pushToCss, type PushSpec } from "./lib/push";
+import { RecapCard } from "./RecapCard";
+import { DEFAULT_LOOK } from "./lib/look";
 
 export type IntroProps = {
   intro: IntroStoryboard;
@@ -80,9 +100,6 @@ const DRIFT_FROM = 1.04;
  * WORD_IN_S.
  */
 const RISE_EM = 0.35;
-
-const FONT_STACK =
-  'ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
 
 /** Default headline weight — normal, not bold. Words opt into bold per-word. */
 const HEADLINE_WEIGHT = 400;
@@ -172,12 +189,37 @@ const LogoLockup: React.FC<{
   look: IntroLook;
   k: number;
   tS: number;
-}> = ({ text, look, k, tS }) => {
+  fullbleed?: boolean;
+}> = ({ text, look, k, tS, fullbleed = false }) => {
+  // Full-bleed runs a longer, larger settle. The framed 0.92 -> 1.0 nudge over
+  // 0.45s reads as a fade with a hint of scale; the reference's mark travels a
+  // factor of 1.57 over ~0.63s, which is what gives the opening something to
+  // watch instead of something to land on.
+  const inS = fullbleed ? LOGO_IN_S : WORDMARK_IN_S;
   const markP = flooredEntry(
-    cameraEase(progressAt({ startS: 0, endS: WORDMARK_IN_S }, tS)),
+    cameraEase(progressAt({ startS: 0, endS: inS }, tS)),
   );
+  const markScale = fullbleed
+    ? LOGO_IN_SCALE + (1 - LOGO_IN_SCALE) * markP
+    : 0.92 + 0.08 * markP;
+  // Rises as it shrinks, so the two read as one move rather than two.
+  const markRise = fullbleed ? (1 - markP) * LOGO_RISE * k : 0;
+  // One full turn, on its own longer clock than the scale so the mark is still
+  // resolving after it has finished travelling. Full-bleed only: the framed
+  // lockup's 0.92 -> 1.0 nudge is a different, quieter idea and stays as it is.
+  const tumbleP = fullbleed
+    ? cameraEase(progressAt({ startS: 0, endS: LOGO_TUMBLE_S }, tS))
+    : 1;
+  const spin = LOGO_TUMBLE_TURNS * 360 * (1 - tumbleP);
+  const [ax, ay, az] = LOGO_TUMBLE_AXIS;
+  // perspective() must lead the function list, and rotate3d has to sit INSIDE
+  // scale so the mark turns about its own centre rather than about the point it
+  // is scaling toward.
+  const markSpin = fullbleed
+    ? ` perspective(${LOGO_PERSPECTIVE * k}px) rotate3d(${ax}, ${ay}, ${az}, ${spin}deg)`
+    : "";
   // The wordmark starts once the mark is mostly in.
-  const writeStart = WORDMARK_IN_S * 0.6;
+  const writeStart = inS * 0.6;
   return (
     <div
       style={{
@@ -193,7 +235,7 @@ const LogoLockup: React.FC<{
           height: LOGO_MARK_SIZE * k,
           width: "auto",
           opacity: markP,
-          transform: `scale(${0.92 + 0.08 * markP})`,
+          transform: `translateY(${markRise}px) scale(${markScale})${markSpin}`,
         }}
       />
       <div
@@ -201,8 +243,8 @@ const LogoLockup: React.FC<{
           display: "flex",
           fontSize: LOGO_TEXT_SIZE * k,
           fontWeight: HEADLINE_WEIGHT,
-          letterSpacing: "-0.022em",
-          color: look.headline,
+          letterSpacing: fullbleed ? FULLBLEED_LETTER_SPACING : "-0.022em",
+          color: fullbleed ? FULLBLEED_INK : look.headline,
         }}
       >
         {[...text].map((ch, i) => {
@@ -376,6 +418,14 @@ const ChipSentence: React.FC<{
  * path and render in seconds.
  */
 export const Intro: React.FC<IntroProps> = ({ intro }) => {
+  // A recap card shares nothing with a sentence card but its palette — it is
+  // left-aligned, top-anchored, and reveals whole labels rather than words — so
+  // it gets its own component rather than a branch through this one.
+  if (intro.items?.length) return <RecapCard intro={intro} />;
+  return <SentenceCard intro={intro} />;
+};
+
+const SentenceCard: React.FC<IntroProps> = ({ intro }) => {
   const frame = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
   const k = useDesignScale();
@@ -393,7 +443,44 @@ export const Intro: React.FC<IntroProps> = ({ intro }) => {
   // No fade. The card is cut while fully on screen and still moving — see
   // introTiming. `push` is what keeps it moving: linear, so the last frame (the
   // one the cut lands on) still has velocity.
-  const push = pushAt(tS, t.settledS, t.totalS);
+  //
+  // Full-bleed swaps the 4% scale nudge for a directional translate, because
+  // that is what the reference measures: five sentence cards leaving by slide
+  // left, slide up and scale down respectively, never all by the same move. The
+  // entrance is the same curve reversed — a 56px rise, which is the one
+  // entrance shape every card in the reference shares.
+  const fullbleed = (intro.look ?? DEFAULT_LOOK) === "fullbleed";
+  const totalFrames = Math.max(1, Math.ceil(t.totalS * fps));
+  const exit = intro.exit ?? CARD_EXIT_DEFAULT;
+  const enter = intro.enter;
+  const spec: PushSpec | undefined = fullbleed
+    ? {
+        in: {
+          axis: enter?.axis ?? "y",
+          dist: enter?.dist ?? CARD_RISE,
+          frames: enter?.frames ?? CARD_RISE_FRAMES,
+        },
+        out: {
+          axis: exit.axis,
+          dist: exit.dist ?? CARD_EXIT_DEFAULT.dist,
+          frames: exit.frames ?? CARD_EXIT_DEFAULT.frames,
+        },
+      }
+    : undefined;
+  const envelope = pushEnvelope(frame, totalFrames, spec);
+  // F4: residual drift, LOGO CARD ONLY. The reference's opening keeps creeping
+  // at ~2px/frame for half a second after it settles, so the frame never goes
+  // dead on the shot the viewer arrives on. Its sentence cards do go dead, so
+  // this is deliberately not applied to them.
+  if (fullbleed && intro.logo) {
+    const after = frame - CARD_RISE_FRAMES;
+    if (after > 0)
+      envelope.y -=
+        Math.min(after, LOGO_DRIFT_FRAMES) * LOGO_DRIFT_PX_PER_FRAME;
+  }
+  const push = fullbleed ? envelope.scale : pushAt(tS, t.settledS, t.totalS);
+  const shift = fullbleed ? pushToCss(envelope, k) : null;
+  // Full-bleed has no backdrop plate to drift, by design.
   const drift = DRIFT_FROM + (1 - DRIFT_FROM) * cameraEase(tS / t.totalS);
 
   const body = (
@@ -402,7 +489,7 @@ export const Intro: React.FC<IntroProps> = ({ intro }) => {
         justifyContent: "center",
         alignItems: "center",
         padding: `0 ${MARGIN_X * k}px`,
-        transform: `scale(${push})`,
+        transform: shift ?? `scale(${push})`,
         fontFamily: FONT_STACK,
       }}
     >
@@ -411,7 +498,13 @@ export const Intro: React.FC<IntroProps> = ({ intro }) => {
           // A logo card IS the lockup — mark + wordmark on one line, the wordmark
           // written in. It replaces the normal wordmark/headline/subhead stack,
           // so the headline copy ("Acme") becomes the lockup's text.
-          <LogoLockup text={intro.headline} look={look} k={k} tS={tS} />
+          <LogoLockup
+            text={intro.headline}
+            look={look}
+            k={k}
+            tS={tS}
+            fullbleed={fullbleed}
+          />
         ) : (
           <>
             {intro.wordmark ? (
@@ -431,11 +524,28 @@ export const Intro: React.FC<IntroProps> = ({ intro }) => {
         ) : null}
         <div
           style={{
-            fontSize: HEADLINE_SIZE * k,
+            // Full-bleed sets its own type scale: 72px on a 1.194 pitch with no
+            // tracking — cap height 52px, line pitch 86px, measured off the
+            // reference (see FULLBLEED_HEADLINE_SIZE for why it is specified by
+            // rendered metrics). The framed values below were tuned against a
+            // photographic backdrop and stay as they were.
+            fontSize: (fullbleed ? FULLBLEED_HEADLINE_SIZE : HEADLINE_SIZE) * k,
             fontWeight: HEADLINE_WEIGHT,
-            letterSpacing: "-0.022em",
-            lineHeight: 1.12,
-            color: look.headline,
+            letterSpacing: fullbleed ? FULLBLEED_LETTER_SPACING : "-0.022em",
+            lineHeight: fullbleed ? FULLBLEED_LINE_HEIGHT : 1.12,
+            color: fullbleed ? FULLBLEED_INK : look.headline,
+            // BALANCED, not greedy. The reference does not fill each line to the
+            // column before wrapping: on its 3-line card the lines run 54%/52%/47%
+            // of the available column, and on its 2-line card line 2 (1216px) is
+            // WIDER than line 1 (1026px) — which greedy filling cannot produce,
+            // since greedy always makes earlier lines the longest. Measured in
+            // docs/reel/03-composition.md.
+            //
+            // Greedy wrapping is what left "feeds." alone on a line once the type
+            // grew to 72px. Balancing fixes that class of break for all copy
+            // rather than for one sentence. Full-bleed only: framed runs 96px on
+            // 4-6 words and rarely wraps at all.
+            ...(fullbleed ? { textWrap: "balance" as const } : {}),
           }}
         >
           {t.words.map((cue, i) => {
@@ -453,7 +563,15 @@ export const Intro: React.FC<IntroProps> = ({ intro }) => {
                   transform: `translateY(${(1 - p) * RISE_EM}em)`,
                   // Per-word inline styling last, so bold/italic/highlight win
                   // over the block defaults for exactly the marked words.
-                  ...wordCss(cue.style, look),
+                  //
+                  // Except under full-bleed, where highlight is dropped. The
+                  // reference uses NO emphasis on any of its five cards — every
+                  // word the same ink at the same weight — and on a near-black
+                  // ground a marker swatch is the highest-contrast object in
+                  // frame, so the eye lands on the decoration before the words.
+                  // `==markup==` still parses so copy stays portable between
+                  // looks; it just renders as plain ink here.
+                  ...wordCss(fullbleed ? undefined : cue.style, look),
                 }}
               >
                 {cue.word}
@@ -483,7 +601,7 @@ export const Intro: React.FC<IntroProps> = ({ intro }) => {
 
   return (
     <AbsoluteFill style={{ backgroundColor: look.ground }}>
-      {look.flat ? null : (
+      {look.flat || fullbleed ? null : (
         <AbsoluteFill style={{ transform: `scale(${drift})` }}>
           <Backdrop name={intro.backdrop} />
         </AbsoluteFill>

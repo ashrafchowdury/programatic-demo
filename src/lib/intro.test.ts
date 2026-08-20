@@ -4,12 +4,14 @@ import {
   BACKGROUNDS,
   CHIP_TOKEN,
   compositionSize,
-  flooredEntry,
-  headlineParts,
-  introLook,
   defineIntro,
+  fittedStagger,
+  flooredEntry,
   HEADLINE_START_S,
+  headlineParts,
+  HOLD_S,
   introDurationInFrames,
+  introLook,
   introProblem,
   introTiming,
   parseHeadline,
@@ -18,11 +20,15 @@ import {
   punchEase,
   pushAt,
   readableInk,
+  RECAP_ITEM_STAGGER_S,
+  TRIM_IN_S,
+  WORD_STAGGER_MIN_S,
+  WORD_STAGGER_S,
   wordSchedule,
   wordsOf,
-  WORD_STAGGER_S,
   type IntroStoryboard,
 } from "./intro";
+import { recapSchedule } from "../RecapCard";
 import type { ClickLog } from "./click-log";
 
 const CARD: IntroStoryboard = defineIntro({
@@ -480,5 +486,166 @@ describe("chip cards", () => {
       /one line/,
     );
     assert.equal(introProblem(CHIP), null);
+  });
+});
+
+/**
+ * The five sentence cards of the Cursor "Agent UX improvements" film, with the
+ * shot length measured off the source. The point of these is that the timing
+ * model reproduces a real film, not that it satisfies its own arithmetic.
+ */
+const REFERENCE_CARDS: { copy: string; frames: number }[] = [
+  {
+    copy: "Subscribe @Cursor to your PRs, Slack threads, or run scheduled tasks",
+    frames: 96,
+  },
+  {
+    copy: "Use any skill as a Custom Mode. It stays in context for the whole session.",
+    frames: 95,
+  },
+  { copy: "Run subagents on their own machines with clean context", frames: 96 },
+  { copy: "Give agents a concrete objective across turns", frames: 96 },
+  {
+    copy: "Steering messages now wait for the agent's next tool call instead of interrupting it.",
+    frames: 97,
+  },
+];
+
+const fullbleed = (copy: string): IntroStoryboard => ({
+  name: "x",
+  headline: copy,
+  look: "fullbleed",
+});
+
+describe("fullbleed card timing", () => {
+  it("leaves the framed look untouched — no `look` means no change", () => {
+    const framed: IntroStoryboard = { name: "x", headline: "One two three" };
+    const t = introTiming(framed);
+    assert.equal(t.words[0].startS, 0, "framed still starts at 0");
+    assert.equal(t.outStartS, t.settledS + HOLD_S);
+  });
+
+  it("holds every card 62-72 frames after its last word", () => {
+    for (const { copy } of REFERENCE_CARDS) {
+      const t = introTiming(fullbleed(copy));
+      const held = (t.totalS - t.words[t.words.length - 1].endS) * 30;
+      assert.ok(
+        held >= 61 && held <= 73,
+        `"${copy.slice(0, 24)}…" held ${held.toFixed(1)}f`,
+      );
+    }
+  });
+
+  it("reproduces the reference shot lengths within 5 frames", () => {
+    for (const { copy, frames } of REFERENCE_CARDS) {
+      const got = introDurationInFrames(fullbleed(copy), 30);
+      assert.ok(
+        Math.abs(got - frames) <= 5,
+        `"${copy.slice(0, 24)}…" got ${got}f, reference ${frames}f`,
+      );
+    }
+  });
+
+  it("cuts in mid-reveal — words are already out on frame 0", () => {
+    for (const { copy } of REFERENCE_CARDS) {
+      const t = introTiming(fullbleed(copy));
+      const out = t.words.filter((w) => w.startS <= 0).length;
+      assert.ok(out >= 1, `"${copy.slice(0, 24)}…" opened empty`);
+      assert.ok(out < t.words.length, "the whole card cannot be pre-revealed");
+    }
+  });
+
+  it("compresses the stagger for long copy and leaves short copy alone", () => {
+    const short = introTiming(fullbleed("Give agents a concrete objective"));
+    const long = introTiming(fullbleed(REFERENCE_CARDS[1].copy));
+    const step = (t: ReturnType<typeof introTiming>) =>
+      (t.words[1].startS - t.words[0].startS) * 30;
+    assert.ok(Math.abs(step(short) - WORD_STAGGER_S * 30) < 0.01);
+    assert.ok(step(long) < step(short), "15 words should tighten");
+    assert.ok(step(long) >= WORD_STAGGER_MIN_S * 30 - 0.01, "never below 3f");
+  });
+
+  it("never compresses past the measured 3-frame floor", () => {
+    const absurd = fullbleed(Array.from({ length: 60 }, () => "word").join(" "));
+    const t = introTiming(absurd);
+    assert.ok((t.words[1].startS - t.words[0].startS) * 30 >= 2.99);
+  });
+
+  it("honours an explicit holdS, so an author can still sit longer", () => {
+    const t = introTiming({ ...fullbleed("One two three"), holdS: 4 });
+    const held = (t.totalS - t.words[t.words.length - 1].endS) * 30;
+    assert.ok(Math.abs(held - 120) < 1, `held ${held}f`);
+  });
+
+  it("measures the hold from the last WORD, not from a trailing subhead", () => {
+    const bare = introTiming(fullbleed("One two three"));
+    const withSub = introTiming({ ...fullbleed("One two three"), subhead: "x" });
+    assert.equal(withSub.totalS, bare.totalS);
+  });
+});
+
+describe("fittedStagger", () => {
+  it("returns the unhurried default when the copy already fits", () => {
+    assert.equal(fittedStagger(4, TRIM_IN_S), WORD_STAGGER_S);
+  });
+
+  it("clamps to the floor rather than producing a sub-frame stagger", () => {
+    assert.equal(fittedStagger(500, TRIM_IN_S), WORD_STAGGER_MIN_S);
+  });
+
+  it("survives a one-word or empty headline", () => {
+    assert.equal(fittedStagger(1, TRIM_IN_S), WORD_STAGGER_S);
+    assert.equal(fittedStagger(0, TRIM_IN_S), WORD_STAGGER_S);
+  });
+});
+
+describe("recap card", () => {
+  const recap = (n: number): IntroStoryboard => ({
+    name: "x",
+    headline: "New in Agenta",
+    items: Array.from({ length: n }, (_, i) => `Feature ${i + 1}`),
+  });
+
+  it("is a list on a timer, with no word schedule at all", () => {
+    const t = introTiming(recap(4));
+    assert.deepEqual(t.words, []);
+    assert.equal(t.chip, null);
+  });
+
+  it("reproduces the reference's 110-frame recap within 5 frames", () => {
+    // Measured: f1094-1203, four items, one every 16 frames after a 5-frame
+    // blank lead.
+    const got = introDurationInFrames(recap(4), 30);
+    assert.ok(Math.abs(got - 110) <= 5, `${got}f vs reference 110f`);
+  });
+
+  it("grows by one item stagger per extra item", () => {
+    const four = introTiming(recap(4)).totalS;
+    const five = introTiming(recap(5)).totalS;
+    assert.ok(Math.abs(five - four - RECAP_ITEM_STAGGER_S) < 1e-9);
+  });
+
+  it("opens blank, so the dark-to-dark cut reads as a breath", () => {
+    const at = recapSchedule(4);
+    assert.ok(at.markS > 0, "the mark must not be up on frame 0");
+    assert.ok(Math.round(at.markS * 30) === 5, "5 blank frames");
+  });
+
+  it("reveals the lockup before the first item", () => {
+    const at = recapSchedule(4);
+    assert.ok(at.markS < at.wordmarkS);
+    assert.ok(at.wordmarkS < at.itemsS[0]);
+  });
+
+  it("spaces items 16 frames apart, three times slower than card words", () => {
+    const at = recapSchedule(4);
+    for (let i = 1; i < at.itemsS.length; i++)
+      assert.equal(Math.round((at.itemsS[i] - at.itemsS[i - 1]) * 30), 16);
+    assert.ok(RECAP_ITEM_STAGGER_S > WORD_STAGGER_S * 2.5);
+  });
+
+  it("survives a single item and an empty list", () => {
+    assert.ok(introDurationInFrames(recap(1), 30) > 1);
+    assert.deepEqual(recapSchedule(0).itemsS, []);
   });
 });
