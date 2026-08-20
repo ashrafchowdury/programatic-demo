@@ -114,6 +114,16 @@ export type FlowContext = {
   find: (name: string) => Promise<Locator>;
   /** Pause for viewer comprehension. Defaults to 700ms. */
   pause: (ms?: number) => Promise<void>;
+  /**
+   * Press a keyboard chord and log it for the on-screen keycap.
+   *
+   * Takes Playwright's own chord syntax ("Alt+Enter", "Meta+K"); the glyphs a
+   * viewer sees are derived at render time by chordGlyphs. Use it wherever the
+   * product is genuinely driven by the keyboard — under the full-bleed look
+   * that is the ONLY interaction affordance on screen, since the reference has
+   * no pointer at all.
+   */
+  pressKey: (chord: string, label?: string) => Promise<void>;
   /** Wait for a URL/selector without moving the cursor (no zoom). */
   page_waitForURL: Page["waitForURL"];
 };
@@ -214,6 +224,14 @@ export type Step =
    * dead air. Hoist those during a beat where something else is already moving.
    */
   | { hoist: string }
+  /**
+   * Press a keyboard chord and log it for the on-screen keycap.
+   *
+   * Playwright chord syntax ("Alt+Enter"). It logs no pointer target, so it
+   * places no zoom keyframe — a keyboard beat leaves the camera where it is,
+   * which is what the full-bleed look wants.
+   */
+  | ({ key: string } & Pick<StepCommon, "label" | "after">)
   | ({ do: (ctx: FlowContext) => Promise<void> } & Pick<StepCommon, "after">);
 
 /** The label to log for a step, when it did not set one explicitly. */
@@ -249,7 +267,9 @@ export async function runSteps(
       hoisted.set(step.hoist, await ctx.find(step.hoist));
       continue;
     }
-    if ("do" in step) {
+    if ("key" in step) {
+      await ctx.pressKey(step.key, step.label);
+    } else if ("do" in step) {
       await step.do(ctx);
     } else if ("click" in step) {
       await ctx.moveAndClick(

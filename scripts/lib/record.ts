@@ -7,7 +7,11 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Page } from "playwright";
-import { END_TAIL_S, type CursorSample } from "../../src/lib/click-log";
+import {
+  END_TAIL_S,
+  type CursorSample,
+  type KeyEvent,
+} from "../../src/lib/click-log";
 import { OVERFLOW_PROBE, resolveCaptureScale } from "./capture-scale";
 import type { ClickEvent, Flow } from "./flow";
 import { buildContext, CURSOR_INIT_SCRIPT, useBakedCursor } from "./recorder";
@@ -353,6 +357,7 @@ export async function recordFlow(
   const demoStart = Date.now();
   const clicks: ClickEvent[] = [];
   const cursor: CursorSample[] = [];
+  const keys: KeyEvent[] = [];
   const ctx = buildContext(
     page,
     startUrl,
@@ -360,6 +365,7 @@ export async function recordFlow(
     () => Date.now() - demoStart,
     cursor,
     flow.targets,
+    keys,
   );
 
   let ok = true;
@@ -443,6 +449,9 @@ export async function recordFlow(
     // Omitted on the baked-cursor path so Remotion does not draw a second one.
     cursorTrack: useBakedCursor() ? undefined : cursor,
     clicks,
+    // Omitted when a flow pressed nothing, so a mouse-driven recording writes
+    // exactly the log it always has.
+    ...(keys.length ? { keys } : {}),
   };
   fs.writeFileSync(
     path.join(PUBLIC, `${name}.clicks.json`),
@@ -450,7 +459,8 @@ export async function recordFlow(
   );
   say(
     `click log  -> public/${name}.clicks.json (${clicks.length} clicks, ` +
-      `${cursor.length} cursor samples, trim ${(trimBeforeMs / 1000).toFixed(1)}s)`,
+      `${cursor.length} cursor samples, ${keys.length} keys, ` +
+      `trim ${(trimBeforeMs / 1000).toFixed(1)}s)`,
   );
   return { name, ok, durationMs, clicks: clicks.length, error };
 }
