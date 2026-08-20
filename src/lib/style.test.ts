@@ -353,11 +353,22 @@ describe("type scale", () => {
     }
   });
 
-  it("opens ledger's line pitch well beyond the others", () => {
-    // MEASURED at 2.6x its cap against Film A's 1.65x — what makes a two-line
-    // monid card read as two separate statements rather than a wrapped one.
+  it("sets ledger's leading for a wrapped sentence, not the reference's pitch", () => {
+    // monid MEASURES 2.6x cap (pitch 181 on cap 70), and we deliberately do
+    // not use it: that openness works because each monid line is its own
+    // statement, where our copy is one sentence that wraps, and an open pitch
+    // put a hole through the middle of it.
+    //
+    // This guards the departure in BOTH directions — a revert to 1.85 and an
+    // over-correction into cramped setting are equally wrong — because the
+    // number is authored rather than measured, so nothing else would catch it
+    // drifting.
     const led = STYLE_PRESETS.ledger.type;
-    assert.ok(led.pitchPx / led.capPx > 2.4, "ledger pitch/cap");
+    assert.ok(
+      led.lineHeight > 1.15 && led.lineHeight < 1.45,
+      `ledger lineHeight ${led.lineHeight}`,
+    );
+    assert.ok(led.pitchPx < 181, "ledger pitch is below monid's measured 181");
     const pf = STYLE_PRESETS.proof.type;
     assert.ok(pf.pitchPx / pf.capPx < 1.8, "proof pitch/cap");
   });

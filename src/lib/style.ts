@@ -760,14 +760,32 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
     // MEASURED: luma walks 228 -> 98 across six frames with no single-frame
     // jump. The only reference of the four that does not hard-cut.
     join: { kind: "dissolve", frames: 6 },
-    // THE SIGNATURE. monid's running counter and step line are what buy it 22
-    // seconds without a cut: the overlay carries the continuity that cutting
-    // would otherwise supply. Ours derives its steps from the click log.
-    hud: { kind: "steps" },
+    // THE REFERENCE'S SIGNATURE, DELIBERATELY NOT TAKEN. monid's running
+    // counter and step line are what buy it 22 seconds without a cut: the
+    // overlay carries the continuity that cutting would otherwise supply, and
+    // hudSteps/HudOverlay still implement exactly that, derived from the click
+    // log rather than authored.
+    //
+    // It is off because it did not survive review on our footage. Numbered
+    // steps imply a sequence with a knowable total, and ours are pruned from
+    // nine presses down to five, so the line read as a debug counter over the
+    // picture rather than as a summary of it. Turning it off is a grammar
+    // decision with a cost, and the cost is paid in the cut: without the
+    // overlay carrying continuity, a ledger film has to cut more often than
+    // the reference does. reels/agent-schedule.ts is cut on that assumption.
+    //
+    // Set this back to `{ kind: "steps" }` to get the reference behaviour.
+    hud: { kind: "none" },
     card: {
-      // Type FADES here rather than snapping — a 6-frame ink ramp, MEASURED on
-      // the opening card. A grammar whose cards hold still can afford it.
-      cadence: { kind: "fixed", staggerS: 0.2, fadeS: 0.2 },
+      // MEASURED on the reference as a 6-frame ink ramp, and NOT USED. A word
+      // at half opacity over cream is a grey word, so with a 0.2s ramp on a
+      // 0.2s stagger there was always exactly one half-drawn word on screen:
+      // every card spent its whole reveal looking half-loaded rather than
+      // deliberate. Words now arrive at full ink, one per stagger.
+      //
+      // The measurement stays in the docstring on purpose — this is an
+      // authored departure from the reference, not a failure to measure it.
+      cadence: { kind: "fixed", staggerS: 0.2, fadeS: 0 },
       length: {
         // ⧗ STRUCTURALLY UNMEASURABLE on this reference. A card tail is the gap
         // between the last word and the CUT — and monid does not cut between
@@ -801,15 +819,24 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
       settleS: 0.03,
       afterPressS: 0.03,
     },
-    // MEASURED on monid's opening card: cap ~70px on a 181px line pitch. The
-    // pitch is unusually open — 2.6x the cap against Film A's 1.65x — which is
-    // what makes a card of two lines read as two separate statements.
+    // MEASURED on monid's opening card: cap ~70px on a 181px line pitch — a
+    // pitch 2.6x the cap, against Film A's 1.65x. That openness is what makes
+    // one of its cards read as two separate statements.
+    //
+    // WE DO NOT USE 1.85, AND THIS IS THE ONE PLACE THE REFERENCE LOST. Our
+    // copy is a single sentence that WRAPS, not two statements, so an open
+    // pitch put a hole through the middle of a sentence and pushed the second
+    // line so far down that the block stopped reading as one object. 1.24 is
+    // close on the two-line cards this film actually has. The measured pair is
+    // kept below so the reference is still recoverable.
     type: {
       sizePx: 98,
-      lineHeight: 1.85,
+      lineHeight: 1.24,
       letterSpacing: "-0.01em",
       capPx: 70,
-      pitchPx: 181,
+      // Cap unchanged; the pitch follows the leading actually in use
+      // (98 * 1.24 = 121.5). monid's own pair was cap 70 on pitch 181.
+      pitchPx: 122,
       // THE ONE STYLE WITH A FACE OF ITS OWN. Inter, vendored at
       // public/fonts/ and loaded by src/lib/font.ts. The metrics above were
       // measured off a film set in a grotesque of this class; reproducing
@@ -818,10 +845,17 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
       fontFamily: LEDGER_FONT_STACK,
     },
     // MEASURED. Cream with a green cast, NOT white — rgb(247,251,243) — and one
-    // saturated accent ground carrying the price payoff. There is no third
-    // register: monid says everything in two grounds.
+    // saturated accent ground carrying the payoff. There is no third register:
+    // monid says everything in two grounds, and so does this.
+    //
+    // THE ACCENT IS OURS, NOT THE REFERENCE'S. monid's payoff ground measures
+    // #3255f6, and a blue borrowed from another company's film is a colour
+    // this product does not own — on screen it read as a stock slide. The
+    // accent is now near-black carrying the Agenta mark's own chartreuse,
+    // sampled off the rendered wordmark at #f0f05a. Same structural job as
+    // monid's blue: one saturated register change after the work is done.
     palette: {
-      plate: { ground: "#3255f6", ink: "#ffffff", muted: "rgba(255,255,255,0.72)" },
+      plate: { ground: "#0a0a0a", ink: "#f0f05a", muted: "rgba(240,240,90,0.62)" },
       plain: { ground: "#f7fbf3", ink: "#0a0a0a", muted: "rgba(10,10,10,0.55)" },
       light: { ground: "#f7fbf3", ink: "#0a0a0a", muted: "rgba(10,10,10,0.55)" },
     },
