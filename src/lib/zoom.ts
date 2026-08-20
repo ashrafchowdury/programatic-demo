@@ -1,6 +1,7 @@
 import {
   BASE_BEAT_S,
   CAMERA_LEAD_S,
+  DESIGN_WIDTH,
   END_TAIL_S,
   HOLD_MIN_S,
   TYPE_TAIL_S,
@@ -190,9 +191,19 @@ export function frameFor(
 ): CameraPose {
   const W = vp.width;
   const H = vp.height;
-  const rect = c.rect ?? { x: c.x - 60, y: c.y - 24, w: 120, h: 48 };
+  // PAD, MENU_ROOM and the thresholds below are design px at DESIGN_WIDTH. A log
+  // shot under CAPTURE_SCALE carries rects in a 2560- or 3840-wide viewport, so
+  // they have to be scaled or the padding silently shrinks by that factor. k = 1
+  // for every 1x log, which keeps those byte-identical.
+  const k = W > 0 ? W / DESIGN_WIDTH : 1;
+  const rect = c.rect ?? {
+    x: c.x - 60 * k,
+    y: c.y - 24 * k,
+    w: 120 * k,
+    h: 48 * k,
+  };
 
-  const menuRoom = rect.h >= 90 ? 24 : MENU_ROOM;
+  const menuRoom = (rect.h >= 90 * k ? 24 : MENU_ROOM) * k;
   const extW = rect.w;
   const extH = rect.h + menuRoom;
   const rectCx = rect.x + rect.w / 2;
@@ -200,8 +211,8 @@ export function frameFor(
   const focusX = mix(rectCx, c.x, CLICK_WEIGHT);
   const focusY = mix(rectCy, c.y, CLICK_WEIGHT);
 
-  const sByW = (FRAME_FRAC * W) / (extW + 2 * PAD);
-  const sByH = (FRAME_FRAC * H) / (extH + 2 * PAD);
+  const sByW = (FRAME_FRAC * W) / (extW + 2 * PAD * k);
+  const sByH = (FRAME_FRAC * H) / (extH + 2 * PAD * k);
   // An explicit zoomScale overrides the fit: a wide target (a menu across most
   // of the frame) fits at S_MIN, but the author may want to crop TIGHT on it.
   // Still clamped to sMax, so "tight" never upscales past the sharpness ceiling.

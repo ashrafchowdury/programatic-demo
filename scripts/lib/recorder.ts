@@ -1,6 +1,6 @@
 import type { Page, Locator } from "playwright";
 import { cameraEase } from "../../src/lib/camera";
-import type { CursorSample } from "../../src/lib/click-log";
+import { DESIGN_WIDTH, type CursorSample, type KeyEvent } from "../../src/lib/click-log";
 import type { ActionOpts, ClickEvent, FlowContext, Target } from "./flow";
 import { findByName, type TargetOverrides } from "./selectors";
 
@@ -31,10 +31,24 @@ const ARROW_HOTY = 2;
 export const useBakedCursor = (): boolean =>
   process.env.DEMO_BAKED_CURSOR === "1";
 
-/** Straight-line distance above which the glide overshoots then corrects. */
+/**
+ * Straight-line distance above which the glide overshoots then corrects.
+ *
+ * DESIGN PX, scaled by captureScaleOf() at use. Like boxOf's thresholds these
+ * were tuned at 1920 and the pointer moves in PHYSICAL viewport px, so under
+ * CAPTURE_SCALE the same on-screen move covers `scale` times as many of them.
+ * Left unscaled, a 2x shoot glided ~2x slower (measured: the Add-Anthropic hop
+ * took 799ms at 1x and 1697ms at 2x) and overshot hops that never overshot
+ * before — which moved every cursor departure and, through the camera's lead,
+ * the whole zoom track.
+ */
 const OVERSHOOT_THRESHOLD_PX = 500;
 /** How far past the target the overshoot reaches, before settling back. */
 const OVERSHOOT_PX = 26;
+/** Mean glide speed in design px per ms (~550 px/s at DESIGN_WIDTH). */
+const GLIDE_PX_PER_MS = 0.55;
+/** Below this the pointer teleports rather than glides. */
+const GLIDE_MIN_PX = 6;
 
 export const CURSOR_INIT_SCRIPT = `
 (() => {
@@ -121,15 +135,39 @@ const clamp = (v: number, lo: number, hi: number) =>
  * If the target is off-screen, scroll first and wait so the camera never moves
  * during the scroll.
  */
+/**
+ * Capture-space scale: every px threshold below was tuned against a 1920 shoot,
+ * and a rect is recorded in the PHYSICAL viewport. Under CAPTURE_SCALE that
+ * viewport is 2560 or 3840 wide, so a fixed 48px "thin" test silently means a
+ * different real-world size and the same control classifies differently.
+ *
+ * Measured: at 1920 the harness API-key field came back 36px tall, tripped the
+ * thin test and was grown to a 72px band; at 3840 the same field measured 72px,
+ * missed the test and stayed raw. Halved back it was 36 against 72 — and that
+ * one rect moved the camera from 1.494 to 1.285 at that beat. Scaling the
+ * thresholds keeps a 1x shoot byte-identical (k = 1) and makes an HD shoot
+ * frame the same subject the same way.
+ */
+const captureScaleOf = (page: Page): number => {
+  const vp = page.viewportSize();
+  return vp && vp.width > 0 ? vp.width / DESIGN_WIDTH : 1;
+};
+
 async function boxOf(
   page: Page,
   target: ResolvedTarget,
 ): Promise<{ cx: number; cy: number; rect: Rect }> {
+  const k = captureScaleOf(page);
   if (isPoint(target)) {
     return {
       cx: target.x,
       cy: target.y,
-      rect: { x: target.x - 60, y: target.y - 24, w: 120, h: 48 },
+      rect: {
+        x: target.x - 60 * k,
+        y: target.y - 24 * k,
+        w: 120 * k,
+        h: 48 * k,
+      },
     };
   }
   const loc: Locator = (
@@ -143,18 +181,18 @@ async function boxOf(
     throw new Error(
       `No bounding box for target: ${isCss(target) ? target.css : "<locator>"}`,
     );
-  if (before && Math.hypot(box.x - before.x, box.y - before.y) > 8) {
+  if (before && Math.hypot(box.x - before.x, box.y - before.y) > 8 * k) {
     await page.waitForTimeout(450);
   }
   // Thin targets (result titles, chips) get expanded so Remotion frames a readable row.
   let rect: Rect = { x: box.x, y: box.y, w: box.width, h: box.height };
-  if (rect.h < 48) {
-    const targetH = 72;
+  if (rect.h < 48 * k) {
+    const targetH = 72 * k;
     const grow = (targetH - rect.h) / 2;
     rect = {
-      x: Math.max(0, rect.x - 24),
-      y: Math.max(0, rect.y - grow - 8),
-      w: rect.w + 48,
+      x: Math.max(0, rect.x - 24 * k),
+      y: Math.max(0, rect.y - grow - 8 * k),
+      w: rect.w + 48 * k,
       h: targetH,
     };
   }
@@ -184,8 +222,23 @@ export function buildContext(
   getElapsedMs: () => number,
   cursor: CursorSample[] = [],
   targets?: TargetOverrides,
+  keys: KeyEvent[] = [],
 ): FlowContext {
   const pause = (ms = 700) => page.waitForTimeout(ms);
+
+  /**
+   * Press a chord and log it, so the full-bleed look can draw a keycap.
+   *
+   * Logged into its own array rather than into `clicks`: a chord is not a
+   * pointer target, and folding it in would give the zoom camera a keyframe
+   * with no rect and fire the click SFX detector. See KeyEvent in
+   * src/lib/click-log.ts.
+   */
+  const pressKey: FlowContext["pressKey"] = async (chord, label) => {
+    const tMs = getElapsedMs();
+    await page.keyboard.press(chord);
+    keys.push(label ? { tMs, chord, label } : { tMs, chord });
+  };
 
   const find: FlowContext["find"] = (name) => findByName(page, name, targets);
 
@@ -213,9 +266,10 @@ export function buildContext(
     settleMs = 220,
     travelMs?: number,
   ) => {
+    const gk = captureScaleOf(page);
     const dist = Math.hypot(x - last.x, y - last.y);
     lastDepartMs = getElapsedMs();
-    if (dist < 6) {
+    if (dist < GLIDE_MIN_PX * gk) {
       last = { x, y };
       mark(x, y);
       if (settleMs > 0) await pause(settleMs);
@@ -226,7 +280,7 @@ export function buildContext(
     const durationMs =
       travelMs != null && travelMs > 0
         ? travelMs
-        : clamp(dist / 0.55, 450, 1350);
+        : clamp(dist / (GLIDE_PX_PER_MS * gk), 450, 1350);
     const nx = -(y - last.y) / dist;
     const ny = (x - last.x) / dist;
     const side = (x - last.x) * (y - last.y) >= 0 ? 1 : -1;
@@ -242,13 +296,13 @@ export function buildContext(
     // Clamped to the viewport: overshooting a target near an edge would push
     // the pointer off-screen and drop the hover state we are about to click.
     const vp = page.viewportSize();
-    const overshooting = dist > OVERSHOOT_THRESHOLD_PX;
+    const overshooting = dist > OVERSHOOT_THRESHOLD_PX * gk;
     const aimX = overshooting
-      ? clamp(x + ((x - from.x) / dist) * OVERSHOOT_PX, 1, (vp?.width ?? x) - 1)
+      ? clamp(x + ((x - from.x) / dist) * OVERSHOOT_PX * gk, 1, (vp?.width ?? x) - 1)
       : x;
     const aimY = overshooting
       ? clamp(
-          y + ((y - from.y) / dist) * OVERSHOOT_PX,
+          y + ((y - from.y) / dist) * OVERSHOOT_PX * gk,
           1,
           (vp?.height ?? y) - 1,
         )
@@ -442,6 +496,7 @@ export function buildContext(
     focus,
     find,
     pause,
+    pressKey,
     page_waitForURL: page.waitForURL.bind(page),
   };
 }

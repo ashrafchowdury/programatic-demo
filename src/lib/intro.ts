@@ -11,6 +11,7 @@
  * without rendering a frame. src/Intro.tsx is the only consumer that eases it.
  */
 import { cameraEase } from "./camera";
+import { DEFAULT_LOOK, type ReelLook } from "./look";
 import { OUTPUT_WIDTH, type ClickLog, type CursorSample } from "./click-log";
 
 export type IntroStoryboard = {
@@ -51,6 +52,55 @@ export type IntroStoryboard = {
   logo?: boolean;
   /** Studio backdrop name, so a card matches the demo it introduces. */
   backdrop?: string;
+  /**
+   * Timing and exit treatment. Absent = "framed", i.e. every constant below
+   * keeps the value it has always had. See src/lib/look.ts.
+   */
+  look?: ReelLook;
+  /**
+   * Start the word clock this many seconds BEFORE the card's first visible
+   * frame, so the cut lands mid-reveal.
+   *
+   * Measured: every card in the reference is already partly written on its
+   * first frame — 4 words of 11 on one, 2 of 7 on another. The viewer arrives
+   * to something already moving instead of to an empty field, which is what
+   * ENTRY_FLOOR half-solves for the wordmark today. Full-bleed only; defaults
+   * to TRIM_IN_S.
+   */
+  trimInS?: number;
+  /**
+   * How the card arrives. Full-bleed only; defaults to the measured y-rise.
+   *
+   * Worth setting whenever the shot before it left on a different axis: giving
+   * the card the direction the previous shot was travelling is what makes a
+   * hard cut read as one continuous move interrupted by a content change. The
+   * reference does this at four of its eleven cuts.
+   */
+  enter?: CardExit;
+  /** How the card leaves. Full-bleed only; defaults to CARD_EXIT_DEFAULT. */
+  exit?: CardExit;
+  /**
+   * Turns the card into a RECAP: a top-left lockup over this list.
+   *
+   * `headline` becomes the wordmark beside the mark, and these are the feature
+   * names revealed one at a time beneath it. See src/RecapCard.tsx.
+   */
+  items?: string[];
+};
+
+/**
+ * A card's exit move.
+ *
+ * The reference varies the axis deliberately — measured across its five
+ * sentence cards: slide left (56px, 83px), slide up (54px), scale down (-7%),
+ * and twice no move at all. Alternating the axis is what stops six cards in a
+ * row reading as a slideshow, so this is authored per card rather than fixed.
+ */
+export type CardExit = {
+  axis: "x" | "y" | "scale" | "none";
+  /** Design px for x/y, or a scale delta for "scale". */
+  dist?: number;
+  frames?: number;
 };
 
 /** The brand mark asset, rendered above a logo card's text. Supply your own. */
@@ -344,6 +394,229 @@ export const SUBHEAD_LAG_S = 0.18;
 export const SUBHEAD_IN_S = 0.6;
 /** Still hold once everything has landed. */
 export const HOLD_S = 1.2;
+
+/**
+ * FULL-BLEED TIMING. Measured off the Cursor "Agent UX improvements" film; each
+ * of these replaces a "framed" constant above only when look is "fullbleed".
+ */
+
+/**
+ * Still hold between the last word landing and the cut, in seconds.
+ *
+ * The hardest rule in the reference: 62-63 frames at 30fps on every one of its
+ * five sentence cards, whether the card carried 7 words or 15. The stagger is
+ * compressed to make that landing hit; the tail is never shortened to absorb
+ * long copy. HOLD_S is 1.2 by comparison, which is why our cards read as
+ * hurried next to it.
+ */
+export const HOLD_AFTER_TEXT_S = 2.07;
+
+/**
+ * How far into its own reveal a card already is on its first visible frame.
+ *
+ * ~5 frames at 30fps. Measured: shot 2 opens with 4 of 11 words out, shot 8
+ * with 2 of 7.
+ */
+export const TRIM_IN_S = 0.17;
+
+/**
+ * Longest a sentence card may run before the stagger is compressed to fit.
+ *
+ * The reference's cards are 95-97 frames — effectively a fixed 96. Rather than
+ * pin the length and let copy overflow, we cap it and tighten the stagger,
+ * which is what the reference itself does: 6 frames per word on a 9-word card,
+ * 3 on a 15-word one.
+ */
+export const CARD_MAX_S = 3.3;
+
+/**
+ * One type stack for every card variant.
+ *
+ * In lib rather than in a component because both Intro.tsx and RecapCard.tsx
+ * need it, and RecapCard is rendered BY Intro — importing it back the other way
+ * would close a cycle.
+ */
+export const FONT_STACK =
+  'ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
+
+/**
+ * FULL-BLEED TYPE. Measured off the reference; replaces the framed values only
+ * when look is "fullbleed".
+ *
+ * The framed look was tuned at 96px/1.12/-0.022em against a photographic
+ * backdrop, where a big tight headline holds its own. The reference is smaller
+ * and looser, which is why it fits 7-8 words to a line where framed fits 5.
+ *
+ * SPECIFY THIS PAIR BY RENDERED METRICS, NOT BY NOMINAL SIZE. The two numbers
+ * the reference actually holds are:
+ *
+ *     cap height  52px      line pitch  86px      (at 1920x1080)
+ *
+ * Pitch is exact — 86px on every multi-line card in both reference films
+ * (docs/reel/03-composition.md). Cap height is 51-52 measured on FLAT capitals
+ * (N, I, R); round capitals (G, S, C) read 54 because they overshoot the cap
+ * line, which is what an earlier pass mistook for the true height.
+ *
+ * The nominal size that produces those metrics depends on the face's cap ratio.
+ * FONT_STACK resolves to a Helvetica-class grotesque at ~0.715, so:
+ *
+ *     size  = 52 / 0.715 = 72        cap  72 * 0.715 = 51.5   ✓
+ *     pitch = 86 / 72    = 1.194     pitch 72 * 1.194 = 86.0   ✓
+ *
+ * The previous 64/1.35 reproduced the pitch exactly and the cap height not at
+ * all: 64 * 0.715 = 45.75px, ~12% under the reference. Cards read as caption
+ * rather than statement. If FONT_STACK is ever pinned to a face with a
+ * different cap ratio, re-derive SIZE from cap 52 and LINE_HEIGHT from 86/size
+ * — do not carry these two numbers across.
+ *
+ * FULLBLEED_INK is #E9EBE6, not #fff. DARK_GROUND is already one step off #000
+ * because the extreme does not survive h264; the same argument applies to the
+ * ink and had not been carried through.
+ */
+export const FULLBLEED_HEADLINE_SIZE = 72;
+export const FULLBLEED_LINE_HEIGHT = 1.194;
+export const FULLBLEED_LETTER_SPACING = "0em";
+export const FULLBLEED_INK = "#e9ebe6";
+
+/**
+ * FULL-BLEED LOGO CARD. The film's bookend, and the fix for an abrupt opening.
+ *
+ * Measured on the reference's shot 1: the mark scales 198 -> 126px (a factor of
+ * 1.57) and rises cy 555 -> 383 over ~19 frames while the title writes in over
+ * the top, and the whole card then keeps drifting at ~2px/frame for another 14
+ * frames. Total 23 frames of continuous motion against the 8 our sentence card
+ * manages — which is the whole of "their start is smoother".
+ *
+ * The drift is scoped to THIS card on purpose. The reference's sentence cards
+ * (shot 2, f131-182) are genuinely dead still, so this is not licence to add
+ * residual motion everywhere.
+ */
+export const LOGO_IN_SCALE = 1.57;
+export const LOGO_IN_S = 0.63;
+export const LOGO_RISE = 96;
+
+/**
+ * THE MARK TURNS ONCE, FULLY, AS IT SETTLES.
+ *
+ * Measured on the reference's opening and closing cards, which get identical
+ * treatment (docs/reel/02-motion.md). Sampling the mark's silhouette every two
+ * frames from f0 walks through: upright cube -> tilted -> near edge-on ->
+ * hexagon (corner-on) -> hexagon -> rotated square -> small quadrilateral ->
+ * pentagon -> chevron -> chevron -> diamond with a facet returning -> near-cube
+ * -> upright cube. Starting and ending on the SAME orientation across a
+ * continuous turn is what identifies it as exactly one revolution rather than a
+ * wobble. Silhouette width/height corroborates: W/H swings 2.13 -> 0.87 -> 1.55
+ * over the same span, and the outline is stable from f26 on.
+ *
+ * ~27 frames at 30fps. Longer than the mark's scale-and-rise (LOGO_IN_S, 19
+ * frames) on purpose: the size lands first and the turn keeps going, so the
+ * card is still resolving after it has stopped travelling. That overlap is why
+ * the reference's opening reads as one continuous move instead of two.
+ *
+ * AXIS. Not a cardinal one. A cube spun about x or y alone never shows the
+ * corner-on hexagon that frames 6-9 clearly are; a tilted axis does. (1, 1, 0)
+ * is the simplest tilt that reproduces the sequence.
+ *
+ * A NOTE ON FLAT MARKS, AND WHY THIS IS 0.85 AND NOT 0.90.
+ *
+ * The reference mark is a cube: a solid, so its silhouette is a filled polygon
+ * at every angle. Ours is a flat image, which is exactly zero px wide at 90 and
+ * 270 degrees. Those two crossings are unavoidable — any axis that lets a plane
+ * show its back must pass through edge-on — so the only thing to control is
+ * whether a crossing lands ON a frame or BETWEEN two.
+ *
+ * Apparent width is |cos(spin)|. Sampling that on the 30fps grid for candidate
+ * durations, worst frame in the whole turn:
+ *
+ *     0.90s (27f)   0.030   <- 270deg lands on f10. Rendered, that frame is a
+ *                              hairline: 220 lit px against 7100 settled. It
+ *                              reads as a blink, not a flip.
+ *     0.87s (26f)   0.061
+ *     0.75s (22f)   0.141
+ *     0.85s (25f)   0.119   <- both crossings straddled (f3 0.119, f10 0.122)
+ *
+ * 0.85 keeps every frame at or above 12% width while staying closest to the
+ * ~26 frames measured off the reference. This is a constraint of rendering a
+ * flat mark at 30fps, not something the reference had to solve — if the mark is
+ * ever replaced with real 3D geometry, this can go back to the measured 0.90.
+ */
+export const LOGO_TUMBLE_S = 0.85;
+export const LOGO_TUMBLE_TURNS = 1;
+/** Tilted rotation axis, as an (x, y, z) triple for rotate3d. */
+export const LOGO_TUMBLE_AXIS: readonly [number, number, number] = [1, 1, 0];
+/**
+ * Perspective distance in design px. Three times the mark's own height: enough
+ * for the near edge to read as nearer without the barrelling that a short
+ * perspective gives a plane at 45 degrees.
+ */
+export const LOGO_PERSPECTIVE = 276;
+/** Residual drift after the settle: px/frame at 30fps, and how long it runs. */
+export const LOGO_DRIFT_PX_PER_FRAME = 2;
+export const LOGO_DRIFT_FRAMES = 14;
+
+/** Recap card geometry and cadence live with the other card timing. */
+export const RECAP_LEAD_S = 0.17;
+export const RECAP_LOCKUP_STAGGER_S = 0.27;
+export const RECAP_ITEMS_LEAD_S = 0.37;
+/** One list item every 16 frames at 30fps — labels to read, not prose to scan. */
+export const RECAP_ITEM_STAGGER_S = 0.533;
+
+/** Seconds of card needed for `n` items, before any exit push. */
+export function recapDurationS(n: number, holdS: number = 1.23): number {
+  const lastItemS =
+    RECAP_LEAD_S +
+    RECAP_LOCKUP_STAGGER_S +
+    RECAP_ITEMS_LEAD_S +
+    Math.max(0, n - 1) * RECAP_ITEM_STAGGER_S;
+  return lastItemS + holdS;
+}
+
+
+/** Tightest measured word cadence — 3 frames at 30fps. The compression floor. */
+export const WORD_STAGGER_MIN_S = 0.1;
+
+/**
+ * Shortest a sentence card may run.
+ *
+ * With CARD_MAX_S this brackets the reference's measured 95-97 frames from both
+ * sides. Without the floor a short card collapses to its own reveal plus the
+ * hold — a 7-word card came out 10 frames under the reference, which breaks the
+ * metronomic 15-cuts-per-minute the film runs on. An explicit `holdS` still
+ * wins, so an author can deliberately sit longer.
+ */
+export const CARD_MIN_S = 3.2;
+
+/**
+ * Card entrance: the text block rises into place.
+ *
+ * 56 design px over ~14 frames, measured identically on both reference cards
+ * whose entrance was a rise (shot 2: y 526->470; shot 6: y 528->474). It is the
+ * one entrance shape the reference's cards share; the varied moves are all on
+ * the way OUT.
+ */
+export const CARD_RISE = 56;
+export const CARD_RISE_FRAMES = 14;
+
+/** Default exit: a short leftward slide, the reference's most common. */
+export const CARD_EXIT_DEFAULT = {
+  axis: "x" as const,
+  dist: -72,
+  frames: 13,
+};
+
+/**
+ * Stagger that lands the last word in time for the full hold.
+ *
+ * Returns WORD_STAGGER_S when the copy already fits, so short cards keep the
+ * unhurried cadence and only long ones tighten.
+ */
+export function fittedStagger(wordCount: number, trimInS: number): number {
+  const beats = wordCount - 1;
+  if (beats <= 0) return WORD_STAGGER_S;
+  const room = CARD_MAX_S - HOLD_AFTER_TEXT_S + trimInS;
+  const fitted = room / beats;
+  return Math.max(WORD_STAGGER_MIN_S, Math.min(WORD_STAGGER_S, fitted));
+}
 /**
  * Lead-in before the first word on a card with no wordmark.
  *
@@ -571,6 +844,7 @@ export function wordsOf(headline: string): string[] {
 export function wordSchedule(
   headline: string,
   startS: number = HEADLINE_START_S,
+  staggerS: number = WORD_STAGGER_S,
 ): WordCue[] {
   // parseHeadline already yields the units in order — including the {chip} as a
   // single unit in sentence position — each carrying its own inline style.
@@ -582,7 +856,7 @@ export function wordSchedule(
   let step = -1;
   return parseHeadline(headline).map((token, index) => {
     if (!(token.tight && index > 0)) step += 1;
-    const at = startS + step * WORD_STAGGER_S;
+    const at = startS + step * staggerS;
     const cue: WordCue = {
       // The chip cue keeps CHIP_TOKEN as its word so existing callers and tests
       // that look for the token by value still find it, whatever punctuation was
@@ -611,10 +885,39 @@ export function progressAt(
 }
 
 export function introTiming(intro: IntroStoryboard): IntroTiming {
+  // A recap card is a list on a timer, not a sentence: its length comes from
+  // how many items it has to show, and it has no word schedule at all.
+  if (intro.items?.length) {
+    const totalS = recapDurationS(intro.items.length, intro.holdS);
+    return {
+      words: [],
+      wordmarkEndS: 0,
+      subheadStartS: 0,
+      subheadEndS: 0,
+      settledS: totalS,
+      outStartS: totalS,
+      totalS,
+      chip: null,
+    };
+  }
+
+  const look = intro.look ?? DEFAULT_LOOK;
+  const full = look === "fullbleed";
+
+  // Full-bleed cuts INTO the reveal, so the word clock starts before frame 0
+  // and the first few words are already out. A negative start is the whole
+  // mechanism — progressAt clamps, so words cued before 0 read as complete on
+  // the first frame with no special case anywhere downstream.
+  const trimInS = full ? (intro.trimInS ?? TRIM_IN_S) : 0;
+
   // A wordmark already puts something on screen at frame 0, so the headline can
   // take its beat. Without one, waiting means opening on an empty field.
-  const headlineStartS = intro.wordmark ? HEADLINE_START_S : HEADLINE_LEAD_S;
-  const words = wordSchedule(intro.headline, headlineStartS);
+  const headlineStartS =
+    (intro.wordmark ? HEADLINE_START_S : HEADLINE_LEAD_S) - trimInS;
+  const staggerS = full
+    ? fittedStagger(wordsOf(intro.headline).length, trimInS)
+    : WORD_STAGGER_S;
+  const words = wordSchedule(intro.headline, headlineStartS, staggerS);
   const last = words[words.length - 1];
   // An empty headline still has to produce a coherent schedule, or Studio
   // cannot open a half-written storyboard.
@@ -626,7 +929,13 @@ export function introTiming(intro: IntroStoryboard): IntroTiming {
   const subheadEndS = intro.subhead ? subheadStartS + SUBHEAD_IN_S : 0;
 
   const settledS = Math.max(wordmarkEndS, lastEndS, subheadEndS);
-  const outStartS = settledS + (intro.holdS ?? HOLD_S);
+  // Full-bleed measures its hold from the LAST WORD, not from whatever landed
+  // last. That is what the reference holds constant at 62 frames; a subhead
+  // fading in afterwards must not push the cut out with it.
+  const holdFrom = full ? lastEndS : settledS;
+  const heldS = holdFrom + (intro.holdS ?? (full ? HOLD_AFTER_TEXT_S : HOLD_S));
+  const outStartS =
+    full && intro.holdS == null ? Math.max(heldS, CARD_MIN_S) : heldS;
 
   // A chip card does not fade. `holdS` keeps its meaning — the still beat after
   // the sentence lands — and the pointer leaves at the end of it. The card then

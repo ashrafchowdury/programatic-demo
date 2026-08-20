@@ -13,6 +13,11 @@
  * Pure by design: no ffmpeg, no Remotion. scripts/reel.ts does the rendering.
  */
 import { introProblem, type IntroStoryboard } from "./intro";
+import { DEFAULT_LOOK, LOOKS, type ReelLook } from "./look";
+import type { PushSpec } from "./push";
+
+/** Re-exported so `look` can be authored and validated from one import. */
+export { DEFAULT_LOOK, LOOKS, type ReelLook };
 
 export type ReelCard = { card: IntroStoryboard };
 /** Inclusive start, EXCLUSIVE end, in seconds of out/<name>.mp4. */
@@ -28,6 +33,37 @@ export type ReelClip = {
      * out/<name>.mp4 never gets it, so the demo render is untouched.
      */
     drift?: number;
+    /**
+     * Static crop for the full-bleed look: `k` magnification about the content
+     * point (`cx`, `cy`). Ignored under "framed", which derives its camera from
+     * the click log instead.
+     *
+     * Authored per clip because the reference film hand-picks one framing per
+     * shot: measured, the component that matters spans 84-93% of frame width in
+     * every one of its four footage shots, and nothing about the click log
+     * predicts which component that is.
+     */
+    crop?: { k: number; cx: number; cy: number; dx?: number; dy?: number };
+    /** Entrance/exit push. Full-bleed only; absent = the clip does not move. */
+    push?: PushSpec;
+    /** Colour behind the plate if the crop leaves a gap. Full-bleed only. */
+    pageBg?: string;
+    /**
+     * Draw the synthetic pointer. Full-bleed only, where it defaults to OFF.
+     *
+     * Turn it ON for any mouse-driven flow. The reference film hides the pointer
+     * because its feature is keyboard-driven; over a flow that clicks, a hidden
+     * pointer shows the UI reacting to nothing.
+     */
+    cursor?: boolean;
+    /**
+     * Draw the pointer's click ripple. Defaults to OFF.
+     *
+     * Neither reference film has one — the feedback is the real control's own
+     * press state, which the capture already records. Turn it on only for a
+     * target with no visible press state of its own.
+     */
+    ripple?: boolean;
   };
 };
 export type ReelSegment = ReelCard | ReelClip;
@@ -142,6 +178,8 @@ export type Reel = {
   sfx?: ReelSfx;
   /** Duck `bed` pieces under `lead`/`sfx`. Absent = off. */
   duck?: boolean | ReelDuck;
+  /** Visual treatment of the footage. Absent = "framed", i.e. unchanged. */
+  look?: ReelLook;
 };
 
 export const defineReel = (reel: Reel): Reel => reel;
@@ -211,6 +249,8 @@ export function reelProblem(
     return "missing a `name`";
   if (!Array.isArray(reel.segments) || reel.segments.length === 0)
     return "has no `segments`";
+  if (reel.look !== undefined && !LOOKS.includes(reel.look))
+    return `look must be one of ${LOOKS.join(", ")}`;
 
   const cold = coldOpenIndex(reel.segments as ReelSegment[]);
   let previousLast = -1;

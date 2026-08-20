@@ -9,7 +9,7 @@ const HOT_Y = 1;
 /** Drawn size at camera scale 1, in DESIGN_WIDTH px (scaled to the output). */
 const ARROW_W = 34;
 const ARROW_H = 45;
-/** Ripple diameter and stroke, same units. */
+/** Ripple diameter and stroke, same units. Only drawn when `ripple` is on. */
 const RIPPLE_D = 22;
 const RIPPLE_STROKE = 2;
 
@@ -29,7 +29,20 @@ export const Cursor: React.FC<{
   timeS: number;
   /** Current camera scale, to counter-scale against. */
   cameraScale: number;
-}> = ({ log, timeS, cameraScale }) => {
+  /**
+   * Draw the expanding circle on mousedown.
+   *
+   * NO DEFAULT HERE ON PURPOSE — the two looks disagree and each states its
+   * own in DemoClip. Full-bleed is a reproduction of the reference films, and
+   * neither of them draws a ripple (docs/reel/03-composition.md): Film A shows
+   * no pointer at all, and Film B's pointer clicks with no ripple, because the
+   * feedback is the real control's press state, which the capture records for
+   * free. The framed look is this repo's own language — backdrop, window
+   * chrome, zoom camera, none of which the reference has — and its demos were
+   * cut with the ripple, so it keeps it.
+   */
+  ripple?: boolean;
+}> = ({ log, timeS, cameraScale, ripple = true }) => {
   // Before the early returns — hooks cannot be conditional.
   const k = useVideoConfig().width / DESIGN_WIDTH;
 
@@ -66,7 +79,7 @@ export const Cursor: React.FC<{
         transformOrigin: "0 0",
       }}
     >
-      {state.ripple !== null ? (
+      {ripple && state.ripple !== null ? (
         <div
           style={{
             position: "absolute",

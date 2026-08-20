@@ -13,6 +13,9 @@ import { CHROME_H, WINDOW_FIT } from "./lib/window";
 import { backdropFile, isLightBackdrop } from "./lib/backdrop";
 import { Cursor } from "./Cursor";
 import { RimLight, Stage, useDesignScale, WindowFrame } from "./WindowFrame";
+import { pushEnvelope, pushToCss, type PushSpec } from "./lib/push";
+import { KeycapHUD } from "./KeycapHUD";
+import type { ReelLook } from "./lib/look";
 
 const round = (n: number) => Math.round(n);
 
@@ -40,6 +43,48 @@ export type DemoClipProps = {
    * filename you dropped in public/backdrops/. Defaults to "glaze".
    */
   backdrop?: string;
+  /**
+   * Visual treatment. Absent or "framed" keeps every prop above meaningful and
+   * renders exactly as before; "fullbleed" ignores `chrome`, `drift` and
+   * `backdrop` and takes the `crop`/`push` path instead.
+   */
+  look?: ReelLook;
+  /**
+   * Static crop for the full-bleed look: `k` magnification about the content
+   * point (`cx`, `cy`) in 0..1 space.
+   *
+   * Deliberately NOT animated. The reference film picks one framing per shot and
+   * never moves it — measured, the gap between tracked edges is identical on the
+   * first and last frame of every shot. That is also why transform-origin is
+   * safe here where poseToCss avoids it: the singularity at scale 1 only shows
+   * up when the scale is changing.
+   */
+  crop?: { k: number; cx: number; cy: number; dx?: number; dy?: number };
+  /** Entrance/exit push envelope. Full-bleed only; absent = no move. */
+  push?: PushSpec;
+  /**
+   * Absolute frame range this render covers, so the push knows where the shot
+   * starts and ends. reel.ts passes the same numbers it gives `--frames`.
+   * Absent = the whole composition.
+   */
+  range?: { first: number; last: number };
+  /** Colour behind the plate, if the crop leaves any gap. */
+  pageBg?: string;
+  /**
+   * Draw the synthetic pointer. Defaults on for "framed", OFF for "fullbleed" —
+   * the reference film has no cursor anywhere and announces interaction with a
+   * keycap instead.
+   */
+  cursor?: boolean;
+  /**
+   * Draw the pointer's click ripple.
+   *
+   * Defaults ON for "framed" and OFF for "fullbleed". The reference films draw
+   * no ripple and full-bleed reproduces them; framed predates the reference and
+   * every demo cut so far carries one, so flipping it there would silently
+   * restyle the whole back catalogue. See src/Cursor.tsx.
+   */
+  ripple?: boolean;
 };
 
 /**
@@ -177,6 +222,7 @@ const WindowGroup: React.FC<DemoClipProps> = ({
   chrome = false,
   speed = 1,
   drift,
+  ripple,
 }) => {
   const { z, frame, fps, style } = useCameraGroup(chrome, log, speed, drift);
   const trimBefore = log.trimBeforeMs
@@ -204,10 +250,128 @@ const WindowGroup: React.FC<DemoClipProps> = ({
             log={log}
             timeS={(frame / fps) * speed - (log.offsetMs ?? 0) / 1000}
             cameraScale={z.scale}
+            ripple={ripple ?? true}
           />
         </WindowFrame>
       </div>
     </Stage>
+  );
+};
+
+/**
+ * The static crop, as a CSS transform.
+ *
+ * Pan THEN scale, as two independent knobs. Origin-scale alone cannot frame an
+ * off-centre component: a point at content fraction p lands at cx + (p - cx)k,
+ * so at the k≈1.25 our source resolution allows, the furthest anything can move
+ * is ~6% of frame width. The reference's crops are strong magnifications where
+ * that is enough; ours are not, so the translate is what actually does the
+ * framing.
+ *
+ * A FUNCTION, not an inline style, because two layers must carry the identical
+ * transform — the footage and the pointer. <Cursor> positions its hotspot in
+ * percentages of its own parent, so the only thing that maps a viewport
+ * coordinate onto the cropped footage is its parent carrying this exact
+ * transform. Inline it in one place and the arrow silently drifts off its
+ * target by the pan distance.
+ */
+const cropToCss = (
+  crop: DemoClipProps["crop"],
+): React.CSSProperties | undefined =>
+  crop
+    ? {
+        transform: `translate(${(crop.dx ?? 0) * 100}%, ${(crop.dy ?? 0) * 100}%) scale(${crop.k})`,
+        transformOrigin: `${crop.cx * 100}% ${crop.cy * 100}%`,
+      }
+    : undefined;
+
+/**
+ * The full-bleed treatment: one static crop of the footage filling the frame,
+ * moved only by the push envelope.
+ *
+ * What is deliberately absent is the whole point — no window frame, no corner
+ * radius, no rim light, no backdrop plate and no zoom track. Measured off the
+ * reference film: all four frame corners sample the app's own page background,
+ * and no shot changes scale between its first and last frame.
+ *
+ * No CameraMotionBlur either. The fastest measured move in the reference is
+ * ~34px/frame, an order below where a shutter earns its render cost, and the
+ * blur is destructive to flat UI colour (see the banding note in WindowFrame).
+ */
+const FullBleedClip: React.FC<DemoClipProps> = ({
+  name,
+  log,
+  speed = 1,
+  crop,
+  push,
+  range,
+  pageBg = "#fcfcfc",
+  cursor = false,
+  ripple,
+}) => {
+  const frame = useCurrentFrame();
+  const { fps, durationInFrames } = useVideoConfig();
+  const designScale = useDesignScale();
+
+  const first = range?.first ?? 0;
+  const shotFrames = range ? range.last - range.first + 1 : durationInFrames;
+  const envelope = pushEnvelope(frame - first, shotFrames, push);
+
+  const trimBefore = log.trimBeforeMs
+    ? round((log.trimBeforeMs / 1000) * fps)
+    : undefined;
+  // Same time base the cursor uses, so a keycap and a pointer cannot disagree
+  // about when a beat happened.
+  const timeS = (frame / fps) * speed - (log.offsetMs ?? 0) / 1000;
+  const cropStyle = cropToCss(crop);
+
+  return (
+    <AbsoluteFill style={{ overflow: "hidden", backgroundColor: pageBg }}>
+      <AbsoluteFill
+        style={{
+          transform: pushToCss(envelope, designScale),
+          willChange: "transform",
+        }}
+      >
+        <AbsoluteFill style={cropStyle}>
+          <Video
+            src={staticFile(`${name}.mp4`)}
+            trimBefore={trimBefore}
+            playbackRate={speed}
+            objectFit="cover"
+            style={{ width: "100%", height: "100%" }}
+          />
+        </AbsoluteFill>
+      </AbsoluteFill>
+      {cursor ? (
+        /*
+          The crop again, on a layer of its own — NOT the push wrapper above.
+          The pointer has to survive two contradictory pulls: it must land on
+          the control it is pressing, which means sharing the footage's crop,
+          but it must not ride the push envelope, for the same reason the keycap
+          below does not.
+          Nesting it under the crop is also what makes CURSOR_SCALE_EXP mean
+          what it says. The wrapper multiplies the arrow by k and <Cursor>
+          divides by k^(1 - exp), leaving k^exp — the sub-linear growth the
+          framed look already gets from living inside its camera transform. As a
+          bare sibling the multiply was missing and the arrow SHRANK as the crop
+          tightened.
+        */
+        <AbsoluteFill style={cropStyle}>
+          <Cursor
+            log={log}
+            timeS={timeS}
+            cameraScale={crop?.k ?? 1}
+            ripple={ripple ?? false}
+          />
+        </AbsoluteFill>
+      ) : null}
+      {/*
+        Outside the push wrapper above, deliberately: the reference's keycap
+        holds a fixed frame position while the footage slides under it.
+      */}
+      {log.keys?.length ? <KeycapHUD keys={log.keys} timeS={timeS} /> : null}
+    </AbsoluteFill>
   );
 };
 
@@ -220,6 +384,11 @@ const WindowGroup: React.FC<DemoClipProps> = ({
  */
 export const DemoClip: React.FC<DemoClipProps> = (props) => {
   const chrome = props.chrome === true;
+
+  // Dispatch before anything else: the full-bleed path shares no layer with the
+  // framed one, so branching here keeps each readable instead of threading
+  // conditionals through Stage, WindowFrame and the shutter.
+  if (props.look === "fullbleed") return <FullBleedClip {...props} />;
 
   return (
     <AbsoluteFill>

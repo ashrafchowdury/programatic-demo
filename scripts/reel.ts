@@ -100,22 +100,33 @@ const digest = (value: unknown): string =>
  */
 const SOURCES = {
   // Must list the TRANSITIVE set, not just the obvious two: Intro.tsx draws the
-  // backdrop from DemoClip, eases with lib/camera, sizes against lib/click-log,
-  // and a chip card renders the shared Cursor. Miss one and editing it serves a
+  // backdrop from DemoClip (which names the image via lib/backdrop), eases with
+  // lib/camera, sizes against lib/click-log, enters and leaves on lib/push,
+  // colours itself from lib/look, and a chip card renders the shared Cursor
+  // while an items[] card renders RecapCard. Miss one and editing it serves a
   // stale cached card — the exact failure this hash exists to prevent.
   card: [
     "src/Intro.tsx",
     "src/lib/intro.ts",
     "src/lib/camera.ts",
     "src/lib/click-log.ts",
+    "src/lib/push.ts",
+    "src/lib/look.ts",
     "src/Cursor.tsx",
     "src/lib/cursor.ts",
+    "src/RecapCard.tsx",
     "src/DemoClip.tsx",
+    "src/lib/backdrop.ts",
     "src/WindowFrame.tsx",
     "src/lib/window.ts",
   ],
+  // Same rule on this side: the full-bleed path overlays KeycapHUD, and both
+  // paths push in on lib/push, tint from lib/look, and pick a backdrop image
+  // through lib/backdrop.
   clip: [
     "src/DemoClip.tsx",
+    "src/lib/backdrop.ts",
+    "src/KeycapHUD.tsx",
     "src/WindowFrame.tsx",
     "src/lib/window.ts",
     "src/Cursor.tsx",
@@ -123,6 +134,8 @@ const SOURCES = {
     "src/lib/camera.ts",
     "src/lib/cursor.ts",
     "src/lib/click-log.ts",
+    "src/lib/push.ts",
+    "src/lib/look.ts",
   ],
 } as const;
 
@@ -211,10 +224,15 @@ async function main() {
     // makes the cache safe: change the copy, get a new filename, re-render. A
     // clip also keys on the footage digest, so a re-shoot re-renders it; a card
     // draws no footage, so its key is left untouched (its cache stays valid).
+    // `look` lives on the reel, not the segment, so it has to be hashed
+    // explicitly — otherwise flipping the reel's look would serve every
+    // segment from cache. Folded in only when set, so an unopted reel keeps
+    // the keys (and therefore the cached segments) it already has.
+    const lookKey = reel.look ? { look: reel.look } : {};
     const key =
       kind === "clip"
-        ? { segment, speed, src: sourceDigest(kind), footage }
-        : { segment, speed, src: sourceDigest(kind) };
+        ? { segment, speed, src: sourceDigest(kind), footage, ...lookKey }
+        : { segment, speed, src: sourceDigest(kind), ...lookKey };
     const file = path.join(workDir, `${index}-${kind}-${digest(key)}.mp4`);
     keep.add(path.basename(file));
     parts.push(file);
@@ -225,24 +243,40 @@ async function main() {
     }
     console.log(`\n=== ${index} ${kind} ===`);
     if (isCard(segment)) {
+      // The card carries the reel's look unless it overrode it itself, so an
+      // author sets the language once on the reel. Spread first so a card can
+      // still opt out of a full-bleed reel.
+      const card = reel.look ? { look: reel.look, ...segment.card } : segment.card;
       render(
-        [
-          "render",
-          "Intro",
-          `--props=${JSON.stringify({ intro: segment.card })}`,
-        ],
+        ["render", "Intro", `--props=${JSON.stringify({ intro: card })}`],
         file,
       );
     } else {
       const { first, last } = clipFrames(segment.clip, FPS);
-      const { drift } = segment.clip;
+      const { drift, crop, push, pageBg, cursor, ripple } = segment.clip;
+      // Every key below is omitted when unset, so a framed clip renders with
+      // exactly the props scripts/render.ts uses and its output stays
+      // byte-identical to a plain `pnpm render`.
+      const full =
+        reel.look === "fullbleed"
+          ? {
+              look: reel.look,
+              // The range is what lets the push know where the shot starts and
+              // ends: --frames renders absolute frame numbers, so without it the
+              // envelope would measure from the demo's frame 0.
+              range: { first, last },
+              ...(crop ? { crop } : {}),
+              ...(push ? { push } : {}),
+              ...(pageBg ? { pageBg } : {}),
+              ...(cursor != null ? { cursor } : {}),
+              ...(ripple != null ? { ripple } : {}),
+            }
+          : {};
       render(
         [
           "render",
           "DemoClip",
-          // The key is omitted when unset, so a clip without drift renders with
-          // exactly the props scripts/render.ts uses.
-          `--props=${JSON.stringify({ name, speed, ...(drift != null ? { drift } : {}) })}`,
+          `--props=${JSON.stringify({ name, speed, ...(drift != null ? { drift } : {}), ...full })}`,
           `--frames=${first}-${last}`,
         ],
         file,

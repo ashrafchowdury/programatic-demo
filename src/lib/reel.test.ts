@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  DEFAULT_LOOK,
+  LOOKS,
   audioProblem,
   clipFrameCount,
   clipFrames,
@@ -250,5 +252,29 @@ describe("audio anchors + loudness validation (F12/F9)", () => {
   it("rejects an empty or non-string atLabels", () => {
     assert.match(withSfx({ key: { src: "k.wav", atLabels: [] } }) ?? "", /atLabels/);
     assert.match(withSfx({ key: { src: "k.wav", atLabels: [""] } }) ?? "", /atLabels/);
+  });
+});
+
+describe("reel look", () => {
+  const base = {
+    name: "smoke",
+    segments: [{ clip: { fromS: 0, toS: 1 } }],
+  };
+
+  it("defaults to absent, so every existing reel keeps the framed treatment", () => {
+    assert.equal(reelProblem(base, 300), null);
+    assert.equal(DEFAULT_LOOK, "framed");
+  });
+
+  it("accepts both shipped looks", () => {
+    for (const look of LOOKS)
+      assert.equal(reelProblem({ ...base, look }, 300), null);
+  });
+
+  it("rejects an unknown look rather than silently rendering the default", () => {
+    assert.match(
+      String(reelProblem({ ...base, look: "cinematic" }, 300)),
+      /look must be one of/,
+    );
   });
 });

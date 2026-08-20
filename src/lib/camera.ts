@@ -1,4 +1,5 @@
 import { Easing } from "remotion";
+import { DESIGN_WIDTH } from "./click-log";
 
 /**
  * Single camera interpolator.
@@ -7,6 +8,22 @@ import { Easing } from "remotion";
  * short ease-in, long decaying tail, velocity peak ~0.13 T, 0% overshoot.
  */
 export const CAMERA_BEZIER = Easing.bezier(0.2, 0.2, 0.15, 1);
+
+/**
+ * Entrance/exit interpolator for the full-bleed look's push envelope.
+ *
+ * Measured off the Cursor "Agent UX improvements" film: every decelerating
+ * entrance there is a decaying exponential, ~0.78 of the remaining distance
+ * retained per frame at 30fps (tau ~134ms). Fitting a cubic to the sampled
+ * remaining-distance table gives cubic-bezier(0.15, 0.90, 0.75, 0.95) at
+ * RMS 0.005; CAMERA_BEZIER above is the closest standard curve at RMS 0.066
+ * but is measurably too slow off the mark — the reference covers 28% of the
+ * distance in frame ONE.
+ *
+ * Kept separate from CAMERA_BEZIER on purpose: that one drives the demo camera
+ * and every existing reel's zoom track, and must not move.
+ */
+export const PUSH_BEZIER = Easing.bezier(0.15, 0.9, 0.75, 0.95);
 
 export type CameraPose = {
   scale: number;
@@ -68,10 +85,7 @@ export function moveDuration(
   speed = 1,
 ): number {
   const dS = Math.abs(to.scale - from.scale);
-  const dPx = Math.hypot(
-    (to.cx - from.cx) * vp.width,
-    (to.cy - from.cy) * vp.height,
-  );
+  const dPx = poseTravelPx(from, to, vp);
   const ms = 480 + 420 * dS + 0.35 * dPx;
   const onScreen =
     kind === "out"
@@ -83,21 +97,32 @@ export function moveDuration(
 }
 
 /**
- * Focal travel of a move, in base-composition px.
+ * Focal travel of a move, in DESIGN px (i.e. at DESIGN_WIDTH), not viewport px.
  *
  * Reference camera moves travel 31–501 px. A repositioning much larger than that
  * is not a pan any camera operator would make at magnification — it should pass
  * through a wider framing instead. Used by the track builder to decide between
- * panning and routing via base.
+ * panning and routing via base, and by moveDuration to price a move.
+ *
+ * NORMALISED ON PURPOSE. The poses are fractions of the frame, so multiplying by
+ * a raw viewport gives a number that doubles when the same shot is captured at
+ * CAPTURE_SCALE=2 — and MAX_PAN_PX below is a fixed 500. Measured: the API-key
+ * to Harnesses pan priced 645px at 1920 and 1290px at 3840, so the 3840 cut
+ * routed through base where the 1920 cut panned, adding a full zoom-out and
+ * back that the 1x film never had. Dividing by k makes both price the same move
+ * identically, and is exact (k = 1) for every 1x log.
  */
 export function poseTravelPx(
   from: CameraPose,
   to: CameraPose,
   vp: { width: number; height: number },
 ): number {
-  return Math.hypot(
-    (to.cx - from.cx) * vp.width,
-    (to.cy - from.cy) * vp.height,
+  const k = vp.width > 0 ? vp.width / DESIGN_WIDTH : 1;
+  return (
+    Math.hypot(
+      (to.cx - from.cx) * vp.width,
+      (to.cy - from.cy) * vp.height,
+    ) / k
   );
 }
 
