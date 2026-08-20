@@ -37,8 +37,10 @@ describe("hudSteps", () => {
       1,
       TOTAL,
     );
+    // Step 1 stops at 3 rather than running to step 2 at 5: a card sits at
+    // 3-4, and a step line over a statement card labels the wrong thing.
     assert.deepEqual(steps, [
-      { index: 1, label: "Add provider", startS: 2, endS: 5 },
+      { index: 1, label: "Add provider", startS: 2, endS: 3 },
       { index: 2, label: "Enable harness", startS: 5, endS: 6 },
     ]);
   });
@@ -123,7 +125,12 @@ describe("hudSteps", () => {
     assert.ok(Math.abs(cut[0].startS - dis[0].startS - 0.6) < 1e-9);
   });
 
-  it("keeps the last step on screen to the end of the film", () => {
+  it("ends the last step when the footage ends, not when the film does", () => {
+    // A step describes the demo, so it must not outlive it. Measured on the
+    // ledger cut of agent-schedule: "5 - CREATE SCHEDULE" rode over the blue
+    // payoff card AND the closing wordmark, putting a demo label on the brand
+    // frame. The final clip here ends at 6 and the film also ends at 6, so use
+    // a film that runs past its last clip to see the difference.
     const steps = hudSteps(
       SEGMENTS,
       COUNTS,
@@ -132,7 +139,28 @@ describe("hudSteps", () => {
       1,
       TOTAL,
     );
-    assert.equal(steps[0].endS, TOTAL);
+    // clip[0,2) is segment 1, spanning reel 1s-3s.
+    assert.equal(steps[0].endS, 3);
+  });
+
+  it("carries a step across a cut between two adjacent clips", () => {
+    // Two takes butted together are one subject, not two. Ending the line at
+    // the first take's edge would blink it off mid-sentence.
+    const adjacent: ReelSegment[] = [
+      { card: { name: "x", headline: "A" } },
+      { clip: { fromS: 0, toS: 2 } },
+      { clip: { fromS: 2, toS: 4 } },
+    ];
+    const steps = hudSteps(
+      adjacent,
+      [30, 60, 60],
+      FPS,
+      log([{ tMs: 1000, tDownMs: 1000, label: "Add provider", x: 0, y: 0 }]),
+      1,
+      6,
+    );
+    // clips span reel 1s-5s as ONE run, so the step holds to 5, not to 3.
+    assert.equal(steps[0].endS, 5);
   });
 
   it("scales beat times by the demo speed", () => {
@@ -167,8 +195,12 @@ describe("stepAt", () => {
     assert.equal(stepAt(steps, 5)?.index, 2);
   });
 
-  it("holds the last step past its end rather than blanking", () => {
-    assert.equal(stepAt(steps, 99)?.index, 2);
+  it("draws nothing past the last step's end", () => {
+    // This is what keeps the closing cards clean: once the footage is over
+    // there is no step current, so the overlay renders empty.
+    assert.equal(stepAt(steps, 6), null);
+    assert.equal(stepAt(steps, 99), null);
+    assert.equal(stepAt(steps, 5.9)?.index, 2);
   });
 
   it("is empty-safe", () => {
