@@ -45,14 +45,26 @@
 
 export type Size = { width: number; height: number };
 
+/** Scale a shoot uses when CAPTURE_SCALE is not set. Set after measurement. */
+export const DEFAULT_CAPTURE_SCALE = 1;
+
 /**
- * Parse the CAPTURE_SCALE env knob. 1 = today's behaviour (no HD). Values above
- * ~2 buy little and cost a lot (the source app is the limit), so it is clamped.
+ * Parse the CAPTURE_SCALE env knob.
+ *
+ * The ceiling used to be 2, on the reasoning that "the source app is the limit".
+ * That is not true of a DOM app: the root zoom makes it re-rasterise text and
+ * vector chrome at whatever scale it is given, so detail keeps arriving. What IS
+ * true is that the cost is quadratic in pixels and the app composites slower, so
+ * the ceiling is a budget, not a physical limit. Raised to 4 and measured per
+ * shoot — the recorder logs the overflow and the beat times, which is what
+ * actually tells you whether a scale worked on a given target.
  */
+export const MAX_CAPTURE_SCALE = 4;
+
 export function resolveCaptureScale(raw?: string): number {
-  const n = raw != null && raw !== "" ? Number(raw) : 1;
+  const n = raw != null && raw !== "" ? Number(raw) : DEFAULT_CAPTURE_SCALE;
   if (!Number.isFinite(n) || n <= 1) return 1;
-  return Math.min(n, 2);
+  return Math.min(n, MAX_CAPTURE_SCALE);
 }
 
 /** Physical capture size for a logical viewport at `scale`, rounded even for h264. */
