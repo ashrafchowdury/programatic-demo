@@ -15,6 +15,7 @@
 import { introProblem, type IntroStoryboard } from "./intro";
 import { DEFAULT_LOOK, LOOKS, type ReelLook } from "./look";
 import type { PushSpec } from "./push";
+import type { CropSpec } from "./crop";
 
 /** Re-exported so `look` can be authored and validated from one import. */
 export { DEFAULT_LOOK, LOOKS, type ReelLook };
@@ -34,16 +35,20 @@ export type ReelClip = {
      */
     drift?: number;
     /**
-     * Static crop for the full-bleed look: `k` magnification about the content
-     * point (`cx`, `cy`). Ignored under "framed", which derives its camera from
-     * the click log instead.
+     * Static framing for the full-bleed look. Ignored under "framed", which
+     * derives its camera from the click log instead.
      *
-     * Authored per clip because the reference film hand-picks one framing per
-     * shot: measured, the component that matters spans 84-93% of frame width in
-     * every one of its four footage shots, and nothing about the click log
-     * predicts which component that is.
+     * Two spellings, and `rect` is the one to reach for: name the component's
+     * box in the footage and the magnification follows from it. `k`/`dx` frame
+     * by panning a barely-magnified page, which is how our first cut left the
+     * settings drawer at 32% of frame width against the reference's 80-90%.
+     * See src/lib/crop.ts.
+     *
+     * Authored per clip because nothing in the click log says which component
+     * a shot is about — but the click RECTS do say where that component is, so
+     * a `rect` can be read off them rather than guessed.
      */
-    crop?: { k: number; cx: number; cy: number; dx?: number; dy?: number };
+    crop?: CropSpec;
     /** Entrance/exit push. Full-bleed only; absent = the clip does not move. */
     push?: PushSpec;
     /** Colour behind the plate if the crop leaves a gap. Full-bleed only. */
@@ -64,6 +69,21 @@ export type ReelClip = {
      * target with no visible press state of its own.
      */
     ripple?: boolean;
+    /**
+     * Hold this range's LAST frame for the range's length: a still of the end
+     * state, with no pointer.
+     *
+     * The reference film spends one shot in eleven perfectly frozen, directly
+     * before the recap — 95 frames on which nothing crosses the motion
+     * threshold. It is the only place the film stops, and having somewhere to
+     * stop is what its otherwise metronomic cutting needs.
+     *
+     * A still does not play, so it is exempt from the ranges-move-forward rule
+     * below on the same grounds as a cold open: it cannot read as a jump cut
+     * backwards. What it must not do is show a state OLDER than the shot before
+     * it, and that is checked.
+     */
+    freeze?: boolean;
   };
 };
 export type ReelSegment = ReelCard | ReelClip;
@@ -284,7 +304,17 @@ export function reelProblem(
     // backwards in time. Deliberate reordering is rare enough to be worth
     // failing on until someone actually wants it — with one exception, the cold
     // open, which neither reads nor advances the high-water mark.
-    if (i !== cold) {
+    if (segment.clip.freeze) {
+      // A still holds ONE frame, so "starts before the last shot ended" is
+      // meaningless for it — but "shows an older state than the last shot" is
+      // not, and would play as the product un-doing itself.
+      if (last < previousLast)
+        return (
+          `${at} (clip) freezes frame ${last}, which the previous clip had ` +
+          `already passed (it ended at ${previousLast})`
+        );
+      previousLast = last;
+    } else if (i !== cold) {
       if (first <= previousLast)
         return `${at} (clip) starts at or before the previous clip ended`;
       previousLast = last;

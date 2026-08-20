@@ -146,6 +146,46 @@ describe("cold open", () => {
   });
 });
 
+describe("a frozen shot", () => {
+  const still = (fromS: number, toS: number) => ({
+    clip: { fromS, toS, freeze: true },
+  });
+
+  it("may overlap the clip before it, because it does not play", () => {
+    // The harness reel's still: clip 4 runs 8.43-11.67 and the still holds the
+    // frame at 14.0 for 95 frames, which needs a range starting inside the
+    // clip's. Nothing plays, so nothing can read as a jump cut backwards.
+    const reel = {
+      name: "x",
+      segments: [
+        card("t"),
+        clip(8.43, 11.67),
+        card("payoff"),
+        still(10.83, 14.0),
+      ],
+    };
+    assert.equal(reelProblem(reel, 420), null);
+  });
+
+  it("may not hold a state the previous clip had already passed", () => {
+    // The one thing overlapping must not buy: a still of an EARLIER state plays
+    // as the product undoing itself.
+    const reel = {
+      name: "x",
+      segments: [card("t"), clip(8.43, 11.67), still(2.0, 4.0)],
+    };
+    assert.match(reelProblem(reel, 420) ?? "", /already passed/);
+  });
+
+  it("still advances the high-water mark for the clips after it", () => {
+    const reel = {
+      name: "x",
+      segments: [clip(1, 3), card("t"), still(2, 6), card("u"), clip(4, 5)],
+    };
+    assert.match(reelProblem(reel, 420) ?? "", /before the previous clip/);
+  });
+});
+
 describe("audioProblem", () => {
   const ok = { src: "audio/bed.mp3", trim: { fromS: 12, toS: 25 } };
 
