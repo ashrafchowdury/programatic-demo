@@ -23,7 +23,7 @@ import {
 } from "./lib/crop";
 import { KeycapHUD } from "./KeycapHUD";
 import type { ReelLook } from "./lib/look";
-import { resolvePreset } from "./lib/style";
+import { resolvePreset, type ReelStyle } from "./lib/style";
 
 const round = (n: number) => Math.round(n);
 
@@ -57,6 +57,8 @@ export type DemoClipProps = {
    * `backdrop` and takes the `crop`/`push` path instead.
    */
   look?: ReelLook;
+  /** Choreography grammar; supersedes `look`. See src/lib/style.ts. */
+  style?: ReelStyle;
   /**
    * Static framing for the full-bleed look. Either a camera (`k` about
    * `cx`/`cy`, then `dx`/`dy`) or a component box (`rect` + `fill`, which

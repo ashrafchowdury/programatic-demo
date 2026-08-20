@@ -361,3 +361,51 @@ describe("type scale", () => {
     assert.ok(pf.pitchPx / pf.capPx < 1.8, "proof pitch/cap");
   });
 });
+
+describe("shot motion and bookend length", () => {
+  it("gives every shots-layer style something that actually moves", () => {
+    // The failure this catches was invisible to every other test and only
+    // showed up in a render: narration removed the card motion, supplied no
+    // shot motion, and measured 18% moving against a 36.8% target — LESS
+    // lively than the grammar it replaced.
+    for (const name of STYLES) {
+      const p = STYLE_PRESETS[name];
+      if (p.motionLayer !== "shots") continue;
+      const moves =
+        p.shot.enter.kind !== "none" ||
+        p.shot.exit.kind !== "none" ||
+        p.join.kind === "dissolve";
+      assert.ok(moves, `${name}: motionLayer "shots" but nothing on the shots`);
+    }
+  });
+
+  it("scales narration's shots in, per Film B's measured window", () => {
+    // Fit B: 841 -> 941 px over 23 frames, so the shot starts at 0.894 of rest.
+    const e = STYLE_PRESETS.narration.shot.enter;
+    assert.equal(e.kind, "push");
+    if (e.kind !== "push") return;
+    assert.equal(e.axis, "scale");
+    assert.equal(Math.round((1 + e.dist) * 1000) / 1000, 0.894);
+    assert.equal(e.frames, 23);
+  });
+
+  it("floors a bookend even where sentences have no clamp", () => {
+    // narration refuses to slot its sentences AND insists its sign-off
+    // breathes — the two are different questions, which is why they are
+    // different fields. Film B: sentences 31-89f, logo card 90f.
+    assert.equal(STYLE_PRESETS.narration.card.length.minS, null);
+    assert.ok((STYLE_PRESETS.narration.bookend.minS ?? 0) >= 3);
+  });
+
+  it("never lets a bookend floor fall below the card floor", () => {
+    // A bookend shorter than an ordinary card would read as a mistake.
+    for (const name of STYLES) {
+      const p = STYLE_PRESETS[name];
+      if (p.bookend.minS == null || p.card.length.minS == null) continue;
+      assert.ok(
+        p.bookend.minS >= p.card.length.minS,
+        `${name}: bookend ${p.bookend.minS}s < card ${p.card.length.minS}s`,
+      );
+    }
+  });
+});

@@ -27,7 +27,8 @@ import {
   type ClickLog,
 } from "../src/lib/click-log";
 import { cropUpscale, SHARPNESS_CEILING } from "../src/lib/crop";
-import { resolvePreset } from "../src/lib/style";
+import { resolvePreset, type StylePreset } from "../src/lib/style";
+import type { PushSpec } from "../src/lib/push";
 import { buildXfadeFilter, dissolvedFrameCount } from "./lib/xfade";
 import {
   clipFrames,
@@ -226,6 +227,8 @@ async function main() {
 
   const parts: string[] = [];
   const keep = new Set<string>();
+  const preset = resolvePreset(reel);
+
   reel.segments.forEach((segment: ReelSegment, i) => {
     const index = String(i + 1).padStart(2, "0");
     const kind: "card" | "clip" = isCard(segment) ? "card" : "clip";
@@ -278,7 +281,7 @@ async function main() {
       // it can silently ask for more resolution than the shoot has — which is
       // exactly the trade the author should be making on purpose. See
       // SHARPNESS_CEILING in src/lib/crop.ts.
-      if (reel.look === "fullbleed" && crop) {
+      if (preset.shot.framing !== "window" && crop) {
         const up = cropUpscale(crop, log.viewport.width, OUTPUT_WIDTH);
         const how = up > SHARPNESS_CEILING ? "OVER the ceiling" : "ok";
         console.log(
@@ -288,16 +291,33 @@ async function main() {
       // Every key below is omitted when unset, so a framed clip renders with
       // exactly the props scripts/render.ts uses and its output stays
       // byte-identical to a plain `pnpm render`.
+      // A grammar whose motion lives on the SHOTS supplies the clip's default
+      // arrival. Without this, switching a reel to such a style removes the
+      // card motion and adds nothing — measured on the harness reel, 24% moving
+      // under proof became 18% under narration against a 36.8% target.
+      // Authored `push` still wins, and a cards-layer style contributes nothing
+      // here, so every existing reel is untouched.
+      const shotPush =
+        push ??
+        (preset.motionLayer === "shots" ? presetShotPush(preset) : undefined);
+      // Gate on the STYLE's framing, not the legacy look. A reel that names a
+      // style and no look would otherwise fall through to the framed renderer
+      // with none of these props — measured: every clip in a narration cut of
+      // harness rendered as a framed window, which is also why the style's own
+      // shot arrival never fired.
       const full =
-        reel.look === "fullbleed"
+        preset.shot.framing !== "window"
           ? {
-              look: reel.look,
+              // Both, and only when set: `look` keeps a legacy reel's props
+              // byte-identical, `style` is what a styled reel dispatches on.
+              ...(reel.look ? { look: reel.look } : {}),
+              ...(reel.style ? { style: reel.style } : {}),
               // The range is what lets the push know where the shot starts and
               // ends: --frames renders absolute frame numbers, so without it the
               // envelope would measure from the demo's frame 0.
               range: { first, last },
               ...(crop ? { crop } : {}),
-              ...(push ? { push } : {}),
+              ...(shotPush ? { push: shotPush } : {}),
               ...(pageBg ? { pageBg } : {}),
               ...(cursor != null ? { cursor } : {}),
               ...(ripple != null ? { ripple } : {}),
@@ -350,7 +370,7 @@ async function main() {
   // A style that does not hard-cut cannot be stream-copied: xfade has to blend
   // two decoded streams, so the whole film is re-encoded. Everything else still
   // takes the -c copy path and stays byte-for-byte as before.
-  const join = resolvePreset(reel).join;
+  const join = preset.join;
   const overlapF = join.kind === "dissolve" ? join.frames : 0;
   const counts = probes.map((p) => frameCount(p) ?? 0);
 
@@ -539,6 +559,24 @@ function requireFfmpegAudio(): void {
       `This ffmpeg build lacks the ${missing.join(", ")} audio filter(s). ` +
         "Install a full build: `brew install ffmpeg`.",
     );
+}
+
+/**
+ * A style's own shot arrival, as a PushSpec — or undefined when it has none.
+ *
+ * Only the `push` kind maps: `ramp` is the framed scale nudge, which is a
+ * card mechanism with no clip equivalent, and `none` means the grammar holds
+ * its shots still.
+ */
+function presetShotPush(preset: StylePreset): PushSpec | undefined {
+  const toMove = (m: StylePreset["shot"]["enter"]) =>
+    m.kind === "push"
+      ? { axis: m.axis, dist: m.dist, frames: m.frames }
+      : undefined;
+  const inMove = toMove(preset.shot.enter);
+  const outMove = toMove(preset.shot.exit);
+  if (!inMove && !outMove) return undefined;
+  return { ...(inMove ? { in: inMove } : {}), ...(outMove ? { out: outMove } : {}) };
 }
 
 /**

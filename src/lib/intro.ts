@@ -1075,10 +1075,15 @@ export function introTiming(intro: IntroStoryboard): IntroTiming {
   const heldS = holdFrom + (intro.holdS ?? length.holdS);
   // A floor only applies to a grammar that HAS one. An authored `holdS` opts out
   // of it either way — the author has said how long the beat is.
+  // A bookend gets its own floor. One or two words under a grammar with no card
+  // clamp would otherwise cut before the mark has finished arriving — see
+  // BookendStyle.minS. An authored `holdS` opts out of both floors.
+  const floorS =
+    intro.logo && preset.bookend.minS != null
+      ? Math.max(length.minS ?? 0, preset.bookend.minS)
+      : length.minS;
   const outStartS =
-    length.minS != null && intro.holdS == null
-      ? Math.max(heldS, length.minS)
-      : heldS;
+    floorS != null && intro.holdS == null ? Math.max(heldS, floorS) : heldS;
 
   // A chip card does not fade. `holdS` keeps its meaning — the still beat after
   // the sentence lands — and the pointer leaves at the end of it. The card then

@@ -185,6 +185,20 @@ export type BookendStyle = {
   turns: number;
   driftPxPerFrame: number;
   driftFrames: number;
+  /**
+   * Floor on a LOGO card's length, or null to let the copy decide.
+   *
+   * A bookend is one or two words, so a grammar with no card floor renders it
+   * as hold-only and cuts before the mark has arrived — the first narration cut
+   * of harness gave 35 frames, and its opening frame was a fragment of the logo
+   * on an empty field. Every reference holds its sign-off far longer than any
+   * sentence: Film B's logo card is 90f where its sentences run 31-89f.
+   *
+   * Separate from `card.length.minS` because they answer different questions.
+   * A grammar can refuse to slot its sentences and still insist its bookends
+   * breathe, which is exactly what Film B does.
+   */
+  minS: number | null;
 };
 
 /**
@@ -380,6 +394,9 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
       turns: 1,
       driftPxPerFrame: 2,
       driftFrames: 14,
+      // No floor: the framed look has never had one and its cards are not
+      // clamped either.
+      minS: null,
     },
     recap: {
       leadS: 0.17,
@@ -460,6 +477,9 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
       turns: 1,
       driftPxPerFrame: 2,
       driftFrames: 14,
+      // Redundant here — card.length.minS already floors every card at 3.2s —
+      // but stated so the two do not silently disagree if that clamp moves.
+      minS: 3.2,
     },
     recap: {
       leadS: 0.17,
@@ -539,7 +559,23 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
       cursor: true,
       // UNKNOWN, not measured. Left off to match proof rather than invented.
       ripple: false,
-      enter: { kind: "none" },
+      /**
+       * THE MOTION OF THIS GRAMMAR. Shots arrive already growing and settle.
+       *
+       * MEASURED, Film B shot 9 (docs/reel/02-motion.md, Fit B): the window
+       * runs 841 -> 941 px over 23 frames, so the shot STARTS at 0.894 of rest
+       * — dist is where it begins, relative to 1.0.
+       *
+       * This is not decoration; it is where the film's 36.8% moving comes from.
+       * 17 shots each moving ~20 frames is ~340 of 927 frames, which lands on
+       * the measured figure almost exactly. A narration cut with static shots
+       * measures LESS motion than a proof cut, not more — the card motion is
+       * removed and nothing replaces it.
+       */
+      enter: { kind: "push", axis: "scale", dist: -0.106, frames: 23 },
+      // No exit. Film B's shots settle and hold — shot 9 is still for its last
+      // 40 frames — and its cuts are carried by tonal continuity rather than by
+      // leaving mid-move, which is Film A's move.
       exit: { kind: "none" },
     },
     chip: {
@@ -580,13 +616,14 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
       // the narration voice — every sentence that states a capability
       light: { ground: "#ffffff", ink: "#0a0a0a", muted: "rgba(10,10,10,0.55)" },
     },
-    // ⧗ Film B's outro is a cube tumble over 90f, but its tumble duration and
-    // turn count were never measured. Carried from proof rather than guessed.
+    // ⧗ Tumble duration and turn count were never measured; carried from proof.
+    // The LENGTH was: Film B's logo card is shot 17, f837-926 = 90f = 3.0s.
     bookend: {
       tumbleS: 0.85,
       turns: 1,
       driftPxPerFrame: 2,
       driftFrames: 14,
+      minS: 3.0,
     },
     // ⧗ Film B has no recap card. These are proof's, kept so the preset is
     // structurally complete; a narration reel with a recap is off-reference.
@@ -693,12 +730,14 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
       plain: { ground: "#f7fbf3", ink: "#0a0a0a", muted: "rgba(10,10,10,0.55)" },
       light: { ground: "#f7fbf3", ink: "#0a0a0a", muted: "rgba(10,10,10,0.55)" },
     },
-    // ⧗ monid's sign-off is a static wordmark, not a tumble. Carried.
+    // ⧗ monid's sign-off is a static wordmark, not a tumble; tumble values
+    // carried. Its LENGTH is MEASURED: f960-1038 = 79f = 2.63s.
     bookend: {
       tumbleS: 0.85,
       turns: 1,
       driftPxPerFrame: 2,
       driftFrames: 14,
+      minS: 2.63,
     },
     // ⧗ monid has no recap card. Carried.
     recap: {
