@@ -1,0 +1,50 @@
+[
+  {
+    "id": "click",
+    "key": "click",
+    "detector": "auto — real press that isn't a typing run (tDownMs, no typeEndMs)",
+    "trigger": "a mouse click (button, target, drill-in)",
+    "gain": 0.5,
+    "source": "provided sample (clean-mouse-click), trimmed + leveled"
+  },
+  {
+    "id": "typing",
+    "key": "typing",
+    "detector": "auto — a real typed string (typeEndMs span >= 500ms)",
+    "trigger": "typing a string, as a bed over the whole run",
+    "gain": 0.35,
+    "source": "provided recording (keyboard-type), 3s slice"
+  },
+  {
+    "id": "pop",
+    "key": "pop",
+    "detector": "auto — UI response after any typed input (typeEndMs + 120ms)",
+    "trigger": "a popover / menu appearing after input",
+    "gain": 0.45,
+    "source": "provided sample (pop-up), trimmed + leveled"
+  },
+  {
+    "id": "key",
+    "key": "key",
+    "detector": "authored — target beats by label (atLabels)",
+    "trigger": "one discrete key — Enter, or a single key on intro text",
+    "gain": 0.4,
+    "source": "provided sample (single-key-type), trimmed + leveled"
+  },
+  {
+    "id": "confirm",
+    "key": "confirm",
+    "detector": "authored — target beats by label (atLabels), e.g. \"Allow all\"",
+    "trigger": "the payoff action",
+    "gain": 0.5,
+    "source": "synthesized — regenerate with scripts/gen-sfx.ts"
+  },
+  {
+    "id": "error",
+    "key": "error",
+    "detector": "authored — target beats by label (atLabels)",
+    "trigger": "an error / blocked action",
+    "gain": 0.5,
+    "source": "provided sample (click-error), trimmed + leveled"
+  }
+]
