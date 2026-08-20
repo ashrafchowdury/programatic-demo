@@ -123,40 +123,60 @@ log predicts which component matters:
 
 ```ts
 { clip: { fromS: 1.8, toS: 6.2,
-          crop: { k: 1.6, cx: 0.5, cy: 0.45 },     // one component at 84-93% of width
+          crop: { k: 1.28, cx: 0.5, cy: 0.5, dx: -0.14 },   // pan, barely magnify
           push: { in:  { axis: "x", dist: 114,  frames: 15 },
                   out: { axis: "x", dist: -208, frames: 13 } } } }
 ```
 
-- **Vary the exit axis card to card** (`exit: { axis: "y" }`, `"scale"`, `"none"`).
-  Six cards leaving the same way reads as a slideshow.
-- **Match momentum across a cut**: give the incoming shot's `in.dist` the
-  direction the outgoing shot was travelling, and it reads as one continuous
-  move interrupted by a content change.
-- Interaction is **keyboard-first**: there is no pointer. Use `pressKey("Alt+Enter")`
-  or a `{ key: "Alt+Enter" }` step, and the keycap draws itself.
-- **Shoot with `CAPTURE_SCALE`, never `deviceScaleFactor`.** Full-bleed fills the
-  frame with the crop, so at k=1.0 a 1920 capture is already a 1.33x upscale to
-  the 2560 output and any crop multiplies that — past ~1.74x total, text softens.
-  `deviceScaleFactor` does NOT help: `Page.startScreencast` emits CSS-viewport
-  pixels and ignores it (measured three times — see the DEVICE_SCALE_FACTOR note
-  in `src/lib/click-log.ts`). The only route to more source pixels is a larger
-  CSS viewport plus a matching root zoom, which is what `CAPTURE_SCALE` does:
-  `CAPTURE_SCALE=2 pnpm record:live <flow>` captures 3840x2160, which makes
-  3840 -> 2560 a *downscale* and leaves headroom to crop to k=1.5 while still
-  mapping source to output exactly 1:1.
+**Frame by PANNING, not by magnifying, and never let the footage stop filling
+the frame.** `dx`/`dy` drop the parts of the page that are not the story off the
+edges while `k` stays near 1. Full-bleed means edge to edge — the moment a shot
+becomes a component floating on a mat, it is a slide, not a film.
 
-  An app whose shell is built on `vh` used to be excluded: `100vh` resolves
-  against the PHYSICAL viewport and is then zoomed, so the page overflowed by
-  exactly the scale. `capture-scale.ts` now rewrites viewport units to logical
-  px across every same-origin stylesheet, which fixes compiled utility classes
-  (`h-screen`) and CSS-in-JS alike. Verify per target — the recorder still logs
-  the overflow, and `v=1 h=1` is what you want.
+There is a second spelling, `crop: { rect, fill }`, that names a component's box
+and derives the scale so it fills the frame with nothing else in shot. **It is
+Film B's grammar and it is not the default.** Cut both ways and measured, it won
+every number on this repo's harness reel — drawer 32% → 65% of frame width, UI
+text 12.8px → 30.8px against the reference's 30px — and lost badly on the
+picture: the component came out of its page onto a flat grey mat covering half
+the frame, the clip edge sliced the model list mid-glyph, and the magnification
+cost 1.73x of upscale. Use it only when the component genuinely is the shot AND
+was captured at a size that supports it.
 
-  **Budget for the app running slower.** At 3840x2160 this repo's harness target
-  composited ~16% slower end to end and unevenly: the first beat held at comp
-  f62 while the third moved f169 -> f204. Re-tune clip ranges after an HD
-  re-shoot; do not assume the 1x ranges carry over.
+**Small UI text is a CAPTURE problem, not a framing problem.** If the product's
+text is rendering too small in frame, the answer is a bigger `CAPTURE_SCALE`,
+not a tighter crop. `pnpm reel` prints what each framing asks for
+(`framing -> 0.85x source->output`); past `SHARPNESS_CEILING` (1.74) you are
+blowing pixels up. A component that is 25% of the viewport needs
+`CAPTURE_SCALE=3` before it can fill 85% of frame at 1:1.
+
+**Hold one shot dead still, before the recap.** `freeze: true` on a clip holds
+its range's LAST frame for the range's length, with no pointer. The reference
+gives exactly one shot in eleven this treatment, at 95 frames, and it is what
+stops a metronomic cut rate reading as a conveyor belt. A frozen shot may
+overlap the range of the clip before it — it does not play, so it cannot read as
+a jump cut backwards — but it may not hold a state that clip had already passed.
+
+**Bookends run LIGHT.** `background: "light"` on the logo cards, which under
+full-bleed is the reference's warm `#edece5`. This is structure, not taste: a
+reel goes `logo · card · clip · card · … · recap · logo`, cards and recap are
+dark and clips are light, so dark bookends make the logo->card and recap->logo
+cuts vanish — measured at 2 and 1 levels of luma step where every other cut is
+~190.
+
+**The lockup is ONE ROW** — mark and wordmark side by side, one size. The
+reference stacks its bookend vertically (mark over name over a third line
+carrying a URL) and that was reproduced here to within half a point of its
+measurements: 41.9% of frame width by 33.5% of height against 41.4% x 33.0%. It
+was still worse, and got taken back out. Matching a measurement is not the same
+as matching the film — a light-coloured mark stranded above the name has nothing
+holding it there, and a URL under a wordmark reads as a slide footer.
+
+One thing to check if your mark is light-coloured: it will have almost no
+luminance contrast on a light ground. Ours measures nine levels against the
+reference's 227, which costs the mark's tumble most of its read. A mono/dark
+variant for light grounds is the fix.
+
 - **Keep the pointer unless the feature really is keyboard-driven.** The
   reference has no cursor because *its* feature is keyboard-first; a mouse-driven
   flow rendered with the pointer hidden reads as the UI reacting to nothing. Set
