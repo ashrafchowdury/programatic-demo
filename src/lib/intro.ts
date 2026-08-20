@@ -13,6 +13,7 @@
 import { cameraEase } from "./camera";
 import { type ReelLook } from "./look";
 import {
+  FONT_STACK_LEGACY,
   STYLE_PRESETS,
   resolvePreset,
   type CardLength,
@@ -505,8 +506,7 @@ export const CARD_MAX_S = 3.3;
  * need it, and RecapCard is rendered BY Intro — importing it back the other way
  * would close a cycle.
  */
-export const FONT_STACK =
-  'ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
+export const FONT_STACK = FONT_STACK_LEGACY;
 
 /**
  * FULL-BLEED TYPE. Measured off the reference; replaces the framed values only

@@ -123,6 +123,7 @@ const SOURCES = {
     "src/lib/push.ts",
     "src/lib/look.ts",
     "src/lib/style.ts",
+    "src/lib/font.ts",
     "src/Cursor.tsx",
     "src/lib/cursor.ts",
     "src/RecapCard.tsx",

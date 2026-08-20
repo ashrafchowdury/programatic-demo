@@ -1,7 +1,6 @@
 import React from "react";
 import { AbsoluteFill, Img, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
 import {
-  FONT_STACK,
   introLook,
   LOGO_FILE,
   RECAP_ITEM_STAGGER_S,
@@ -101,11 +100,11 @@ export const RecapCard: React.FC<{ intro: IntroStoryboard }> = ({ intro }) => {
     settle(RECAP_RISE_S > 0 ? (tS - at.markS) / RECAP_RISE_S : 1) * RECAP_RISE;
 
   return (
-    // FONT_STACK explicitly, not inherited: this component is returned from
-    // Intro *before* the wrapper that sets it, so without this the card falls
-    // back to the browser default serif.
+    // The face is set explicitly, not inherited: this component is returned
+    // from Intro *before* the wrapper that sets it, so without this the card
+    // falls back to the browser default serif.
     <AbsoluteFill
-      style={{ backgroundColor: look.ground, fontFamily: FONT_STACK }}
+      style={{ backgroundColor: look.ground, fontFamily: preset_.type.fontFamily }}
     >
       <div
         style={{

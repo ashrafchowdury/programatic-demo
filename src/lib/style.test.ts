@@ -5,6 +5,7 @@ import { describe, it } from "node:test";
 import { BACKGROUNDS } from "./intro";
 import {
   DEFAULT_STYLE,
+  FONT_STACK_LEGACY,
   STYLES,
   REFERENCE_FILMS,
   STYLE_PRESETS,
@@ -359,6 +360,20 @@ describe("type scale", () => {
     assert.ok(led.pitchPx / led.capPx > 2.4, "ledger pitch/cap");
     const pf = STYLE_PRESETS.proof.type;
     assert.ok(pf.pitchPx / pf.capPx < 1.8, "proof pitch/cap");
+  });
+
+  it("gives ledger a real face and leaves every other style's alone", () => {
+    // The face is the one type field that can fail SILENTLY: name a family
+    // nothing loads and the browser falls back without complaint, which is
+    // exactly the state the ledger cards were in before font.ts existed.
+    assert.match(STYLE_PRESETS.ledger.type.fontFamily, /^"Inter"/);
+    for (const name of STYLES)
+      if (name !== "ledger")
+        assert.equal(
+          STYLE_PRESETS[name].type.fontFamily,
+          FONT_STACK_LEGACY,
+          `${name} must keep the face it shipped with`,
+        );
   });
 });
 

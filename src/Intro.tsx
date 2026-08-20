@@ -1,4 +1,5 @@
 import React from "react";
+import { loadFonts } from "./lib/font";
 import {
   AbsoluteFill,
   Img,
@@ -17,7 +18,6 @@ import {
   CHIP_AT,
   CHIP_PUNCH_SCALE,
   flooredEntry,
-  FONT_STACK,
   FULLBLEED_LETTER_SPACING,
   headlineParts,
   introLook,
@@ -416,6 +416,9 @@ const ChipSentence: React.FC<{
  * path and render in seconds.
  */
 export const Intro: React.FC<IntroProps> = ({ intro }) => {
+  // Registered here, at the one entrance both card kinds pass through, so no
+  // card can render before the face it names is usable. Idempotent.
+  loadFonts();
   // A recap card shares nothing with a sentence card but its palette — it is
   // left-aligned, top-anchored, and reveals whole labels rather than words — so
   // it gets its own component rather than a branch through this one.
@@ -509,7 +512,7 @@ const SentenceCard: React.FC<IntroProps> = ({ intro }) => {
         alignItems: "center",
         padding: `0 ${MARGIN_X * k}px`,
         transform: shift ?? `scale(${push})`,
-        fontFamily: FONT_STACK,
+        fontFamily: preset.type.fontFamily,
       }}
     >
       <div style={{ maxWidth: width * look.columnFrac, textAlign: "center" }}>
@@ -674,9 +677,12 @@ const ChipPunch: React.FC<{
   );
   const scale = 1 + (CHIP_PUNCH_SCALE - 1) * punchEase(u);
   const css = poseToCss({ scale, cx: CHIP_AT.x, cy: CHIP_AT.y }, 0, 1);
+  // Resolved here rather than threaded in: this card is rendered outside the
+  // wrapper that sets the face, so it has to name it itself.
+  const preset = resolvePreset(intro);
 
   return (
-    <AbsoluteFill style={{ fontFamily: FONT_STACK }}>
+    <AbsoluteFill style={{ fontFamily: preset.type.fontFamily }}>
       <AbsoluteFill
         style={{
           transform: `scale(${css.scale}) translate(${css.translateX * 100}%, ${css.translateY * 100}%)`,

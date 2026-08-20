@@ -248,6 +248,20 @@ export type TypeStyle = {
   /** MEASURED cap height and line pitch at 1920 wide, for cross-checking. */
   capPx: number;
   pitchPx: number;
+  /**
+   * The face, as a CSS font-family list.
+   *
+   * A STYLE FIELD RATHER THAN ONE SHARED CONSTANT, because the face is part of
+   * a grammar the way the palette is: a preset measured off a film set in a
+   * specific grotesque cannot be reproduced by whatever `system-ui` happens to
+   * resolve to on the render host. Every style that has not been given a face
+   * of its own carries intro.ts's FONT_STACK verbatim, so nothing that shipped
+   * before this field existed renders differently.
+   *
+   * A face named here must be one src/lib/font.ts actually loads, or the
+   * browser silently falls back and the measured metrics stop meaning anything.
+   */
+  fontFamily: string;
 };
 
 export type RecapStyle = {
@@ -346,6 +360,33 @@ export type StylePreset = {
   targets: GrammarTargets | null;
 };
 
+/**
+ * The face every style used before `TypeStyle.fontFamily` existed.
+ *
+ * Declared here rather than in intro.ts because the preset table owns the
+ * numbers and intro.ts reads them — intro.ts imports this module, so the
+ * dependency cannot run the other way. `FONT_STACK` there is now an alias of
+ * this, which is what keeps every existing call site untouched.
+ *
+ * Note what it does NOT name: a specific face. It asks the render host for its
+ * UI font and takes what it gets, which is Helvetica in this repo's headless
+ * Chromium. That is fine for styles whose type was tuned against it and wrong
+ * for one whose metrics were measured off a real grotesque.
+ */
+export const FONT_STACK_LEGACY =
+  'ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
+
+/**
+ * Inter, with the legacy stack behind it as a fallback.
+ *
+ * The fallback is deliberate and load-bearing: if src/lib/font.ts fails to
+ * register the file, the cards still render readable type instead of blank
+ * boxes. It also means a missing font shows up as "the metrics look wrong"
+ * rather than as a crash, so check font.ts before re-tuning any number here.
+ */
+export const LEDGER_FONT_STACK =
+  `"Inter", ${FONT_STACK_LEGACY}`;
+
 // ---------------------------------------------------------------------------
 // The registry
 // ---------------------------------------------------------------------------
@@ -406,6 +447,8 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
       letterSpacing: "-0.022em",
       capPx: 69,
       pitchPx: 108,
+      // Carried verbatim: this style predates the field and must not move.
+      fontFamily: FONT_STACK_LEGACY,
     },
     // One voice: the framed look has always had a dark plate and a light
     // alternative, chosen per card rather than assigned by role.
@@ -490,6 +533,8 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
       letterSpacing: "0em",
       capPx: 52,
       pitchPx: 86,
+      // Carried verbatim: this style predates the field and must not move.
+      fontFamily: FONT_STACK_LEGACY,
     },
     // Film A runs two grounds and alternates them on every cut, which is what
     // makes its ~200-level slams. MEASURED off the reference.
@@ -634,6 +679,8 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
       letterSpacing: "0em",
       capPx: 52,
       pitchPx: 86,
+      // Carried verbatim: this style predates the field and must not move.
+      fontFamily: FONT_STACK_LEGACY,
     },
     // GROUNDS BY ROLE — the whole point, see PaletteStyle. Hexes MEASURED in
     // docs/reel/03-composition.md: pure white (unlike Film A's warm off-white),
@@ -763,6 +810,12 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
       letterSpacing: "-0.01em",
       capPx: 70,
       pitchPx: 181,
+      // THE ONE STYLE WITH A FACE OF ITS OWN. Inter, vendored at
+      // public/fonts/ and loaded by src/lib/font.ts. The metrics above were
+      // measured off a film set in a grotesque of this class; reproducing
+      // them in whatever system-ui resolves to is why an earlier cut read as
+      // a default slide deck rather than as a designed frame.
+      fontFamily: LEDGER_FONT_STACK,
     },
     // MEASURED. Cream with a green cast, NOT white — rgb(247,251,243) — and one
     // saturated accent ground carrying the price payoff. There is no third
