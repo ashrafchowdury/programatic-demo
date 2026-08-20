@@ -21,7 +21,6 @@ import {
   flooredEntry,
   FONT_STACK,
   FULLBLEED_HEADLINE_SIZE,
-  FULLBLEED_INK,
   FULLBLEED_LETTER_SPACING,
   FULLBLEED_LINE_HEIGHT,
   headlineParts,
@@ -177,12 +176,16 @@ const StyledInline: React.FC<{ text: string; look: IntroLook }> = ({
 );
 
 /**
- * Brand sign-off: the mark and the wordmark on one line.
+ * Brand sign-off: the mark and the wordmark on ONE line, at one size.
  *
  * The mark fades and scales in first (floored, so frame 0 already carries it),
  * then the wordmark WRITES in a character at a time — a short per-letter reveal
  * that reads as the name being drawn next to the mark. Sized so the mark sits
  * just above the wordmark's cap height rather than dwarfing it.
+ *
+ * A vertical mark-over-name-over-tagline stack was tried here, measured against
+ * the reference's own bookend (41.4% of frame width, 33.0% of height, a third
+ * line carrying the URL) and REJECTED on how it looked. One row is the lockup.
  */
 const LogoLockup: React.FC<{
   text: string;
@@ -244,7 +247,9 @@ const LogoLockup: React.FC<{
           fontSize: LOGO_TEXT_SIZE * k,
           fontWeight: HEADLINE_WEIGHT,
           letterSpacing: fullbleed ? FULLBLEED_LETTER_SPACING : "-0.022em",
-          color: fullbleed ? FULLBLEED_INK : look.headline,
+          // Comes from the palette in both looks now, so a light full-bleed
+          // bookend gets dark ink without a second branch. See introLook.
+          color: look.headline,
         }}
       >
         {[...text].map((ch, i) => {
@@ -431,7 +436,7 @@ const SentenceCard: React.FC<IntroProps> = ({ intro }) => {
   const k = useDesignScale();
   const tS = frame / fps;
   const t = introTiming(intro);
-  const look = introLook(intro.background);
+  const look = introLook(intro.background, intro.look ?? DEFAULT_LOOK);
 
   // Floored: the film's first frame is a card, and it must not be an empty field.
   const wordmarkP = flooredEntry(
@@ -533,7 +538,7 @@ const SentenceCard: React.FC<IntroProps> = ({ intro }) => {
             fontWeight: HEADLINE_WEIGHT,
             letterSpacing: fullbleed ? FULLBLEED_LETTER_SPACING : "-0.022em",
             lineHeight: fullbleed ? FULLBLEED_LINE_HEIGHT : 1.12,
-            color: fullbleed ? FULLBLEED_INK : look.headline,
+            color: look.headline,
             // BALANCED, not greedy. The reference does not fill each line to the
             // column before wrapping: on its 3-line card the lines run 54%/52%/47%
             // of the available column, and on its 2-line card line 2 (1216px) is

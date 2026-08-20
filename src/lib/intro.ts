@@ -324,7 +324,36 @@ const DARK_LOOK = {
   highlightInk: "#101317",
 } as const;
 
-export function introLook(background?: IntroBackground): IntroLook {
+/**
+ * `look` is optional and only changes the FULL-BLEED palette, which is measured
+ * off the reference film rather than tuned against our backdrop: near-black
+ * with #e9ebe6 ink for narration, warm off-white with black ink for bookends.
+ * Called without it (every framed call site) nothing below changes.
+ */
+export function introLook(
+  background?: IntroBackground,
+  look?: ReelLook,
+): IntroLook {
+  if (look === "fullbleed")
+    return background === "light"
+      ? {
+          ...DARK_LOOK,
+          ground: FULLBLEED_LIGHT_GROUND,
+          headline: FULLBLEED_LIGHT_INK,
+          subhead: FULLBLEED_LIGHT_MUTED,
+          wordmark: FULLBLEED_LIGHT_MUTED,
+          flat: true,
+          columnFrac: COLUMN_FRAC_FLAT,
+        }
+      : {
+          ...DARK_LOOK,
+          ground: DARK_GROUND,
+          headline: FULLBLEED_INK,
+          subhead: FULLBLEED_MUTED,
+          wordmark: FULLBLEED_MUTED,
+          flat: true,
+          columnFrac: COLUMN_FRAC_FLAT,
+        };
   if (background === "light")
     return {
       ground: LIGHT_GROUND,
@@ -479,6 +508,34 @@ export const FULLBLEED_LETTER_SPACING = "0em";
 export const FULLBLEED_INK = "#e9ebe6";
 
 /**
+ * THE BOOKEND GROUND IS LIGHT, AND THAT IS STRUCTURE, NOT TASTE.
+ *
+ * Measured off the reference: #edece5, a warm off-white, on both its opening
+ * and closing cards — against #0a0a0a on all five of its sentence cards. For a
+ * long time that read as a styling choice. It is not.
+ *
+ * A full-bleed film alternates dark cards with light footage, so its cut
+ * contrast is the whole grammar: all ten of the reference's cuts measure a
+ * 209-240 level step in mean luma, without exception. Put the bookends on the
+ * DARK ground and two cuts vanish — logo->card and recap->logo become steps of
+ * 2 and 1 levels, which ffmpeg's own scene detector does not register as cuts
+ * at all. That is exactly what our first cut did.
+ *
+ * Light bookends are the only arrangement in which
+ * `logo, card, clip, card, clip, card, still, recap, logo` alternates on every
+ * single boundary. The colour is load-bearing.
+ *
+ * The ink pair is measured the same way: the wordmark's glyph cores read #000,
+ * and the third line reads Y 132-140 — a warm grey a little under halfway from
+ * ink to ground.
+ */
+export const FULLBLEED_LIGHT_GROUND = "#edece5";
+export const FULLBLEED_LIGHT_INK = "#0a0a0a";
+export const FULLBLEED_LIGHT_MUTED = "#86857e";
+/** Muted ink on the dark full-bleed ground, at the same contrast ratio. */
+export const FULLBLEED_MUTED = "#8a8a86";
+
+/**
  * FULL-BLEED LOGO CARD. The film's bookend, and the fix for an abrupt opening.
  *
  * Measured on the reference's shot 1: the mark scales 198 -> 126px (a factor of
@@ -553,6 +610,26 @@ export const LOGO_PERSPECTIVE = 276;
 /** Residual drift after the settle: px/frame at 30fps, and how long it runs. */
 export const LOGO_DRIFT_PX_PER_FRAME = 2;
 export const LOGO_DRIFT_FRAMES = 14;
+
+/**
+ * A VERTICAL LOCKUP WAS TRIED HERE AND REJECTED — recorded so it is not
+ * re-derived from the same measurements next time.
+ *
+ * The reference's bookend is a poster: mark above the name above a third line,
+ * measured at 1920x1080 as mark 114x130 (12.0% of frame height), wordmark cap
+ * 54px, third line 794px wide, whole stack 41.4% W x 33.0% H. Built, it
+ * reproduced those numbers to within half a point (41.9% x 33.5%) and still
+ * looked worse than the one-row lockup it replaced. Two reasons, both specific
+ * to this brand rather than to the grammar:
+ *
+ *   - the reference's mark is a black cube, ours is a light-yellow blob, and a
+ *     130px mark stranded above the name has nothing holding it there;
+ *   - the third line was a URL, which reads as a slide footer rather than as
+ *     part of the sign-off.
+ *
+ * Matching a measurement is not the same as matching the film. One row, one
+ * size, no third line.
+ */
 
 /** Recap card geometry and cadence live with the other card timing. */
 export const RECAP_LEAD_S = 0.17;
