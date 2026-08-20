@@ -585,6 +585,56 @@ const CAPTURE_INIT = `
     };
   };
 
+  var urlNow = function () {
+    return location.href;
+  };
+
+  // Capture phase on all three, so a page that stops propagation (the smoke
+  // fixture's chip menu closes on click) cannot hide a beat from the recorder.
+  document.addEventListener(
+    'click',
+    function (ev) {
+      if (window.__tourStop) return;
+      var el = ev.target;
+      if (!el || el.nodeType !== 1) return;
+      send({ type: 'click', snapshot: snapshot(rootOf(el)), url: urlNow() });
+    },
+    true
+  );
+
+  // The field itself, NOT rootOf(): applyCaptureEvent pends typing per element
+  // and sameField() compares the snapshots, so walking up to a clickable
+  // ancestor would merge two inputs inside one form control into one step.
+  document.addEventListener(
+    'input',
+    function (ev) {
+      if (window.__tourStop) return;
+      var el = ev.target;
+      if (!el || el.nodeType !== 1) return;
+      var value = el.isContentEditable
+        ? el.innerText || ''
+        : el.value != null
+          ? String(el.value)
+          : '';
+      send({ type: 'input', snapshot: snapshot(el), value: value, url: urlNow() });
+    },
+    true
+  );
+
+  document.addEventListener(
+    'keydown',
+    function (ev) {
+      if (ev.key === 'Escape') {
+        window.__tourStop = true;
+        send({ type: 'stop' });
+        return;
+      }
+      // Shift+Enter is a newline in most composers, not a submit.
+      if (ev.key === 'Enter' && !ev.shiftKey) send({ type: 'commit', url: urlNow() });
+    },
+    true
+  );
+})();
 `;
 
 export async function captureTour(opts: {
