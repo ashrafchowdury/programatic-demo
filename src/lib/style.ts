@@ -35,13 +35,13 @@ import type { PushAxis } from "./push";
 /**
  * Every style that can be named on a reel.
  *
- * TWO ENTRIES ON PURPOSE. These are the grammars we have actually measured or
- * built; a name here with invented numbers behind it is worse than no name,
+ * THREE ENTRIES, and each has a film or a history behind it. A name here with
+ * invented numbers behind it is worse than no name,
  * because it looks addressable and renders a film nobody chose. New styles get
  * added when a reference film has been analysed into `docs/reel/<name>/` — see
  * "Adding a style" at the bottom of this file.
  */
-export const STYLES = ["classic", "proof"] as const;
+export const STYLES = ["classic", "proof", "narration"] as const;
 export type ReelStyle = (typeof STYLES)[number];
 
 /**
@@ -347,6 +347,114 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
       movingFrac: 0.241,
       longestStillF: 110,
       cutDelta: "slam",
+    },
+  },
+
+  /**
+   * Film B's grammar: sentences that CONTAIN live UI, with isolated components
+   * doing the work. Cards are pixel-locked, so the SHOTS carry the motion —
+   * the exact inverse of `proof`, and the reason both exist.
+   *
+   * The defining measurement is an absence: docs/reel/02-motion.md §"cards do
+   * not move at all" tracks shot 10's text box across 56 frames and finds ZERO
+   * translation. Words appear in place; the box grows and never moves. That is
+   * why enter and exit are `none` rather than a small push.
+   *
+   * LENGTH FOLLOWS THE COPY. Film A slots every card into 3.2-3.3s and
+   * compresses its stagger to fit; Film B refuses, running 31-89f as the words
+   * require. So the cadence is `fixed` and the clamps are null — the observed
+   * 1.03-2.97s band is the CONSEQUENCE of this model, not an input to it, and
+   * it falls out: one beat plus the hold is ~41f, ten beats plus the hold is
+   * ~83f, against a measured 31-89f.
+   */
+  narration: {
+    look: "fullbleed",
+    motionLayer: "shots",
+    card: {
+      // 6f binary reveal — no fade, the word is simply there. Per shot 4 in
+      // docs/reel/04-design-system.md.
+      cadence: { kind: "fixed", staggerS: 0.2 },
+      length: {
+        // MEASURED here, over three cards, because the reference does NOT hold
+        // this constant the way Film A does: shot 2 runs 39f of tail, shot 10
+        // 18f, shot 16 47f. 34.7f is their mean. A single number is what the
+        // engine needs; the spread is the honest caveat, and a card that wants
+        // a specific beat should set `holdS` itself.
+        holdS: 1.16,
+        holdFrom: "lastWord",
+        // No slot. See the note above.
+        minS: null,
+        maxS: null,
+        // Film B cuts to an EMPTY card and reveals from there — shot 10's first
+        // frame measures ink=0. It does not cut into its own reveal, which is
+        // Film A's move, not this one.
+        trimInS: 0,
+      },
+      enter: { kind: "none" },
+      exit: { kind: "none" },
+    },
+    shot: {
+      // Components lifted onto a flat ground — the {rect, fill, isolate} route
+      // in src/lib/crop.ts, which was built for this grammar and reverted for
+      // proof. 5 of Film B's 17 shots. One shot (9) is a framed app window at
+      // 86%; that is an exception inside the film, not the grammar.
+      framing: "isolate",
+      chrome: false,
+      windowFit: null,
+      // Film B is pointer-first where Film A is keyboard-first, and its cursor
+      // LEADS the beat — it starts travelling before the shot needs it.
+      cursor: true,
+      // UNKNOWN, not measured. Left off to match proof rather than invented.
+      ripple: false,
+      enter: { kind: "none" },
+      exit: { kind: "none" },
+    },
+    chip: {
+      // ⧗ NOT Film B's 7.82x. That figure is a raw pill-height ratio, while
+      // CHIP_PUNCH_SCALE is a COMPOSITION TARGET (chip as a fraction of frame
+      // width). Pasting it would over-zoom our chip, whose rest width differs.
+      // Re-derive against a real render before changing this — open question Q4
+      // in choreography-styles.md.
+      punchScale: 4,
+      // MEASURED and directly transferable: 1.0x -> 7.82x in THREE frames
+      // (f186->f189), against our 13. This is the number that makes the punch
+      // read as a snap rather than a zoom.
+      punchS: 0.1,
+      // The punch starts as the cursor arrives (enters f180, hovers f186,
+      // punch f187), so there is almost no lead.
+      leadS: 0.03,
+      settleS: 0.03,
+      afterPressS: 0.03,
+    },
+    // ⧗ Film B's outro is a cube tumble over 90f, but its tumble duration and
+    // turn count were never measured. Carried from proof rather than guessed.
+    bookend: {
+      tumbleS: 0.85,
+      turns: 1,
+      driftPxPerFrame: 2,
+      driftFrames: 14,
+    },
+    // ⧗ Film B has no recap card. These are proof's, kept so the preset is
+    // structurally complete; a narration reel with a recap is off-reference.
+    recap: {
+      leadS: 0.17,
+      lockupStaggerS: 0.27,
+      itemsLeadS: 0.37,
+      itemStaggerS: 0.533,
+    },
+    source: {
+      file: "cursor_origin_intro.mp4",
+      shots: 17,
+      durationS: 30.9,
+    },
+    targets: {
+      meanShotS: 1.817,
+      cutsPerMin: 31.1,
+      movingFrac: 0.368,
+      longestStillF: 75,
+      // Film B keeps tonal continuity and lets MOTION carry the cut: white card
+      // (235) to warm grey (210) is a delta of 25, where Film A slams ~200.
+      cutDelta: "matched",
     },
   },
 };

@@ -96,6 +96,45 @@ describe("measured values trace back to docs/reel", () => {
     assert.equal(STYLE_PRESETS.proof.motionLayer, "cards");
     assert.notEqual(STYLE_PRESETS.classic.motionLayer, "cards");
   });
+
+  it("locks narration's cards perfectly still", () => {
+    // The defining measurement is an ABSENCE: docs/reel/02-motion.md tracks
+    // shot 10's text box over 56 frames and finds zero translation. A card that
+    // moved even slightly would put this grammar on the wrong motion layer.
+    assert.equal(STYLE_PRESETS.narration.card.enter.kind, "none");
+    assert.equal(STYLE_PRESETS.narration.card.exit.kind, "none");
+    assert.equal(STYLE_PRESETS.narration.motionLayer, "shots");
+  });
+
+  it("gives narration no card slot, so length follows the copy", () => {
+    // Film A slots every card into 3.2-3.3s; Film B runs 31-89f as the words
+    // require. Clamping narration would erase the difference between them.
+    assert.equal(STYLE_PRESETS.narration.card.length.minS, null);
+    assert.equal(STYLE_PRESETS.narration.card.length.maxS, null);
+    assert.notEqual(STYLE_PRESETS.proof.card.length.minS, null);
+  });
+
+  it("reproduces Film B's measured 31-89f card band from its own model", () => {
+    // The band is a CONSEQUENCE of stagger + hold, not an input. If this drifts
+    // outside the reference's range the two numbers have stopped agreeing.
+    const { cadence, length } = STYLE_PRESETS.narration.card;
+    const cardF = (words: number) =>
+      Math.round((Math.max(0, words - 1) * cadence.staggerS + length.holdS) * 30);
+    assert.ok(cardF(1) >= 31 && cardF(1) <= 45, `1 word -> ${cardF(1)}f`);
+    assert.ok(cardF(10) >= 75 && cardF(10) <= 95, `10 words -> ${cardF(10)}f`);
+  });
+
+  it("snaps narration's chip in 3 frames, and does not paste 7.82x", () => {
+    // punchS is directly transferable; punchScale is a COMPOSITION target and
+    // Film B's 7.82 is a raw pill ratio. Pasting it is the Q4 trap.
+    assert.equal(Math.round(STYLE_PRESETS.narration.chip.punchS * 30), 3);
+    assert.notEqual(STYLE_PRESETS.narration.chip.punchScale, 7.82);
+  });
+
+  it("matches narration's cuts instead of slamming them", () => {
+    assert.equal(STYLE_PRESETS.narration.targets?.cutDelta, "matched");
+    assert.equal(STYLE_PRESETS.proof.targets?.cutDelta, "slam");
+  });
 });
 
 describe("resolveStyle", () => {
@@ -129,7 +168,7 @@ describe("styleProblem", () => {
   });
 
   it("rejects a name that is not a style", () => {
-    assert.match(String(styleProblem({ style: "narration" })), /must be one of/);
+    assert.match(String(styleProblem({ style: "kinetic" })), /must be one of/);
     assert.match(String(styleProblem({ style: 7 })), /must be one of/);
   });
 
@@ -146,7 +185,8 @@ describe("styleProblem", () => {
 
   it("isStyle narrows only real names", () => {
     assert.ok(isStyle("proof"));
-    assert.ok(!isStyle("narration"));
+    assert.ok(isStyle("narration"));
+    assert.ok(!isStyle("kinetic"));
     assert.ok(!isStyle(undefined));
   });
 });
