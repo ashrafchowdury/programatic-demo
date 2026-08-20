@@ -1,6 +1,7 @@
 import React from "react";
 import {
   AbsoluteFill,
+  Freeze,
   Img,
   staticFile,
   useCurrentFrame,
@@ -14,6 +15,12 @@ import { backdropFile, isLightBackdrop } from "./lib/backdrop";
 import { Cursor } from "./Cursor";
 import { RimLight, Stage, useDesignScale, WindowFrame } from "./WindowFrame";
 import { pushEnvelope, pushToCss, type PushSpec } from "./lib/push";
+import {
+  cropClipPath,
+  resolveCrop,
+  type CropSpec,
+  type ResolvedCrop,
+} from "./lib/crop";
 import { KeycapHUD } from "./KeycapHUD";
 import type { ReelLook } from "./lib/look";
 
@@ -50,8 +57,9 @@ export type DemoClipProps = {
    */
   look?: ReelLook;
   /**
-   * Static crop for the full-bleed look: `k` magnification about the content
-   * point (`cx`, `cy`) in 0..1 space.
+   * Static framing for the full-bleed look. Either a camera (`k` about
+   * `cx`/`cy`, then `dx`/`dy`) or a component box (`rect` + `fill`, which
+   * derives all four) — see src/lib/crop.ts for which to reach for.
    *
    * Deliberately NOT animated. The reference film picks one framing per shot and
    * never moves it — measured, the gap between tracked edges is identical on the
@@ -59,7 +67,7 @@ export type DemoClipProps = {
    * safe here where poseToCss avoids it: the singularity at scale 1 only shows
    * up when the scale is changing.
    */
-  crop?: { k: number; cx: number; cy: number; dx?: number; dy?: number };
+  crop?: CropSpec;
   /** Entrance/exit push envelope. Full-bleed only; absent = no move. */
   push?: PushSpec;
   /**
@@ -85,6 +93,23 @@ export type DemoClipProps = {
    * restyle the whole back catalogue. See src/Cursor.tsx.
    */
   ripple?: boolean;
+  /**
+   * Hold this shot's LAST frame for the shot's whole length: a still.
+   *
+   * The reference film gives one shot in eleven this treatment — 95 frames on
+   * which not a single pixel crosses the motion threshold, placed immediately
+   * before the recap. It is the film's held breath, and it is what stops a
+   * metronomic cut rate reading as a conveyor belt.
+   *
+   * `range` supplies the length and the picture: the frames are counted from
+   * `first`..`last` as usual, and every one of them shows `last`. That is why
+   * this is a boolean and not a timestamp — a still of a range's final state
+   * cannot drift out of sync with the range.
+   *
+   * Full-bleed only, and it suppresses the pointer: a cursor sitting on a
+   * frozen frame reads as a dropped render, not as a hold.
+   */
+  freeze?: boolean;
 };
 
 /**
@@ -276,11 +301,11 @@ const WindowGroup: React.FC<DemoClipProps> = ({
  * target by the pan distance.
  */
 const cropToCss = (
-  crop: DemoClipProps["crop"],
+  crop: ResolvedCrop | undefined,
 ): React.CSSProperties | undefined =>
   crop
     ? {
-        transform: `translate(${(crop.dx ?? 0) * 100}%, ${(crop.dy ?? 0) * 100}%) scale(${crop.k})`,
+        transform: `translate(${crop.dx * 100}%, ${crop.dy * 100}%) scale(${crop.k})`,
         transformOrigin: `${crop.cx * 100}% ${crop.cy * 100}%`,
       }
     : undefined;
@@ -308,6 +333,7 @@ const FullBleedClip: React.FC<DemoClipProps> = ({
   pageBg = "#fcfcfc",
   cursor = false,
   ripple,
+  freeze = false,
 }) => {
   const frame = useCurrentFrame();
   const { fps, durationInFrames } = useVideoConfig();
@@ -323,7 +349,22 @@ const FullBleedClip: React.FC<DemoClipProps> = ({
   // Same time base the cursor uses, so a keycap and a pointer cannot disagree
   // about when a beat happened.
   const timeS = (frame / fps) * speed - (log.offsetMs ?? 0) / 1000;
-  const cropStyle = cropToCss(crop);
+  const resolved = resolveCrop(crop);
+  // The clip-path rides on the SAME layers as the transform, and both the
+  // footage and the pointer get it: an arrow travelling outside the framed
+  // component would otherwise glide across a flat ground with no UI under it.
+  const clipPath = cropClipPath(crop);
+  const cropStyle = { ...cropToCss(resolved), ...(clipPath ? { clipPath } : {}) };
+
+  const footage = (
+    <Video
+      src={staticFile(`${name}.mp4`)}
+      trimBefore={trimBefore}
+      playbackRate={speed}
+      objectFit="cover"
+      style={{ width: "100%", height: "100%" }}
+    />
+  );
 
   return (
     <AbsoluteFill style={{ overflow: "hidden", backgroundColor: pageBg }}>
@@ -334,16 +375,21 @@ const FullBleedClip: React.FC<DemoClipProps> = ({
         }}
       >
         <AbsoluteFill style={cropStyle}>
-          <Video
-            src={staticFile(`${name}.mp4`)}
-            trimBefore={trimBefore}
-            playbackRate={speed}
-            objectFit="cover"
-            style={{ width: "100%", height: "100%" }}
-          />
+          {/*
+            <Freeze> pins the child's clock, which is the only thing that
+            reaches <Video> — there is no "show frame N" prop to set. Wrapping
+            the footage alone (rather than the whole shot) keeps the push
+            envelope live above it, so a still can still be authored to arrive
+            on a move if a reel ever wants that. This one does not.
+          */}
+          {freeze && range ? (
+            <Freeze frame={range.last}>{footage}</Freeze>
+          ) : (
+            footage
+          )}
         </AbsoluteFill>
       </AbsoluteFill>
-      {cursor ? (
+      {cursor && !freeze ? (
         /*
           The crop again, on a layer of its own — NOT the push wrapper above.
           The pointer has to survive two contradictory pulls: it must land on
@@ -361,7 +407,7 @@ const FullBleedClip: React.FC<DemoClipProps> = ({
           <Cursor
             log={log}
             timeS={timeS}
-            cameraScale={crop?.k ?? 1}
+            cameraScale={resolved?.k ?? 1}
             ripple={ripple ?? false}
           />
         </AbsoluteFill>
