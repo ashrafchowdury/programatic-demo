@@ -227,11 +227,46 @@ describe("clickReelTimes (F13 auto-SFX)", () => {
     ],
   };
 
-  it("maps a click's demo-time to reel-time inside its clip", () => {
-    // reel starts: card 0-1, clip1 1-3, card 3-4, clip3 4-6.
+  it("maps a click's press-time to reel-time inside its clip", () => {
+    // reel starts: card 0-1, clip1 1-3, card 3-4, clip3 4-6. The sound lands on
+    // tDownMs (950, 2950), not the beat anchor tMs — see beatTimeMs.
     assert.deepEqual(
       clickReelTimes(segments, counts, 30, log, 1, "click"),
-      [2, 5],
+      [1.95, 4.95],
+    );
+  });
+
+  it("places a click on the PRESS, not the beat anchor", () => {
+    // A beat whose anchor trails its mousedown by 200ms must sound on the
+    // mousedown: demo 1.0 -> reel 2.0. Anchoring on tMs would give reel 2.2,
+    // which reads as the tick lagging the ripple.
+    const l = { ...log, clicks: [{ tMs: 1200, tDownMs: 1000, x: 0, y: 0 }] };
+    assert.deepEqual(clickReelTimes(segments, counts, 30, l, 1, "click"), [2]);
+  });
+
+  it("falls back to tMs when a click has no tDownMs recorded", () => {
+    // Older logs have no mousedown. beatMatches keeps such beats out of "click",
+    // but a label cue can still target them, and it must not crash or drift.
+    const l = { ...log, clicks: [{ tMs: 1000, label: "Allow all", x: 0, y: 0 }] };
+    assert.deepEqual(
+      clickReelTimes(segments, counts, 30, l, 1, "confirm", ["allow all"]),
+      [2],
+    );
+  });
+
+  it("places no SFX inside a frozen clip", () => {
+    // A freeze clip holds ONE frame, so nothing in it is pressed — but its
+    // range still spans live footage. Same segments, but clip3 is frozen: its
+    // beat (reel 4.95) must vanish while clip1's survives.
+    const frozen = [
+      segments[0],
+      segments[1],
+      segments[2],
+      { clip: { fromS: 2, toS: 4, freeze: true } },
+    ];
+    assert.deepEqual(
+      clickReelTimes(frozen, counts, 30, log, 1, "click"),
+      [1.95],
     );
   });
 
@@ -320,8 +355,23 @@ describe("ducking (F11)", () => {
       { duck: true },
     );
     assert.match(filter, /asplit\[leadSc\]\[leadMix\]/);
-    assert.match(filter, /\[bed\]\[leadSc\]sidechaincompress=/);
+    assert.match(filter, /\[bed\]\[leadScPad\]sidechaincompress=/);
     assert.match(filter, /\[ducked\]\[leadMix\]amix=inputs=2/);
+  });
+
+  it("pads the sidechain so short SFX cannot truncate the bed", () => {
+    // sidechaincompress ends with its SHORTEST input. Leads are 0.2-0.3s SFX, so
+    // an unpadded sidechain cuts the music off at the last tick — the harness cut
+    // lost 13.5s of its 30s that way. The pad must be on the sidechain copy ONLY;
+    // padding leadMix too would leave the final mix with no end.
+    const { filter } = buildAudioMux(
+      [piece("bed", 0), piece("sfx", 1)],
+      ["bed.mp3", "tick.wav"],
+      "v.mp4",
+      { duck: true },
+    );
+    assert.match(filter, /\[leadSc\]apad\[leadScPad\]/);
+    assert.doesNotMatch(filter, /\[leadMix\]apad/);
   });
 
   it("does not duck when there is no bed or no lead", () => {

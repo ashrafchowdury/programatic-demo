@@ -133,6 +133,12 @@ export function resolvePiece(
  * offset`; a clip covering `[fromS,toS)` puts it at `segmentStart + (demoSec -
  * fromS)` in reel time. The cold-open clip is skipped — it replays footage a
  * later clip also covers, so its beats would fire twice.
+ *
+ * FROZEN clips are skipped too. A `freeze` clip holds ONE frame for its whole
+ * length, so nothing in it is ever pressed — but its `{fromS,toS}` still spans
+ * live footage, and scanning it would put a click on a motionless picture. The
+ * harness reel misses this by 0.21s today: its still covers demo 12.5-15.6s and
+ * the last press lands at 12.29s. A re-trim or a re-shoot closes that gap.
  */
 export function clickReelTimes(
   segments: ReelSegment[],
@@ -151,6 +157,7 @@ export function clickReelTimes(
     if (i === cold) continue;
     const seg = segments[i];
     if (!isClip(seg)) continue;
+    if (seg.clip.freeze) continue;
     const { fromS, toS } = seg.clip;
     const segStart = bounds.startS[i];
     for (const beat of log.clicks) {
@@ -186,9 +193,19 @@ function beatMatches(beat: ClickEvent, kind: SfxKind, labels?: string[]): boolea
   return false; // key/confirm/error have no built-in detector — need labels
 }
 
+/**
+ * When a beat's sound should land, in shoot-clock ms.
+ *
+ * A click sounds on the PRESS. `tDownMs` is mousedown — the frame the ripple and
+ * the cursor squash fire on — and `tMs` is the beat anchor 114-203ms later, so
+ * placing a tick there put it 91-108ms behind the picture on every harness beat,
+ * past the ~50ms where audio and video read as one event. `typing` keeps `tMs`
+ * (the run starts there) and `pop` is deliberately late — it is the UI answering.
+ */
 function beatTimeMs(beat: ClickEvent, kind: SfxKind, labels?: string[]): number {
   if (labels && labels.length) return beat.tDownMs ?? beat.tMs;
   if (kind === "pop") return (beat.typeEndMs ?? beat.tMs) + POP_DELAY_MS;
+  if (kind === "click") return beat.tDownMs ?? beat.tMs;
   return beat.tMs;
 }
 
@@ -329,10 +346,22 @@ export function buildAudioMux(
   if (wantDuck) {
     // Sum the leads, split one copy to the sidechain and one to the final mix,
     // sum the beds, compress the beds by the lead sidechain, then mix.
+    //
+    // The `apad` on the SIDECHAIN branch is load-bearing. sidechaincompress ends
+    // when its SHORTEST input ends, and the leads here are SFX — a handful of
+    // 0.2-0.3s samples scattered over the reel. Unpadded, the sidechain runs out
+    // at the last tick and takes the bed with it: the first harness cut with
+    // duck on went silent at 16.433s, which is exactly its last SFX end, leaving
+    // 13.5s of a 30s film with no music. Padding the sidechain with silence lets
+    // the compressor run until the BED ends, which is the length we want.
+    //
+    // Only the sidechain copy is padded — `leadMix` must not be, or the mix
+    // never terminates.
     tail =
       `${sumTo(leads.map((s) => s.label), "lead")};[lead]asplit[leadSc][leadMix];` +
+      `[leadSc]apad[leadScPad];` +
       `${sumTo(beds.map((s) => s.label), "bed")};` +
-      `[bed][leadSc]sidechaincompress=${sidechainArgs(opts.duck!)}[ducked];` +
+      `[bed][leadScPad]sidechaincompress=${sidechainArgs(opts.duck!)}[ducked];` +
       `[ducked][leadMix]amix=inputs=2:normalize=0:dropout_transition=0[m];` +
       `[m]${norm}apad[aout]`;
   } else if (streams.length === 1) {
