@@ -4,6 +4,8 @@ import {
   buildXfadeFilter,
   dissolvedFrameCount,
   dissolvedStarts,
+  joinable,
+  MIN_JOIN_F,
 } from "./xfade";
 import { segmentBoundsSeconds } from "../../src/lib/reel-audio";
 
@@ -136,5 +138,31 @@ describe("selective dissolves", () => {
         segmentBoundsSeconds([30, 30, 30], FPS, overlaps).startS,
         `overlaps=${overlaps}`,
       );
+  });
+});
+
+describe("MIN_JOIN_F", () => {
+  it("never emits a zero-duration fade", () => {
+    // xfade=duration=0 does not butt two shots together, it degenerates and
+    // silently drops everything before it in the chain. Measured: an 897-frame
+    // film with two zero joins rendered as 556 — exactly its longest segment.
+    const f = buildXfadeFilter([30, 30, 30], FPS, joinable([0, 6]));
+    const durs = [...f.matchAll(/duration=([0-9.]+)/g)].map((m) => Number(m[1]));
+    assert.ok(
+      durs.every((d) => d > 0),
+      `zero-duration fade in ${f}`,
+    );
+  });
+
+  it("charges the frame count for the minimum it actually used", () => {
+    // The filter and the arithmetic read the SAME clamped list, or the render
+    // is rejected as a frame-count mismatch — which is how this was found.
+    const joins = joinable([0, 6]);
+    assert.deepEqual(joins, [MIN_JOIN_F, 6]);
+    assert.equal(dissolvedFrameCount([30, 30, 30], joins), 90 - MIN_JOIN_F - 6);
+  });
+
+  it("leaves a real dissolve alone", () => {
+    assert.deepEqual(joinable([6, 6]), [6, 6]);
   });
 });

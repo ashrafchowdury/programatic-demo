@@ -30,7 +30,7 @@ import { cropUpscale, SHARPNESS_CEILING } from "../src/lib/crop";
 import { hudSteps } from "../src/lib/hud";
 import { resolvePreset, type StylePreset } from "../src/lib/style";
 import type { PushSpec } from "../src/lib/push";
-import { buildXfadeFilter, dissolvedFrameCount } from "./lib/xfade";
+import { buildXfadeFilter, dissolvedFrameCount, joinable } from "./lib/xfade";
 import {
   clipFrames,
   isCard,
@@ -384,6 +384,10 @@ async function main() {
     return styleOverlapF;
   });
   const dissolving = overlaps.some((o) => o > 0);
+  // Inside a dissolving film even a cut has to be a one-frame blend — see
+  // MIN_JOIN_F. Clamped ONCE here so the filter, the frame count and the audio
+  // bounds all read the same list.
+  const joins = dissolving ? joinable(overlaps) : overlaps;
   const counts = probes.map((p) => frameCount(p) ?? 0);
 
   if (dissolving) {
@@ -397,7 +401,7 @@ async function main() {
         "-y",
         ...inputs,
         "-filter_complex",
-        buildXfadeFilter(counts, FPS, overlaps),
+        buildXfadeFilter(counts, FPS, joins),
         "-map",
         "[v]",
         "-movflags",
@@ -430,7 +434,7 @@ async function main() {
 
   // Every join eats `overlapF` frames from both sides, so the expected total is
   // not the plain sum once a style dissolves.
-  const sum = dissolvedFrameCount(counts, overlaps);
+  const sum = dissolvedFrameCount(counts, joins);
   const joined = frameCount(probe(videoOnly));
   // xfade lands within a frame of the arithmetic; -c copy is exact.
   const slack = dissolving ? overlaps.length : 0;
@@ -447,7 +451,7 @@ async function main() {
   // stream. Like a dissolve, it re-encodes.
   const hudSrc =
     preset.hud.kind === "steps"
-      ? overlayHud(reel, preset, videoOnly, workDir, counts, log, speed, overlaps, runtimeS)
+      ? overlayHud(reel, preset, videoOnly, workDir, counts, log, speed, joins, runtimeS)
       : videoOnly;
 
   if (hasAudio)
@@ -459,7 +463,7 @@ async function main() {
       counts,
       log,
       speed,
-      overlaps,
+      joins,
     );
 
   if (!hasAudio && hudSrc !== videoOnly) fs.copyFileSync(hudSrc, out);

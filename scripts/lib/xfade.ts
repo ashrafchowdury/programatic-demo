@@ -27,6 +27,25 @@
  * and has no `xfade`, the same reason the audio mux uses the system binary.
  */
 
+/**
+ * The shortest join xfade can actually perform: one frame.
+ *
+ * `xfade=duration=0` does not butt two shots together — it degenerates, and the
+ * chain silently drops everything before it. Measured: an 897-frame film with
+ * two zero joins came out at 556, exactly the length of its longest segment.
+ *
+ * So inside a dissolving film a "cut" is a ONE-FRAME blend. That is invisible
+ * at 30fps, and it costs one frame per cut join, which the frame accounting has
+ * to charge for or the render is rejected as a mismatch. Clamp with this before
+ * calling anything here, so the filter and the arithmetic cannot disagree.
+ */
+export const MIN_JOIN_F = 1;
+
+/** Clamp a join list for use in a dissolving film. See MIN_JOIN_F. */
+export function joinable(overlaps: number[]): number[] {
+  return overlaps.map((o) => Math.max(o, MIN_JOIN_F));
+}
+
 /** ffmpeg-friendly number: no scientific notation, no trailing zeros. */
 const n = (x: number): string => String(Number(x.toFixed(6)));
 
@@ -91,10 +110,7 @@ export function buildXfadeFilter(
   let label = "[0:v]";
   for (let i = 1; i < counts.length; i++) {
     const out = i === counts.length - 1 ? "[v]" : `[x${i}]`;
-    // A join of zero is still an xfade node, with a duration of one frame —
-    // xfade cannot express "butt these together", and dropping the node would
-    // break the chain. Callers that want a pure cut should not be here at all.
-    const d = Math.max(overlaps[i - 1] ?? 0, 0) / fps;
+    const d = (overlaps[i - 1] ?? 0) / fps;
     const offset = acc - d;
     parts.push(
       `${label}[${i}:v]xfade=transition=fade:duration=${n(d)}:offset=${n(offset)}${out}`,
