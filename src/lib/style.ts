@@ -307,12 +307,36 @@ export type ShotJoin =
   | { kind: "cut" }
   | { kind: "dissolve"; frames: number };
 
+/**
+ * ⚠️ KNOWN OVER-APPLICATION. A dissolving style currently dissolves EVERY join,
+ * where the reference dissolves selectively: monid has ~4 boundaries and blends
+ * only 2 of them, both between SECTIONS. Cut on every join, a card cross-fading
+ * into live UI reads as muddy rather than smooth — visible in the first ledger
+ * cut of harness. The fix is a per-segment `join` override, the way `push` and
+ * `crop` already override their style; the field belongs on ReelSegment, not
+ * here.
+ */
+
+/**
+ * The persistent overlay, if the grammar has one.
+ *
+ * `steps` derives a numbered line from the demo's own click-log labels — the
+ * timing already exists and cannot drift out of sync with a re-shoot, which is
+ * the same argument that makes the SFX derived rather than authored.
+ *
+ * ⚠️ A HUD spans segments, so it cannot be baked into any of them. It is a
+ * post-concat overlay pass, and it RE-ENCODES the picture the way a dissolve
+ * does. See src/lib/hud.ts.
+ */
+export type HudStyle = { kind: "none" } | { kind: "steps" };
+
 export type StylePreset = {
   look: ReelLook;
   motionLayer: MotionLayer;
   card: CardStyle;
   shot: ShotStyle;
   join: ShotJoin;
+  hud: HudStyle;
   chip: ChipStyle;
   palette: PaletteStyle;
   type: TypeStyle;
@@ -346,6 +370,7 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
     look: "framed",
     motionLayer: "both",
     join: { kind: "cut" },
+    hud: { kind: "none" },
     card: {
       cadence: { kind: "fixed", staggerS: 0.16, fadeS: 0 },
       length: {
@@ -427,6 +452,7 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
     look: "fullbleed",
     motionLayer: "cards",
     join: { kind: "cut" },
+    hud: { kind: "none" },
     card: {
       cadence: { kind: "fitted", staggerS: 0.16, minStaggerS: 0.1, fadeS: 0 },
       length: {
@@ -523,6 +549,7 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
     look: "fullbleed",
     motionLayer: "shots",
     join: { kind: "cut" },
+    hud: { kind: "none" },
     card: {
       // 6f binary reveal — no fade, the word is simply there. Per shot 4 in
       // docs/reel/04-design-system.md.
@@ -686,6 +713,10 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
     // MEASURED: luma walks 228 -> 98 across six frames with no single-frame
     // jump. The only reference of the four that does not hard-cut.
     join: { kind: "dissolve", frames: 6 },
+    // THE SIGNATURE. monid's running counter and step line are what buy it 22
+    // seconds without a cut: the overlay carries the continuity that cutting
+    // would otherwise supply. Ours derives its steps from the click log.
+    hud: { kind: "steps" },
     card: {
       // Type FADES here rather than snapping — a 6-frame ink ramp, MEASURED on
       // the opening card. A grammar whose cards hold still can afford it.

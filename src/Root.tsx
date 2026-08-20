@@ -1,6 +1,7 @@
 import React from "react";
 import { Composition, Still, staticFile } from "remotion";
 import { DemoClip, type DemoClipProps } from "./DemoClip";
+import { HudOverlay, type HudOverlayProps } from "./HudOverlay";
 import { Intro, type IntroProps } from "./Intro";
 import { StillShot, type StillShotProps } from "./StillShot";
 import {
@@ -92,6 +93,30 @@ export const RemotionRoot: React.FC = () => {
         duplicated for the same reason, is pinned by a test, and is re-checked
         against the real files by scripts/stitch.ts before it concatenates.
       */}
+      {/*
+        The step HUD. Rendered ALONE on a transparent ground and composited onto
+        the finished film by scripts/reel.ts, because it spans segments and every
+        segment renders independently. Its size comes from the caller, not from a
+        recording — it has to match the film it lands on exactly.
+      */}
+      <Composition
+        id="HudOverlay"
+        component={HudOverlay}
+        durationInFrames={FPS * 30}
+        fps={FPS}
+        width={2560}
+        height={1440}
+        defaultProps={
+          { steps: [], ink: "#0a0a0a", totalS: 30 } satisfies HudOverlayProps
+        }
+        calculateMetadata={async ({
+          props,
+        }: {
+          props: HudOverlayProps;
+        }) => ({
+          durationInFrames: Math.max(1, Math.round(props.totalS * FPS)),
+        })}
+      />
       <Composition
         id="Intro"
         component={Intro}

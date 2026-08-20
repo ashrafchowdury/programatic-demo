@@ -27,6 +27,7 @@ import {
   type ClickLog,
 } from "../src/lib/click-log";
 import { cropUpscale, SHARPNESS_CEILING } from "../src/lib/crop";
+import { hudSteps } from "../src/lib/hud";
 import { resolvePreset, type StylePreset } from "../src/lib/style";
 import type { PushSpec } from "../src/lib/push";
 import { buildXfadeFilter, dissolvedFrameCount } from "./lib/xfade";
@@ -428,10 +429,20 @@ async function main() {
     );
 
   const runtimeS = (joined ?? sum) / FPS;
+
+  // The HUD spans segments, so it lands here rather than in any of them —
+  // rendered alone on a transparent ground and composited onto the finished
+  // picture. It must go on BEFORE the audio pass, which copies the video
+  // stream. Like a dissolve, it re-encodes.
+  const hudSrc =
+    preset.hud.kind === "steps"
+      ? overlayHud(reel, preset, videoOnly, workDir, counts, log, speed, overlapF, runtimeS)
+      : videoOnly;
+
   if (hasAudio)
     muxAudio(
       reel,
-      videoOnly,
+      hudSrc,
       out,
       runtimeS,
       counts,
@@ -439,6 +450,8 @@ async function main() {
       speed,
       overlapF,
     );
+
+  if (!hasAudio && hudSrc !== videoOnly) fs.copyFileSync(hudSrc, out);
 
   reportLoudness(reel, hasAudio ? out : null);
 
@@ -559,6 +572,89 @@ function requireFfmpegAudio(): void {
       `This ffmpeg build lacks the ${missing.join(", ")} audio filter(s). ` +
         "Install a full build: `brew install ffmpeg`.",
     );
+}
+
+/**
+ * Render the step HUD and composite it onto the film. Returns the new path.
+ *
+ * Two passes, both unavoidable. Remotion draws the overlay on a transparent
+ * ground — this ffmpeg has no `drawtext` (it needs libfreetype), so burning
+ * text in directly was never available, and rendering it here gets the repo's
+ * own type instead. ProRes 4444 because it is the codec that carries alpha.
+ * Then `overlay` composites, which re-encodes the picture.
+ *
+ * Returns `videoOnly` unchanged when the log yields no steps — a film with
+ * nothing to narrate should not pay for a re-encode.
+ */
+function overlayHud(
+  reel: Reel,
+  preset: StylePreset,
+  videoOnly: string,
+  workDir: string,
+  counts: number[],
+  log: ClickLog,
+  speed: number,
+  overlapF: number,
+  runtimeS: number,
+): string {
+  const steps = hudSteps(
+    reel.segments,
+    counts,
+    FPS,
+    log,
+    speed,
+    runtimeS,
+    overlapF,
+  );
+  if (steps.length === 0) {
+    console.log("hud        -> no labelled beats in any clip; skipped");
+    return videoOnly;
+  }
+  const ink = preset.palette.plain.ink;
+  const mov = path.join(workDir, `${reel.name}.hud.mov`);
+  execFileSync(
+    REMOTION_BIN,
+    [
+      "render",
+      "HudOverlay",
+      `--props=${JSON.stringify({ steps, ink, totalS: runtimeS })}`,
+      mov,
+      "--codec=prores",
+      "--prores-profile=4444",
+      // WITHOUT THIS THE ALPHA IS DROPPED. prores-profile=4444 alone still
+      // encoded yuv422p12le, so the transparent ground became opaque black and
+      // the overlay hid the entire film. The pixel format is what carries it.
+      "--pixel-format=yuva444p10le",
+      `--gl=${resolveGl(process.env.DEMO_GL)}`,
+      "--muted",
+    ],
+    { stdio: "inherit" },
+  );
+  const out = path.join(workDir, `${reel.name}.hud.mp4`);
+  execFileSync(
+    "ffmpeg",
+    [
+      "-y",
+      "-i",
+      videoOnly,
+      "-i",
+      mov,
+      "-filter_complex",
+      "[0:v][1:v]overlay=format=auto[v]",
+      "-map",
+      "[v]",
+      "-crf",
+      "16",
+      "-pix_fmt",
+      "yuv420p",
+      "-movflags",
+      "+faststart",
+      out,
+    ],
+    { stdio: "inherit" },
+  );
+  console.log(`hud        -> ${steps.length} step(s) composited`);
+  return out;
 }
 
 /**
