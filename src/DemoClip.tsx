@@ -23,6 +23,7 @@ import {
 } from "./lib/crop";
 import { KeycapHUD } from "./KeycapHUD";
 import type { ReelLook } from "./lib/look";
+import { resolvePreset } from "./lib/style";
 
 const round = (n: number) => Math.round(n);
 
@@ -434,7 +435,12 @@ export const DemoClip: React.FC<DemoClipProps> = (props) => {
   // Dispatch before anything else: the full-bleed path shares no layer with the
   // framed one, so branching here keeps each readable instead of threading
   // conditionals through Stage, WindowFrame and the shutter.
-  if (props.look === "fullbleed") return <FullBleedClip {...props} />;
+  //
+  // On the style's FRAMING, not its name — so a future grammar picks a path by
+  // saying which framing it uses. `isolate` (src/lib/crop.ts) renders down the
+  // full-bleed path too: it is a crop with a clip-path, not a third layer stack.
+  if (resolvePreset(props).shot.framing !== "window")
+    return <FullBleedClip {...props} />;
 
   return (
     <AbsoluteFill>

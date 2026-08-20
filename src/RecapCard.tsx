@@ -11,7 +11,7 @@ import {
   type IntroStoryboard,
 } from "./lib/intro";
 import { settle } from "./lib/push";
-import { DEFAULT_LOOK } from "./lib/look";
+import { resolvePreset } from "./lib/style";
 import { useDesignScale } from "./WindowFrame";
 
 /**
@@ -86,7 +86,7 @@ export const RecapCard: React.FC<{ intro: IntroStoryboard }> = ({ intro }) => {
   const { fps } = useVideoConfig();
   const k = useDesignScale();
   const tS = frame / fps;
-  const look = introLook(intro.background, intro.look ?? DEFAULT_LOOK);
+  const look = introLook(intro.background, resolvePreset(intro).look);
   const items = intro.items ?? [];
   const at = recapSchedule(items.length);
 

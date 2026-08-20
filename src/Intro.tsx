@@ -13,8 +13,6 @@ import { cameraEase, poseToCss } from "./lib/camera";
 import { DESIGN_WIDTH } from "./lib/click-log";
 import {
   CARD_EXIT_DEFAULT,
-  CARD_RISE,
-  CARD_RISE_FRAMES,
   cardPointerLog,
   CHIP_AT,
   CHIP_PUNCH_SCALE,
@@ -26,8 +24,6 @@ import {
   headlineParts,
   introLook,
   introTiming,
-  LOGO_DRIFT_FRAMES,
-  LOGO_DRIFT_PX_PER_FRAME,
   LOGO_FILE,
   LOGO_IN_S,
   LOGO_IN_SCALE,
@@ -51,7 +47,7 @@ import {
 } from "./lib/intro";
 import { pushEnvelope, pushToCss, type PushSpec } from "./lib/push";
 import { RecapCard } from "./RecapCard";
-import { DEFAULT_LOOK } from "./lib/look";
+import { resolvePreset } from "./lib/style";
 
 export type IntroProps = {
   intro: IntroStoryboard;
@@ -436,7 +432,7 @@ const SentenceCard: React.FC<IntroProps> = ({ intro }) => {
   const k = useDesignScale();
   const tS = frame / fps;
   const t = introTiming(intro);
-  const look = introLook(intro.background, intro.look ?? DEFAULT_LOOK);
+  const look = introLook(intro.background, resolvePreset(intro).look);
 
   // Floored: the film's first frame is a card, and it must not be an empty field.
   const wordmarkP = flooredEntry(
@@ -454,37 +450,57 @@ const SentenceCard: React.FC<IntroProps> = ({ intro }) => {
   // left, slide up and scale down respectively, never all by the same move. The
   // entrance is the same curve reversed — a 56px rise, which is the one
   // entrance shape every card in the reference shares.
-  const fullbleed = (intro.look ?? DEFAULT_LOOK) === "fullbleed";
+  const preset = resolvePreset(intro);
+  // Typography and palette still key off the look. They are not yet preset
+  // fields — see the `type` group proposed in choreography-references.md §5 —
+  // but this reads a FIELD of the resolved preset, never a style's name.
+  const fullbleed = preset.look === "fullbleed";
   const totalFrames = Math.max(1, Math.ceil(t.totalS * fps));
-  const exit = intro.exit ?? CARD_EXIT_DEFAULT;
+
+  // Does this grammar travel its cards on the push envelope? `push` says yes;
+  // `ramp` (the framed scale nudge, applied further down) and `none` (Film B's
+  // pixel-locked cards) say no. Dispatching on `kind` rather than on the style
+  // is what lets a third grammar pick either without touching this file.
+  const pEnter = preset.card.enter.kind === "push" ? preset.card.enter : null;
+  const pExit = preset.card.exit.kind === "push" ? preset.card.exit : null;
+  // A card's own enter/exit override its style's.
+  const exit =
+    intro.exit ??
+    (pExit
+      ? { axis: pExit.axis, dist: pExit.dist, frames: pExit.frames }
+      : CARD_EXIT_DEFAULT);
   const enter = intro.enter;
-  const spec: PushSpec | undefined = fullbleed
-    ? {
-        in: {
-          axis: enter?.axis ?? "y",
-          dist: enter?.dist ?? CARD_RISE,
-          frames: enter?.frames ?? CARD_RISE_FRAMES,
-        },
-        out: {
-          axis: exit.axis,
-          dist: exit.dist ?? CARD_EXIT_DEFAULT.dist,
-          frames: exit.frames ?? CARD_EXIT_DEFAULT.frames,
-        },
-      }
-    : undefined;
+  const spec: PushSpec | undefined =
+    pEnter || pExit
+      ? {
+          in: {
+            axis: enter?.axis ?? pEnter?.axis ?? "none",
+            dist: enter?.dist ?? pEnter?.dist ?? 0,
+            frames: enter?.frames ?? pEnter?.frames ?? 0,
+          },
+          out: {
+            axis: exit.axis,
+            dist: exit.dist ?? pExit?.dist ?? 0,
+            frames: exit.frames ?? pExit?.frames ?? 0,
+          },
+        }
+      : undefined;
   const envelope = pushEnvelope(frame, totalFrames, spec);
   // F4: residual drift, LOGO CARD ONLY. The reference's opening keeps creeping
   // at ~2px/frame for half a second after it settles, so the frame never goes
   // dead on the shot the viewer arrives on. Its sentence cards do go dead, so
   // this is deliberately not applied to them.
-  if (fullbleed && intro.logo) {
-    const after = frame - CARD_RISE_FRAMES;
+  // Gated on the ENVELOPE, not the look: a grammar whose cards do not travel
+  // has no settle for a drift to trail out of.
+  if (spec && intro.logo) {
+    const after = frame - (spec.in?.frames ?? 0);
     if (after > 0)
       envelope.y -=
-        Math.min(after, LOGO_DRIFT_FRAMES) * LOGO_DRIFT_PX_PER_FRAME;
+        Math.min(after, preset.bookend.driftFrames) *
+        preset.bookend.driftPxPerFrame;
   }
-  const push = fullbleed ? envelope.scale : pushAt(tS, t.settledS, t.totalS);
-  const shift = fullbleed ? pushToCss(envelope, k) : null;
+  const push = spec ? envelope.scale : pushAt(tS, t.settledS, t.totalS);
+  const shift = spec ? pushToCss(envelope, k) : null;
   // Full-bleed has no backdrop plate to drift, by design.
   const drift = DRIFT_FROM + (1 - DRIFT_FROM) * cameraEase(tS / t.totalS);
 
