@@ -268,9 +268,25 @@ MEASURED. In Film B the same lockup writes the wordmark **character by
 character** (`O` → `ORIGIN`), which is what
 `WRITE_CHAR_STAGGER = 0.06` (`src/Intro.tsx:72`) already does.
 
-The logo cards are the only shots in Film A that **do not push out** — the
-last 14 frames of shot 1 are pixel-locked (x bbox 905…1014, zero delta).
-MEASURED. Bookends hold still; everything between them moves.
+~~The logo cards are the only shots in Film A that **do not push out** — the
+last 14 frames of shot 1 are pixel-locked (x bbox 905…1014, zero delta).~~
+
+**CORRECTED — the opening bookend does push out, on Y.** The reading above was
+taken on the **x** bounding box, and the move is vertical, so it measured a
+constant. Tracking the ink block's TOP edge over the same frames:
+
+| f80 | f84 | f88 | f92 | f95 | f97 |
+| --- | --- | --- | --- | --- | --- |
+| 319 | 319 | 317 | 312 | 304 | 294 |
+
+A **25 px accelerating rise over the last 13 frames**, cut mid-move like every
+other shot in the film — and the per-frame change metric agrees, ramping
+0.03 % → 1.12 % across f85–97 after 47 frames of genuine stillness (f38–84).
+The CLOSING bookend does hold still, but only because nothing follows it: its
+motion decays to zero at f1242 and stays there to the end of the film.
+
+The rule is therefore the ordinary one. Every shot is cut mid-move; the only
+exception is the last.
 
 ---
 
@@ -302,9 +318,18 @@ Derived schedule:
 `src/RecapCard.tsx` is already calibrated to this reference to within
 1–3 frames. Nothing to change.
 
-Item reveals are **binary** — ink jumps in a single frame with no ramp.
-MEASURED. There is no fade and no per-item rise larger than the 8 px already
-in `RECAP_RISE`.
+Item reveals are **binary in appearance and then settle**. MEASURED, tracking
+the first item's ink band top across its reveal:
+
+| f1114 | f1115 | f1116 | f1117 | f1118 | f1119 | f1122 |
+| --- | --- | --- | --- | --- | --- | --- |
+| — | 317 | 314 | 312 | 311 | 310 | 309 |
+
+Ink goes 0 → 14 749 between f1114 and f1115, so there is no fade — but the item
+then **rises 8 px, decelerating, over six frames**, which is `RECAP_RISE` on
+`RECAP_RISE_S`, the same move the mark makes. The sentence above was right that
+no rise exceeds 8 px and wrong that there is none; `RecapCard` had the constant
+and applied it only to the mark. Fixed.
 
 ---
 

@@ -12,6 +12,7 @@ for this repo's Remotion + Playwright pipeline.
 | [04-design-system.md](./04-design-system.md) | The extracted motion-design system + scene graph + video recipe |
 | [05-remotion-playwright.md](./05-remotion-playwright.md) | Implementation mapping and reusable component architecture |
 | [06-comparison.md](./06-comparison.md) | Reference vs. our current pipeline, every axis |
+| [07-gap-analysis.md](./07-gap-analysis.md) | The **shipped** reel re-measured against both references (supersedes 06's figures) |
 
 ## The two references
 

@@ -134,9 +134,15 @@ frames of unpainted `#FAFAFA` at f431.
 
 The logo bookends are the largest gap by impact. They are what make a reel read
 as a film rather than a sequence of clips, and the reference detail that makes
-them work is counter-intuitive: **logo cards do not push out.** They hold
-perfectly still for their final 14 frames and hard-cut. Bookends are the
-stillness that frames the motion.
+them work is the ground, not the motion: **bookends are LIGHT** (`#EDECE5`),
+which is what keeps a film of the form `logo · card · clip · … · recap · logo`
+alternating light/dark on every cut. All ten of Film A's cuts are a 209-240
+level step; dark bookends make two of them vanish.
+
+(An earlier version of this paragraph said the counter-intuitive detail was that
+logo cards do not push out. That was a mis-measurement — see
+[02-motion.md](./02-motion.md). The opening bookend rises 25 px into its cut like
+every other shot.)
 
 ---
 

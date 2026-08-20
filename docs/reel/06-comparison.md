@@ -4,6 +4,12 @@ Every axis, measured. Our side is `out/reel/harness.mp4` (2560×1440, 628 f,
 20.93 s) plus the working-tree source, put through the **identical** measurement
 chain as the two references.
 
+> **Superseded in part.** The reel has been re-cut since (729 f / 24.30 s,
+> with a logo sign-off and re-tuned clip ranges). Figures here describe the
+> 628-frame cut; for current numbers see
+> [07-gap-analysis.md](./07-gap-analysis.md). The *reference-side* measurements
+> below are unchanged and still authoritative.
+>
 > **Status:** the top three items in §10 have been implemented and re-measured,
 > plus two follow-ups. Figures below are **after** those changes. What moved:
 > cap height 45.8 → **51.0 px** (reference 51–52); click ripple **removed**;
@@ -106,7 +112,7 @@ That is item 4 below, not a motion-budget problem.
 
 | Axis | Reference | Ours | Verdict |
 | --- | --- | --- | --- |
-| Line pitch @1920 | 86 px | 86 px (`64 × 1.35`) | ✅ |
+| Line pitch @1920 | 86 px | 86 px (`72 × 1.194`) | ✅ |
 | **Cap height @1920** | **51–52 px** (flat capitals) | **51.0 px** | ✅ was 45.8 |
 | Max column | 78 % | 75 % measured; `COLUMN_FRAC_FLAT 0.78` | ✅ |
 | Weight | 400–450 | `HEADLINE_WEIGHT 400` | ✅ |
@@ -244,13 +250,18 @@ how you guarantee the chip's centre without DOM measurement) but tuned to
 13 frames it reads as a zoom; at 7.8× over 3 frames it reads as a *punch*.
 That is the whole point of the name.
 
-**Logo bookends are the largest missing piece.** Both films open and/or close
+**Logo bookends are the largest missing piece.**  <!-- see the correction below --> Both films open and/or close
 on a logo card with a tumbling mark, and it is what makes them read as films
 rather than as clips. It is already fix **F3** in
 `fullbleed-gap-analysis.md`, still unimplemented. Note the reference detail
-that makes it work: **logo cards do not push out.** They hold perfectly still
-for their last 14 frames and hard-cut. Bookends are the stillness that frames
-the motion.
+that makes it work: ~~**logo cards do not push out.** They hold perfectly still
+for their last 14 frames and hard-cut.~~
+
+**That is wrong** — it was measured on the x bounding box and the move is on y.
+The opening bookend rises 25 px over its last 13 frames and is cut mid-move; only
+the closing one holds still, because nothing follows it. See
+[02-motion.md](./02-motion.md#the-recap-card-film-a-shot-11) and
+[07-gap-analysis.md](./07-gap-analysis.md).
 
 ---
 
