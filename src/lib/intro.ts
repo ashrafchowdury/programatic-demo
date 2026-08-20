@@ -11,7 +11,14 @@
  * without rendering a frame. src/Intro.tsx is the only consumer that eases it.
  */
 import { cameraEase } from "./camera";
-import { DEFAULT_LOOK, type ReelLook } from "./look";
+import { type ReelLook } from "./look";
+import {
+  STYLE_PRESETS,
+  resolvePreset,
+  type CardLength,
+  type ReelStyle,
+  type WordCadence,
+} from "./style";
 import { OUTPUT_WIDTH, type ClickLog, type CursorSample } from "./click-log";
 
 export type IntroStoryboard = {
@@ -55,8 +62,22 @@ export type IntroStoryboard = {
   /**
    * Timing and exit treatment. Absent = "framed", i.e. every constant below
    * keeps the value it has always had. See src/lib/look.ts.
+   *
+   * Legacy: `style` supersedes it. Kept because every reel on disk uses it, and
+   * because a card may still override one field of its reel's style.
    */
   look?: ReelLook;
+  /**
+   * The choreography grammar this card is cut in — motion AND look together.
+   *
+   * Absent falls back to `look`, and then to the default, so a storyboard that
+   * says nothing renders exactly as it always has. See src/lib/style.ts.
+   *
+   * Must live HERE and not only on the reel: scripts/render-intro.ts renders a
+   * card straight from intros/<name>.ts with no reel around it, so a reel-level
+   * value could never reach it.
+   */
+  style?: ReelStyle;
   /**
    * Start the word clock this many seconds BEFORE the card's first visible
    * frame, so the cut lands mid-reveal.
@@ -687,12 +708,22 @@ export const CARD_EXIT_DEFAULT = {
  * Returns WORD_STAGGER_S when the copy already fits, so short cards keep the
  * unhurried cadence and only long ones tighten.
  */
-export function fittedStagger(wordCount: number, trimInS: number): number {
+export function fittedStagger(
+  wordCount: number,
+  trimInS: number,
+  cadence: WordCadence = STYLE_PRESETS.proof.card.cadence,
+  length: CardLength = STYLE_PRESETS.proof.card.length,
+): number {
+  // The ceiling and floor come from the grammar being fitted, not from the
+  // full-bleed constants — a second fitted style would otherwise silently
+  // inherit Film A's card band.
+  const maxStaggerS = cadence.staggerS;
+  const minStaggerS = cadence.kind === "fitted" ? cadence.minStaggerS : maxStaggerS;
   const beats = wordCount - 1;
-  if (beats <= 0) return WORD_STAGGER_S;
-  const room = CARD_MAX_S - HOLD_AFTER_TEXT_S + trimInS;
+  if (beats <= 0) return maxStaggerS;
+  const room = (length.maxS ?? CARD_MAX_S) - length.holdS + trimInS;
   const fitted = room / beats;
-  return Math.max(WORD_STAGGER_MIN_S, Math.min(WORD_STAGGER_S, fitted));
+  return Math.max(minStaggerS, Math.min(maxStaggerS, fitted));
 }
 /**
  * Lead-in before the first word on a card with no wordmark.
@@ -978,22 +1009,29 @@ export function introTiming(intro: IntroStoryboard): IntroTiming {
     };
   }
 
-  const look = intro.look ?? DEFAULT_LOOK;
-  const full = look === "fullbleed";
+  // Everything below reads FIELDS off the resolved choreography preset. There is
+  // deliberately no `if (style === ...)` here — see src/lib/style.ts for why.
+  const preset = resolvePreset(intro);
+  const { cadence, length } = preset.card;
 
-  // Full-bleed cuts INTO the reveal, so the word clock starts before frame 0
-  // and the first few words are already out. A negative start is the whole
-  // mechanism — progressAt clamps, so words cued before 0 read as complete on
-  // the first frame with no special case anywhere downstream.
-  const trimInS = full ? (intro.trimInS ?? TRIM_IN_S) : 0;
+  // A grammar that cuts INTO the reveal starts the word clock before frame 0, so
+  // the first few words are already out. A negative start is the whole mechanism
+  // — progressAt clamps, so words cued before 0 read as complete on the first
+  // frame with no special case anywhere downstream.
+  //
+  // A grammar with no trim ignores an authored `trimInS` rather than honouring
+  // it, which is what the framed look has always done; changing that would move
+  // cards in the back catalogue.
+  const trimInS = length.trimInS > 0 ? (intro.trimInS ?? length.trimInS) : 0;
 
   // A wordmark already puts something on screen at frame 0, so the headline can
   // take its beat. Without one, waiting means opening on an empty field.
   const headlineStartS =
     (intro.wordmark ? HEADLINE_START_S : HEADLINE_LEAD_S) - trimInS;
-  const staggerS = full
-    ? fittedStagger(wordsOf(intro.headline).length, trimInS)
-    : WORD_STAGGER_S;
+  const staggerS =
+    cadence.kind === "fitted"
+      ? fittedStagger(wordsOf(intro.headline).length, trimInS, cadence, length)
+      : cadence.staggerS;
   const words = wordSchedule(intro.headline, headlineStartS, staggerS);
   const last = words[words.length - 1];
   // An empty headline still has to produce a coherent schedule, or Studio
@@ -1006,13 +1044,16 @@ export function introTiming(intro: IntroStoryboard): IntroTiming {
   const subheadEndS = intro.subhead ? subheadStartS + SUBHEAD_IN_S : 0;
 
   const settledS = Math.max(wordmarkEndS, lastEndS, subheadEndS);
-  // Full-bleed measures its hold from the LAST WORD, not from whatever landed
-  // last. That is what the reference holds constant at 62 frames; a subhead
-  // fading in afterwards must not push the cut out with it.
-  const holdFrom = full ? lastEndS : settledS;
-  const heldS = holdFrom + (intro.holdS ?? (full ? HOLD_AFTER_TEXT_S : HOLD_S));
+  // Where the hold is measured from is a grammar choice, not a look: see
+  // CardLength.holdFrom.
+  const holdFrom = length.holdFrom === "lastWord" ? lastEndS : settledS;
+  const heldS = holdFrom + (intro.holdS ?? length.holdS);
+  // A floor only applies to a grammar that HAS one. An authored `holdS` opts out
+  // of it either way — the author has said how long the beat is.
   const outStartS =
-    full && intro.holdS == null ? Math.max(heldS, CARD_MIN_S) : heldS;
+    length.minS != null && intro.holdS == null
+      ? Math.max(heldS, length.minS)
+      : heldS;
 
   // A chip card does not fade. `holdS` keeps its meaning — the still beat after
   // the sentence lands — and the pointer leaves at the end of it. The card then

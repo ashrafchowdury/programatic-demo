@@ -117,6 +117,7 @@ const SOURCES = {
     "src/lib/click-log.ts",
     "src/lib/push.ts",
     "src/lib/look.ts",
+    "src/lib/style.ts",
     "src/Cursor.tsx",
     "src/lib/cursor.ts",
     "src/RecapCard.tsx",
@@ -141,6 +142,7 @@ const SOURCES = {
     "src/lib/click-log.ts",
     "src/lib/push.ts",
     "src/lib/look.ts",
+    "src/lib/style.ts",
   ],
 } as const;
 
@@ -233,11 +235,15 @@ async function main() {
     // explicitly — otherwise flipping the reel's look would serve every
     // segment from cache. Folded in only when set, so an unopted reel keeps
     // the keys (and therefore the cached segments) it already has.
+    // `style` is folded in AFTER `look` and only when set, so a reel that never
+    // mentions a style serialises byte-for-byte the key it always has — and
+    // therefore keeps every cached segment it already has on disk.
     const lookKey = reel.look ? { look: reel.look } : {};
+    const styleKey = reel.style ? { style: reel.style } : {};
     const key =
       kind === "clip"
-        ? { segment, speed, src: sourceDigest(kind), footage, ...lookKey }
-        : { segment, speed, src: sourceDigest(kind), ...lookKey };
+        ? { segment, speed, src: sourceDigest(kind), footage, ...lookKey, ...styleKey }
+        : { segment, speed, src: sourceDigest(kind), ...lookKey, ...styleKey };
     const file = path.join(workDir, `${index}-${kind}-${digest(key)}.mp4`);
     keep.add(path.basename(file));
     parts.push(file);
@@ -251,7 +257,12 @@ async function main() {
       // The card carries the reel's look unless it overrode it itself, so an
       // author sets the language once on the reel. Spread first so a card can
       // still opt out of a full-bleed reel.
-      const card = reel.look ? { look: reel.look, ...segment.card } : segment.card;
+      // Reel-level first so a CARD can still override either field on its own.
+      const card = {
+        ...(reel.look ? { look: reel.look } : {}),
+        ...(reel.style ? { style: reel.style } : {}),
+        ...segment.card,
+      };
       render(
         ["render", "Intro", `--props=${JSON.stringify({ intro: card })}`],
         file,

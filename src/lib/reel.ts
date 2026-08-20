@@ -14,6 +14,7 @@
  */
 import { introProblem, type IntroStoryboard } from "./intro";
 import { DEFAULT_LOOK, LOOKS, type ReelLook } from "./look";
+import { styleProblem, type ReelStyle } from "./style";
 import type { PushSpec } from "./push";
 import type { CropSpec } from "./crop";
 
@@ -200,7 +201,17 @@ export type Reel = {
   duck?: boolean | ReelDuck;
   /** Visual treatment of the footage. Absent = "framed", i.e. unchanged. */
   look?: ReelLook;
+  /**
+   * The choreography grammar this reel is cut in — motion AND look together.
+   *
+   * Absent falls back to `look`, and then to the default, so every reel written
+   * before styles existed renders unchanged. A card may override it. See
+   * src/lib/style.ts, and docs/design/reels/choreography-styles.md.
+   */
+  style?: ReelStyle;
 };
+
+export { STYLES, type ReelStyle } from "./style";
 
 export const defineReel = (reel: Reel): Reel => reel;
 
@@ -271,6 +282,8 @@ export function reelProblem(
     return "has no `segments`";
   if (reel.look !== undefined && !LOOKS.includes(reel.look))
     return `look must be one of ${LOOKS.join(", ")}`;
+  const style = styleProblem({ style: reel.style, look: reel.look });
+  if (style) return style;
 
   const cold = coldOpenIndex(reel.segments as ReelSegment[]);
   let previousLast = -1;

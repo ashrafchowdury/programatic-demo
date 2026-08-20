@@ -649,3 +649,54 @@ describe("recap card", () => {
     assert.deepEqual(recapSchedule(0).itemsS, []);
   });
 });
+
+describe("style resolves to the same timing as the look it replaces", () => {
+  // The migration contract. `style` is a new way to SAY the same thing, so for
+  // every card on disk the two spellings must produce identical timing — if
+  // they diverge, the back catalogue re-renders differently and the whole
+  // "no behaviour change" claim is void. Covers each card shape, because they
+  // take different branches inside introTiming.
+  const shapes: Record<string, IntroStoryboard> = {
+    sentence: { name: "x", headline: "Connect a provider and pick a harness" },
+    wordmarked: { name: "x", headline: "Ship it", wordmark: "Agenta" },
+    subheaded: { name: "x", headline: "Ship it", subhead: "in one click" },
+    logo: { name: "x", headline: "Agenta", logo: true },
+    recap: { name: "x", headline: "New", items: ["a", "b", "c"] },
+    chip: { name: "x", headline: `Press ${CHIP_TOKEN} to run`, chip: { label: "Run" } },
+    held: { name: "x", headline: "Ship it", holdS: 0.8 },
+    long: {
+      name: "x",
+      headline: "A far longer sentence that has to compress its own stagger",
+    },
+  };
+
+  for (const [shape, card] of Object.entries(shapes)) {
+    it(`${shape}: no style is the same as the default style`, () => {
+      assert.deepEqual(introTiming(card), introTiming({ ...card, style: "classic" }));
+      assert.equal(
+        introDurationInFrames(card, 30),
+        introDurationInFrames({ ...card, style: "classic" }, 30),
+      );
+    });
+
+    it(`${shape}: look fullbleed is the same as style proof`, () => {
+      const byLook = { ...card, look: "fullbleed" as const };
+      const byStyle = { ...card, style: "proof" as const };
+      assert.deepEqual(introTiming(byLook), introTiming(byStyle));
+      assert.equal(
+        introDurationInFrames(byLook, 30),
+        introDurationInFrames(byStyle, 30),
+      );
+    });
+  }
+
+  it("an explicit style beats the legacy look", () => {
+    const card = { name: "x", headline: "Ship it quickly today" };
+    // look says framed, style says proof — proof must win, which is what makes
+    // `style` an override rather than a second opinion.
+    assert.deepEqual(
+      introTiming({ ...card, look: "framed", style: "proof" }),
+      introTiming({ ...card, look: "fullbleed" }),
+    );
+  });
+});
