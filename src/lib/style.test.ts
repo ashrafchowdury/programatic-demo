@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, it } from "node:test";
+import { BACKGROUNDS } from "./intro";
 import {
   DEFAULT_STYLE,
   STYLES,
@@ -225,5 +226,58 @@ describe("no component branches on a style's name", () => {
       [],
       `style names must stay inside style.ts:\n  ${offenders.join("\n  ")}`,
     );
+  });
+});
+
+describe("palettes", () => {
+  it("keys grounds by exactly the backgrounds intro.ts ships", () => {
+    // style.ts cannot import intro.ts (it sits below it), so GroundKey is
+    // re-declared there. This is the only thing keeping the two in step.
+    for (const name of STYLES)
+      assert.deepEqual(
+        Object.keys(STYLE_PRESETS[name].palette).sort(),
+        [...BACKGROUNDS].sort(),
+        `${name}: palette keys must match BACKGROUNDS`,
+      );
+  });
+
+  it("assigns narration's grounds by role, not by taste", () => {
+    // Film B's code: white narrates, warm grey is the workbench, black is the
+    // third-party register. Three DISTINCT grounds — the moment two collapse
+    // to the same hex the viewer can no longer read the role off the colour.
+    const p = STYLE_PRESETS.narration.palette;
+    assert.equal(p.light.ground, "#ffffff");
+    assert.equal(p.plain.ground, "#e6e4e0");
+    assert.equal(p.plate.ground, "#0a0a0a");
+    assert.equal(new Set(Object.values(p).map((g) => g.ground)).size, 3);
+  });
+
+  it("keeps proof to one voice plus a light alternative", () => {
+    // Film A alternates two grounds to make its ~200-level slams; it has no
+    // third role. plate and plain deliberately collapse.
+    const p = STYLE_PRESETS.proof.palette;
+    assert.equal(p.plate.ground, p.plain.ground);
+    assert.notEqual(p.light.ground, p.plate.ground);
+  });
+
+  it("gives every ground ink that can actually be read on it", () => {
+    // A style whose ink matches its ground renders an invisible card. Cheap to
+    // assert, and it is the kind of thing a hand-edited hex gets wrong.
+    const lum = (hex: string): number => {
+      const m = /^#([0-9a-f]{6})$/i.exec(hex);
+      if (!m) return NaN;
+      const n = parseInt(m[1], 16);
+      return (
+        (0.2126 * ((n >> 16) & 255) +
+          0.7152 * ((n >> 8) & 255) +
+          0.0722 * (n & 255)) /
+        255
+      );
+    };
+    for (const name of STYLES)
+      for (const [key, g] of Object.entries(STYLE_PRESETS[name].palette)) {
+        const d = Math.abs(lum(g.ground) - lum(g.ink));
+        assert.ok(d > 0.5, `${name}.${key}: ground/ink luma gap ${d.toFixed(2)}`);
+      }
   });
 });

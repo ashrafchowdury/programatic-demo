@@ -16,6 +16,7 @@ import {
   STYLE_PRESETS,
   resolvePreset,
   type CardLength,
+  type PaletteStyle,
   type ReelStyle,
   type WordCadence,
 } from "./style";
@@ -354,7 +355,25 @@ const DARK_LOOK = {
 export function introLook(
   background?: IntroBackground,
   look?: ReelLook,
+  palette?: PaletteStyle,
 ): IntroLook {
+  // A style's own grounds win. This is what lets a grammar assign grounds by
+  // ROLE — one for the narrating voice, one for the workbench a component
+  // stands on, one for third-party vendors — where the looks below only ever
+  // had a single voice with a light alternative. See PaletteStyle in
+  // src/lib/style.ts for which film that comes from.
+  if (palette && look === "fullbleed") {
+    const g = palette[background ?? "plain"];
+    return {
+      ...DARK_LOOK,
+      ground: g.ground,
+      headline: g.ink,
+      subhead: g.muted,
+      wordmark: g.muted,
+      flat: true,
+      columnFrac: COLUMN_FRAC_FLAT,
+    };
+  }
   if (look === "fullbleed")
     return background === "light"
       ? {

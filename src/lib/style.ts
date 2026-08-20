@@ -172,6 +172,32 @@ export type BookendStyle = {
   driftFrames: number;
 };
 
+/**
+ * A card ground and the ink that sits on it.
+ *
+ * Keys mirror `BACKGROUNDS` in intro.ts. They are re-declared rather than
+ * imported because this file must never import intro.ts — style.test.ts asserts
+ * the two lists stay in step.
+ */
+export type GroundKey = "plate" | "plain" | "light";
+export type Ground = { ground: string; ink: string; muted: string };
+
+/**
+ * The style's grounds, keyed by the card's `background`.
+ *
+ * FILM B ASSIGNS GROUNDS BY ROLE, not by taste, and that is what this map
+ * encodes for `narration`: white is the narration voice (a sentence stating a
+ * capability), warm grey is the workbench (a component doing something), black
+ * is the third-party register (CI and deploy vendors). A viewer learns the code
+ * in the first triplet and it holds for the rest of the film.
+ *
+ * That directly contradicts the intro-reel skill's "pick a tonal strategy and
+ * hold it — mixing them does not work". Film B mixes four grounds and works,
+ * because they are assigned rather than chosen. Both rules are right for their
+ * own grammar, which is exactly why this belongs in a preset.
+ */
+export type PaletteStyle = Record<GroundKey, Ground>;
+
 export type RecapStyle = {
   leadS: number;
   lockupStaggerS: number;
@@ -204,6 +230,7 @@ export type StylePreset = {
   card: CardStyle;
   shot: ShotStyle;
   chip: ChipStyle;
+  palette: PaletteStyle;
   bookend: BookendStyle;
   recap: RecapStyle;
   source: StyleSource | null;
@@ -260,6 +287,13 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
       leadS: 0.18,
       settleS: 0.03,
       afterPressS: 0.3,
+    },
+    // One voice: the framed look has always had a dark plate and a light
+    // alternative, chosen per card rather than assigned by role.
+    palette: {
+      plate: { ground: "#08080a", ink: "#ffffff", muted: "rgba(255,255,255,0.62)" },
+      plain: { ground: "#08080a", ink: "#ffffff", muted: "rgba(255,255,255,0.62)" },
+      light: { ground: "#f4f2ec", ink: "#101317", muted: "rgba(16,19,23,0.58)" },
     },
     bookend: {
       tumbleS: 0.85,
@@ -323,6 +357,13 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
       leadS: 0.18,
       settleS: 0.03,
       afterPressS: 0.3,
+    },
+    // Film A runs two grounds and alternates them on every cut, which is what
+    // makes its ~200-level slams. MEASURED off the reference.
+    palette: {
+      plate: { ground: "#08080a", ink: "#e9ebe6", muted: "#8a8a86" },
+      plain: { ground: "#08080a", ink: "#e9ebe6", muted: "#8a8a86" },
+      light: { ground: "#edece5", ink: "#0a0a0a", muted: "#86857e" },
     },
     bookend: {
       tumbleS: 0.85,
@@ -425,6 +466,19 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
       leadS: 0.03,
       settleS: 0.03,
       afterPressS: 0.03,
+    },
+    // GROUNDS BY ROLE — the whole point, see PaletteStyle. Hexes MEASURED in
+    // docs/reel/03-composition.md: pure white (unlike Film A's warm off-white),
+    // the #E6E4E0 warm grey that every isolated component stands on, and the
+    // same #0A0A0A black Film A uses. Film B's fourth ground, the purple, is an
+    // app-shot BACKDROP rather than a card ground, so it is not here.
+    palette: {
+      // the third-party register — CI and deploy vendors
+      plate: { ground: "#0a0a0a", ink: "#ffffff", muted: "rgba(255,255,255,0.62)" },
+      // the workbench — every isolated component performing an action
+      plain: { ground: "#e6e4e0", ink: "#0a0a0a", muted: "rgba(10,10,10,0.58)" },
+      // the narration voice — every sentence that states a capability
+      light: { ground: "#ffffff", ink: "#0a0a0a", muted: "rgba(10,10,10,0.55)" },
     },
     // ⧗ Film B's outro is a cube tumble over 90f, but its tumble duration and
     // turn count were never measured. Carried from proof rather than guessed.

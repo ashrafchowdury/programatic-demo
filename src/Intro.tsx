@@ -432,7 +432,8 @@ const SentenceCard: React.FC<IntroProps> = ({ intro }) => {
   const k = useDesignScale();
   const tS = frame / fps;
   const t = introTiming(intro);
-  const look = introLook(intro.background, resolvePreset(intro).look);
+  const preset_ = resolvePreset(intro);
+  const look = introLook(intro.background, preset_.look, preset_.palette);
 
   // Floored: the film's first frame is a card, and it must not be an empty field.
   const wordmarkP = flooredEntry(
