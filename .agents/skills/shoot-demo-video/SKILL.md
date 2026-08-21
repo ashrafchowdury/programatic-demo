@@ -219,6 +219,23 @@ Recording is **headless by default** — a window that loses focus blurs inputs
 and pauses animations, so it changes what gets filmed. `HEADED=1` to watch a
 failure.
 
+### No hand-written flow: the self-tour
+
+Click through the UI yourself and let the recorder replay your selectors with
+the fake cursor and camera on top. Useful when the flow is easier to perform
+than to write.
+
+```bash
+DEMO_TOUR=capture pnpm record <name>   # you click; Esc or close the window
+DEMO_TOUR=replay  pnpm record <name>   # shoot tours/<name>.json
+```
+
+Enter is recorded as a press step, so search-and-submit works — but prefer
+clicking a visible Submit when there is one. Capture is **record-only**: do not
+pass `DEMO_TOUR=capture` to `pnpm clip`, which rejects it. For a flow that
+supplies its own start URL, set `DEMO_TOUR_URL` to the site it would have
+opened. Unset `DEMO_TOUR` keeps the scripted `flows/<name>.ts` path.
+
 ## Knobs
 
 | Env | Default | Notes |
@@ -227,6 +244,8 @@ failure.
 | `DEMO_GL` | `angle` | GPU rasterisation; **~10× faster** rendering. Use `swiftshader` where there is no GPU — **not** `swangle`, which fails to decode the source. |
 | `DEMO_CONCURRENCY` | auto | Opt-in. More workers measured *slower*. |
 | `HEADED` | unset | `1` shows the browser during a shoot. |
+| `DEMO_TOUR` | unset | `capture` records your own clicks to `tours/<name>.json`; `replay` shoots them. |
+| `DEMO_BAKED_CURSOR` | unset | `1` falls back to the legacy in-page cursor instead of the one Remotion draws. Debugging only — the drawn cursor stays sharp at any zoom. |
 
 ## Check the result
 

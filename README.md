@@ -581,8 +581,10 @@ rule for the same reason — a title card names that account's product — with
 
 ## Reference
 
-Deeper pipeline notes, including the agent-readable version:
-**[`.agents/skills/remotion-demo-pipeline/SKILL.md`](.agents/skills/remotion-demo-pipeline/SKILL.md)**
+Deeper pipeline notes, in the agent-readable versions — one per feature:
+**[`shoot-demo-video`](.agents/skills/shoot-demo-video/SKILL.md)** (footage),
+**[`intro-reel`](.agents/skills/intro-reel/SKILL.md)** (the cut film),
+**[`shoot-still`](.agents/skills/shoot-still/SKILL.md)** (a photograph of one panel).
 
 Most non-obvious constants carry their measurement in a comment beside them —
 why the backdrop is a baked image rather than a CSS gradient, why a soft gradient
