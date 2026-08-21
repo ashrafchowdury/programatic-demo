@@ -101,3 +101,19 @@ export function backdropProblem(value: unknown): string | null {
     return "`backdrop` is a name or a filename in public/backdrops/, not a path";
   return null;
 }
+
+/**
+ * Is this flat ground light enough to need the dark elevation?
+ *
+ * The image backdrops answer this from a hand-kept list (LIGHT_BACKDROPS),
+ * because a photograph's "lightness" is a judgement about where the window
+ * sits on it. A flat fill has no such ambiguity, so it is computed: relative
+ * luminance over 0.6 gets the cast shadow, the same treatment `chalk` and
+ * `mist` get.
+ */
+export function isLightGround(hex: string): boolean {
+  const h = hex.replace("#", "");
+  if (h.length !== 6) return false;
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.6;
+}

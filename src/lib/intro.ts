@@ -736,6 +736,10 @@ export function fittedStagger(
   // The ceiling and floor come from the grammar being fitted, not from the
   // full-bleed constants — a second fitted style would otherwise silently
   // inherit Film A's card band.
+  // A typewriter has no word stagger to fit — it runs at a constant character
+  // rate and its length falls out of the copy. Returning 0 keeps this callable
+  // from a shared path without the caller having to know the kind.
+  if (cadence.kind === "typed") return 0;
   const maxStaggerS = cadence.staggerS;
   const minStaggerS = cadence.kind === "fitted" ? cadence.minStaggerS : maxStaggerS;
   const beats = wordCount - 1;
@@ -910,6 +914,15 @@ export type WordCue = {
   chip?: boolean;
   /** No leading space before this unit — see StyledToken.tight. */
   tight?: boolean;
+  /**
+   * This unit is TYPED — revealed one character at a time across its own
+   * [startS, endS) — rather than arriving whole.
+   *
+   * A flag on the cue and not a style name, so the renderer dispatches on data.
+   * Chip units never carry it: the reference expands its pill in the gap the
+   * typing leaves rather than typing the pill's own letters.
+   */
+  typed?: boolean;
 };
 
 export type IntroTiming = {
@@ -973,6 +986,8 @@ export function wordSchedule(
   startS: number = HEADLINE_START_S,
   staggerS: number = WORD_STAGGER_S,
   fadeS: number = WORD_IN_S,
+  /** Seconds per character. Set only by a `typed` cadence; see WordCue.typed. */
+  perCharS?: number,
 ): WordCue[] {
   // parseHeadline already yields the units in order — including the {chip} as a
   // single unit in sentence position — each carrying its own inline style.
@@ -982,9 +997,26 @@ export function wordSchedule(
   // and it does not lengthen the card. `step` is the stagger index, advanced
   // once per visible beat, so `*Markdown*.` writes exactly like `Markdown.`.
   let step = -1;
+  // Character clock for a typewriter. It advances over EVERY unit including the
+  // chip, so the pill lands where its letters would have and the sentence does
+  // not jump when it arrives.
+  let chars = 0;
   return parseHeadline(headline).map((token, index) => {
     if (!(token.tight && index > 0)) step += 1;
-    const at = startS + step * staggerS;
+    // A typed cue is placed by how many characters precede it, not by which
+    // word it is: that is the whole difference between the two schedules.
+    // The leading space costs a beat too, or "Your built-in" types faster than
+    // it reads. It is charged BEFORE this unit's start, not after the previous
+    // one: adding it to the previous token's own length puts the space inside
+    // that token's typing window, and every unit after the first then starts
+    // one character early.
+    if (perCharS != null && !(index === 0 || token.tight)) chars += 1;
+    const at =
+      perCharS != null
+        ? startS + chars * perCharS
+        : startS + step * staggerS;
+    const own = perCharS != null ? token.text.length * perCharS : 0;
+    if (perCharS != null) chars += token.text.length;
     const cue: WordCue = {
       // The chip cue keeps CHIP_TOKEN as its word so existing callers and tests
       // that look for the token by value still find it, whatever punctuation was
@@ -992,9 +1024,22 @@ export function wordSchedule(
       word: token.chip ? CHIP_TOKEN : token.text,
       index,
       startS: at,
-      endS: at + fadeS,
+      // A typed unit's window is its OWN typing time, so progressAt returns
+      // linear progress through its characters. Everything else keeps the fade.
+      endS: at + (perCharS != null && !token.chip ? own : fadeS),
     };
     if (token.style) cue.style = token.style;
+    // A HIGHLIGHTED UNIT DOES NOT TYPE, for the same reason the {chip} unit
+    // does not: its pill is a filled box, so typing inside it paints the box
+    // first and the letters afterwards — measured on the first agent-tool cut,
+    // where the payoff card showed two empty yellow rectangles for half a
+    // second before any text arrived. The reference does the opposite: at f867
+    // its sentence reads "Your ______" with a blank rule, and the pill expands
+    // into that gap already carrying its word.
+    //
+    // So a pill arrives whole, on the beat the typewriter reaches it.
+    if (perCharS != null && !token.chip && !token.style?.highlight)
+      cue.typed = true;
     if (token.chip) cue.chip = true;
     if (token.tight) cue.tight = true;
     return cue;
@@ -1051,12 +1096,15 @@ export function introTiming(intro: IntroStoryboard): IntroTiming {
   const staggerS =
     cadence.kind === "fitted"
       ? fittedStagger(wordsOf(intro.headline).length, trimInS, cadence, length)
-      : cadence.staggerS;
+      : cadence.kind === "typed"
+        ? 0
+        : cadence.staggerS;
   const words = wordSchedule(
     intro.headline,
     headlineStartS,
     staggerS,
     cadence.fadeS,
+    cadence.kind === "typed" ? cadence.perCharS : undefined,
   );
   const last = words[words.length - 1];
   // An empty headline still has to produce a coherent schedule, or Studio

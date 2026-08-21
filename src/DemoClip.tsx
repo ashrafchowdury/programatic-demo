@@ -10,8 +10,9 @@ import {
 import { Video } from "@remotion/media";
 import { CameraMotionBlur } from "@remotion/motion-blur";
 import { zoomAt, type ClickLog } from "./lib/zoom";
+import { BASE_POSE, poseToCss } from "./lib/camera";
 import { CHROME_H, WINDOW_FIT } from "./lib/window";
-import { backdropFile, isLightBackdrop } from "./lib/backdrop";
+import { backdropFile, isLightBackdrop, isLightGround } from "./lib/backdrop";
 import { Cursor } from "./Cursor";
 import { RimLight, Stage, useDesignScale, WindowFrame } from "./WindowFrame";
 import { pushEnvelope, pushToCss, type PushSpec } from "./lib/push";
@@ -154,14 +155,24 @@ export type DemoClipProps = {
  * an <Img> has decoded, so it cannot render a frame with the backdrop missing.
  * A CSS background is invisible to that handshake and flickers on cold workers.
  */
-export const Backdrop: React.FC<{ name?: string }> = ({ name }) => (
-  <AbsoluteFill>
-    <Img
-      src={staticFile(backdropFile(name))}
-      style={{ width: "100%", height: "100%", objectFit: "cover" }}
-    />
-  </AbsoluteFill>
-);
+export const Backdrop: React.FC<{ name?: string; ground?: string | null }> = ({
+  name,
+  ground,
+}) =>
+  // A FLAT ground short-circuits the image entirely. Not a 1x1 image stretched
+  // to frame: an <Img> costs a decode and a texture upload per frame, and the
+  // encoder treats a real gradient and a solid fill very differently — a solid
+  // fill is what lets the whole ground sit in one macroblock run.
+  ground ? (
+    <AbsoluteFill style={{ backgroundColor: ground }} />
+  ) : (
+    <AbsoluteFill>
+      <Img
+        src={staticFile(backdropFile(name))}
+        style={{ width: "100%", height: "100%", objectFit: "cover" }}
+      />
+    </AbsoluteFill>
+  );
 
 /**
  * Camera pose for this frame, plus the wrapper style that positions the window
@@ -185,6 +196,8 @@ function useCameraGroup(
   log: ClickLog,
   speed: number,
   drift: number | undefined,
+  /** The style's shot group, for its float size and whether the camera runs. */
+  shot: { windowFit: number | null; zoom: boolean },
 ) {
   const frame = useCurrentFrame();
   const { fps, height } = useVideoConfig();
@@ -194,12 +207,15 @@ function useCameraGroup(
   // footage keeps its aspect, so the denominator has to include the chrome.
   // Scale cancels here (both terms scale together), which is the point.
   const chromeFrac = chrome ? chromeH / (height + chromeH) : 0;
-  const z = zoomAt(frame, fps, log, {
-    chromeFrac,
-    speed,
-    fit: WINDOW_FIT,
-    drift,
-  });
+  // The style's float size, falling back to the constant every framed reel
+  // rendered against before `windowFit` was wired through.
+  const fit = shot.windowFit ?? WINDOW_FIT;
+  const z = shot.zoom
+    ? zoomAt(frame, fps, log, { chromeFrac, speed, fit, drift })
+    : // A CONSTANT POSE. Not `zoomAt` with the drift zeroed — that still tracks
+      // the pointer and magnifies on every press. This holds the panel at `fit`
+      // for the whole shot, so the only thing that moves it is its own envelope.
+      poseToCss(BASE_POSE, chromeFrac, fit);
 
   const style: React.CSSProperties = {
     width: "100%",
@@ -222,18 +238,17 @@ function useCameraGroup(
  * The window's shadow, tracking the camera but drawn outside the shutter.
  * See RimLight for why it cannot live with the window.
  */
-const ShadowGroup: React.FC<DemoClipProps> = ({
-  log,
-  chrome = false,
-  speed = 1,
-  drift,
-  backdrop,
-}) => {
-  const { style } = useCameraGroup(chrome, log, speed, drift);
+const ShadowGroup: React.FC<DemoClipProps> = (props) => {
+  const { log, chrome = false, speed = 1, drift, backdrop } = props;
+  const { style } = useCameraGroup(chrome, log, speed, drift, resolvePreset(props).shot);
+  // A flat ground answers the light/dark question by measurement rather than
+  // from LIGHT_BACKDROPS, which only knows about the shipped images.
+  const ground = resolvePreset(props).shot.ground;
+  const light = ground ? isLightGround(ground) : isLightBackdrop(backdrop ?? "");
   return (
     <Stage>
       <div style={style}>
-        <RimLight light={isLightBackdrop(backdrop ?? "")} />
+        <RimLight light={light} />
       </div>
     </Stage>
   );
@@ -244,15 +259,10 @@ const ShadowGroup: React.FC<DemoClipProps> = ({
  * CameraMotionBlur can sample neighbouring frames with a real camera pose on
  * each sample.
  */
-const WindowGroup: React.FC<DemoClipProps> = ({
-  name,
-  log,
-  chrome = false,
-  speed = 1,
-  drift,
-  ripple,
-}) => {
-  const { z, frame, fps, style } = useCameraGroup(chrome, log, speed, drift);
+const WindowGroup: React.FC<DemoClipProps> = (props) => {
+  const { name, log, chrome = false, speed = 1, drift, ripple } = props;
+  const { shot } = resolvePreset(props);
+  const { z, frame, fps, style } = useCameraGroup(chrome, log, speed, drift, shot);
   const trimBefore = log.trimBeforeMs
     ? round((log.trimBeforeMs / 1000) * fps)
     : undefined;
@@ -441,26 +451,81 @@ export const DemoClip: React.FC<DemoClipProps> = (props) => {
   // On the style's FRAMING, not its name — so a future grammar picks a path by
   // saying which framing it uses. `isolate` (src/lib/crop.ts) renders down the
   // full-bleed path too: it is a crop with a clip-path, not a third layer stack.
-  if (resolvePreset(props).shot.framing !== "window")
-    return <FullBleedClip {...props} />;
+  const { shot } = resolvePreset(props);
+  if (shot.framing !== "window") return <FullBleedClip {...props} />;
 
   return (
     <AbsoluteFill>
-      <Backdrop name={props.backdrop} />
       {/*
-        Shadow first, and deliberately NOT inside the shutter below: stacking
-        semi-transparent copies quantises a soft gradient into rings. It carries
-        the same camera transform, so it still tracks the window exactly.
+        The ground does NOT move. Only the panel does — which is the whole
+        point of a flat-ground grammar: the stage stays put and elements enter
+        and leave it. So the backdrop sits outside the push wrapper below.
       */}
-      <ShadowGroup {...props} chrome={chrome} />
-      {/*
-        Always-on shutter. Still holds sample identical poses so they stay sharp;
-        toggling `samples` mid-clip remounts <Video>. Keep samples low — the
-        effect is destructive to colors.
-      */}
-      <CameraMotionBlur shutterAngle={180} samples={8}>
-        <WindowGroup {...props} chrome={chrome} />
-      </CameraMotionBlur>
+      <Backdrop name={props.backdrop} ground={resolvePreset(props).shot.ground} />
+      <FramedPush {...props}>
+        {/*
+          Shadow first, and deliberately NOT inside the shutter below: stacking
+          semi-transparent copies quantises a soft gradient into rings. It carries
+          the same camera transform, so it still tracks the window exactly.
+        */}
+        <ShadowGroup {...props} chrome={chrome} />
+        {/*
+          The shutter, but ONLY when there is a camera to blur.
+
+          CameraMotionBlur renders N copies of its subtree and composites them
+          at fractional opacity, and every composite rounds to 8 bits — the
+          banding measurement in src/WindowFrame.tsx is the same mechanism. When
+          the style's camera is off (`shot.zoom: false`) every one of those 8
+          samples is the SAME pose, so the blur cannot smear anything and all it
+          contributes is eight rounds of quantisation over a picture that is
+          already being upscaled. A camera-less shot's only movement is its
+          enter/exit envelope, and that is applied by FramedPush OUTSIDE this
+          subtree, so it is unaffected either way.
+
+          Kept on for every camera style: it samples identical poses there too
+          during holds, but a moving camera needs it and toggling `samples`
+          mid-clip remounts <Video>.
+        */}
+        {shot.zoom ? (
+          <CameraMotionBlur shutterAngle={180} samples={8}>
+            <WindowGroup {...props} chrome={chrome} />
+          </CameraMotionBlur>
+        ) : (
+          <WindowGroup {...props} chrome={chrome} />
+        )}
+      </FramedPush>
+    </AbsoluteFill>
+  );
+};
+
+/**
+ * The entrance/exit envelope, for the FRAMED path.
+ *
+ * `push` used to be full-bleed only, because the only grammar that moved its
+ * shots was full-bleed. The Replit grammar moves a WINDOWED panel across a flat
+ * ground and never cuts: its seams work by the panel clearing frame entirely so
+ * that the cut lands on bare ground. That needs the envelope on this side too.
+ *
+ * RENDERS NOTHING WHEN THERE IS NO PUSH. `pushEnvelope` returns PUSH_REST for an
+ * absent spec, and an identity transform still creates a stacking context and a
+ * compositing layer — enough to shift sub-pixel rounding. Returning the children
+ * untouched is what keeps every framed reel that predates this byte-identical.
+ */
+const FramedPush: React.FC<DemoClipProps & { children: React.ReactNode }> = ({
+  push,
+  range,
+  children,
+}) => {
+  const frame = useCurrentFrame();
+  const { durationInFrames } = useVideoConfig();
+  const designScale = useDesignScale();
+  if (!push) return <>{children}</>;
+  const first = range?.first ?? 0;
+  const shotFrames = range ? range.last - range.first + 1 : durationInFrames;
+  const envelope = pushEnvelope(frame - first, shotFrames, push);
+  return (
+    <AbsoluteFill style={{ transform: pushToCss(envelope, designScale) }}>
+      {children}
     </AbsoluteFill>
   );
 };

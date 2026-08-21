@@ -29,6 +29,7 @@ import {
   type IntroStoryboard,
 } from "./intro";
 import { recapSchedule } from "../RecapCard";
+import { DEFAULT_STYLE } from "./style";
 import type { ClickLog } from "./click-log";
 
 const CARD: IntroStoryboard = defineIntro({
@@ -103,12 +104,23 @@ describe("introTiming", () => {
     // interstitial that is a dead frame handed to a cut; on the card that opens
     // the film it is the first thing anyone sees. Both cases now start at zero,
     // and flooredEntry makes that first frame legible rather than transparent.
-    for (const intro of [
-      { name: "x", headline: "Two words" },
-      { name: "x", headline: "Two words", wordmark: "A" },
-    ]) {
-      assert.equal(introTiming(intro).words[0].startS, 0);
-    }
+    //
+    // Asserted as "not after zero" rather than "exactly zero", which is what
+    // the rule actually means. Classic starts at 0; proof starts at -0.17
+    // because its grammar cuts INTO the reveal, so a word is already out when
+    // the card opens. Both satisfy "no empty first frame"; only one satisfies
+    // `=== 0`, and pinning to that was asserting classic's arithmetic rather
+    // than the rule.
+    for (const style of ["classic", "proof"] as const)
+      for (const intro of [
+        { name: "x", headline: "Two words", style },
+        { name: "x", headline: "Two words", wordmark: "A", style },
+      ]) {
+        assert.ok(
+          introTiming(intro).words[0].startS <= 0,
+          `${style} opens on an empty field`,
+        );
+      }
     assert.ok(flooredEntry(0) > 0.2, "the first frame is still transparent");
     assert.equal(flooredEntry(1), 1);
   });
@@ -137,9 +149,20 @@ describe("introTiming", () => {
 
   it("ignores a subhead that is not there", () => {
     // subheadEndS must not push settledS out for a headline-only card.
-    const t = introTiming({ name: "x", headline: "Two words" });
-    assert.equal(t.subheadEndS, 0);
-    assert.equal(t.settledS, t.words[t.words.length - 1].endS);
+    //
+    // Clamped at zero, and that clamp is load-bearing under proof: its trim can
+    // put a SHORT card's whole reveal before frame 0 — measured, a two-word
+    // card's last word ends at -0.010s — and a card cannot be settled before it
+    // starts. Comparing raw to `endS` was asserting classic's arithmetic.
+    for (const style of ["classic", "proof"] as const) {
+      const t = introTiming({ name: "x", headline: "Two words", style });
+      assert.equal(t.subheadEndS, 0, style);
+      assert.equal(
+        t.settledS,
+        Math.max(t.words[t.words.length - 1].endS, 0),
+        style,
+      );
+    }
   });
 });
 
@@ -518,8 +541,19 @@ const fullbleed = (copy: string): IntroStoryboard => ({
 });
 
 describe("fullbleed card timing", () => {
-  it("leaves the framed look untouched — no `look` means no change", () => {
-    const framed: IntroStoryboard = { name: "x", headline: "One two three" };
+  it("leaves the framed look untouched — but it has to be NAMED now", () => {
+    // This used to pass with no `look` at all, because DEFAULT_STYLE was
+    // "classic". It is "proof" now, so silence means full-bleed and a card that
+    // must stay framed has to say so: measured, the same card with no look
+    // starts at -0.17s, which is proof's trimInS cutting into its own reveal.
+    //
+    // That is the restyle the default change was FOR. The guard here is that an
+    // EXPLICIT `look: "framed"` still means what it always did.
+    const framed: IntroStoryboard = {
+      name: "x",
+      headline: "One two three",
+      look: "framed",
+    };
     const t = introTiming(framed);
     assert.equal(t.words[0].startS, 0, "framed still starts at 0");
     assert.equal(t.outStartS, t.settledS + HOLD_S);
@@ -672,10 +706,17 @@ describe("style resolves to the same timing as the look it replaces", () => {
 
   for (const [shape, card] of Object.entries(shapes)) {
     it(`${shape}: no style is the same as the default style`, () => {
-      assert.deepEqual(introTiming(card), introTiming({ ...card, style: "classic" }));
+      // DEFAULT_STYLE, not a hardcoded name. This test's whole claim is "a
+      // silent card renders as the default"; pinning it to "classic" made it
+      // assert something else, and it went red the moment the default moved
+      // rather than continuing to guard the invariant it is named after.
+      assert.deepEqual(
+        introTiming(card),
+        introTiming({ ...card, style: DEFAULT_STYLE }),
+      );
       assert.equal(
         introDurationInFrames(card, 30),
-        introDurationInFrames({ ...card, style: "classic" }, 30),
+        introDurationInFrames({ ...card, style: DEFAULT_STYLE }, 30),
       );
     });
 
@@ -698,5 +739,43 @@ describe("style resolves to the same timing as the look it replaces", () => {
       introTiming({ ...card, look: "framed", style: "proof" }),
       introTiming({ ...card, look: "fullbleed" }),
     );
+  });
+});
+
+describe("typed cadence", () => {
+  it("places each unit by the characters before it, not by word index", () => {
+    // A typewriter's clock is characters. Scheduling by word index would make
+    // "a" and "internationalisation" take the same time.
+    const cues = wordSchedule("ab cde", 0, 0, 0, 0.1);
+    assert.equal(cues[0].startS, 0);
+    // "ab" is 2 chars, plus one for the space before "cde".
+    assert.ok(Math.abs(cues[1].startS - 0.3) < 1e-9, `${cues[1].startS}`);
+  });
+
+  it("gives a typed unit a window as long as its own characters", () => {
+    // progressAt is linear over [startS,endS), so the renderer can slice
+    // characters off it directly. A fixed fade window would type every word at
+    // a different rate.
+    const [first] = wordSchedule("hello", 0, 0, 0, 0.1);
+    assert.ok(Math.abs(first.endS - 0.5) < 1e-9, `${first.endS}`);
+    assert.equal(first.typed, true);
+  });
+
+  it("does NOT type a highlighted unit", () => {
+    // A pill is a filled box: typing inside it paints the box first and the
+    // letters after, which rendered as an empty coloured rectangle for half a
+    // second. The reference expands its pill into a gap instead.
+    const cues = wordSchedule("say ==now|#fff== please", 0, 0, 0, 0.1);
+    const pill = cues.find((c) => c.style?.highlight);
+    assert.ok(pill, "expected a highlighted cue");
+    assert.notEqual(pill?.typed, true);
+    // Its neighbours still type.
+    assert.equal(cues[0].typed, true);
+  });
+
+  it("leaves the word schedules untouched when no rate is given", () => {
+    // The guard that keeps every non-typed style byte-identical.
+    for (const c of wordSchedule("one two three", 0, 0.2, 0.05))
+      assert.equal(c.typed, undefined);
   });
 });

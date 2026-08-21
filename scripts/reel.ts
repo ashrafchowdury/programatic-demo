@@ -298,6 +298,8 @@ async function main() {
       // arrival. Without this, switching a reel to such a style removes the
       // card motion and adds nothing — measured on the harness reel, 24% moving
       // under proof became 18% under narration against a 36.8% target.
+      // (That preset has since been merged into the dissolve-joined one,
+      // which keeps the shots layer this measured.)
       // Authored `push` still wins, and a cards-layer style contributes nothing
       // here, so every existing reel is untouched.
       const shotPush =
@@ -305,9 +307,23 @@ async function main() {
         (preset.motionLayer === "shots" ? presetShotPush(preset) : undefined);
       // Gate on the STYLE's framing, not the legacy look. A reel that names a
       // style and no look would otherwise fall through to the framed renderer
-      // with none of these props — measured: every clip in a narration cut of
+      // with none of these props — measured: every clip in a shots-layer cut of
       // harness rendered as a framed window, which is also why the style's own
       // shot arrival never fired.
+      // Props the FRAMED path needs too. `full` below is the full-bleed-only
+      // set; these three cross the line because a windowed grammar can also
+      // have a style, a shot envelope and a range to measure it against —
+      // which is what src/DemoClip.tsx FramedPush renders.
+      //
+      // Spread only when set, so a reel that names no style serialises exactly
+      // as it did before this existed and its cached segments stay valid.
+      const framed =
+        preset.shot.framing === "window"
+          ? {
+              ...(reel.style ? { style: reel.style } : {}),
+              ...(shotPush ? { push: shotPush, range: { first, last } } : {}),
+            }
+          : {};
       const full =
         preset.shot.framing !== "window"
           ? {
@@ -331,7 +347,7 @@ async function main() {
         [
           "render",
           "DemoClip",
-          `--props=${JSON.stringify({ name, speed, ...(drift != null ? { drift } : {}), ...full })}`,
+          `--props=${JSON.stringify({ name, speed, ...(drift != null ? { drift } : {}), ...framed, ...full })}`,
           `--frames=${first}-${last}`,
         ],
         file,

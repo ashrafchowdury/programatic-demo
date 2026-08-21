@@ -100,53 +100,77 @@ describe("measured values trace back to docs/reel", () => {
     assert.notEqual(STYLE_PRESETS.classic.motionLayer, "cards");
   });
 
-  it("locks narration's cards perfectly still", () => {
+  it("locks ledger's cards perfectly still", () => {
     // The defining measurement is an ABSENCE: docs/reel/02-motion.md tracks
-    // shot 10's text box over 56 frames and finds zero translation. A card that
-    // moved even slightly would put this grammar on the wrong motion layer.
-    assert.equal(STYLE_PRESETS.narration.card.enter.kind, "none");
-    assert.equal(STYLE_PRESETS.narration.card.exit.kind, "none");
-    assert.equal(STYLE_PRESETS.narration.motionLayer, "shots");
+    // Film B's shot 10 text box over 56 frames and finds zero translation. A
+    // card that moved even slightly would put this grammar on the wrong motion
+    // layer.
+    //
+    // Asserted on `ledger` because it absorbed the `narration` preset — these
+    // are the values the two shared, and they are why the merge was possible.
+    assert.equal(STYLE_PRESETS.ledger.card.enter.kind, "none");
+    assert.equal(STYLE_PRESETS.ledger.card.exit.kind, "none");
+    assert.equal(STYLE_PRESETS.ledger.motionLayer, "shots");
   });
 
-  it("gives narration no card slot, so length follows the copy", () => {
+  it("gives ledger no card slot, so length follows the copy", () => {
     // Film A slots every card into 3.2-3.3s; Film B runs 31-89f as the words
-    // require. Clamping narration would erase the difference between them.
-    assert.equal(STYLE_PRESETS.narration.card.length.minS, null);
-    assert.equal(STYLE_PRESETS.narration.card.length.maxS, null);
+    // require. Clamping this would erase the difference between the two.
+    assert.equal(STYLE_PRESETS.ledger.card.length.minS, null);
+    assert.equal(STYLE_PRESETS.ledger.card.length.maxS, null);
     assert.notEqual(STYLE_PRESETS.proof.card.length.minS, null);
   });
 
   it("reproduces Film B's measured 31-89f card band from its own model", () => {
     // The band is a CONSEQUENCE of stagger + hold, not an input. If this drifts
     // outside the reference's range the two numbers have stopped agreeing.
-    const { cadence, length } = STYLE_PRESETS.narration.card;
+    // On `ledger`, which carries Film B's card model verbatim — monid never
+    // cuts between cards, so it had no tail of its own to measure and this is
+    // where its 1.16s hold came from.
+    const { cadence, length } = STYLE_PRESETS.ledger.card;
+    // Narrowing rather than casting: if this is ever re-cut as a typewriter the
+    // test stops compiling, which is the correct outcome — a per-character
+    // grammar has no word band to reproduce.
+    assert.notEqual(cadence.kind, "typed", "ledger schedules words");
+    const staggerS = cadence.kind === "typed" ? 0 : cadence.staggerS;
     const cardF = (words: number) =>
-      Math.round((Math.max(0, words - 1) * cadence.staggerS + length.holdS) * 30);
+      Math.round((Math.max(0, words - 1) * staggerS + length.holdS) * 30);
     assert.ok(cardF(1) >= 31 && cardF(1) <= 45, `1 word -> ${cardF(1)}f`);
     assert.ok(cardF(10) >= 75 && cardF(10) <= 95, `10 words -> ${cardF(10)}f`);
   });
 
-  it("snaps narration's chip in 3 frames, and does not paste 7.82x", () => {
+  it("snaps ledger's chip in 3 frames, and does not paste 7.82x", () => {
     // punchS is directly transferable; punchScale is a COMPOSITION target and
     // Film B's 7.82 is a raw pill ratio. Pasting it is the Q4 trap.
-    assert.equal(Math.round(STYLE_PRESETS.narration.chip.punchS * 30), 3);
-    assert.notEqual(STYLE_PRESETS.narration.chip.punchScale, 7.82);
+    assert.equal(Math.round(STYLE_PRESETS.ledger.chip.punchS * 30), 3);
+    assert.notEqual(STYLE_PRESETS.ledger.chip.punchScale, 7.82);
   });
 
-  it("matches narration's cuts instead of slamming them", () => {
-    assert.equal(STYLE_PRESETS.narration.targets?.cutDelta, "matched");
+  it("matches ledger's cuts instead of slamming them", () => {
+    assert.equal(STYLE_PRESETS.ledger.targets?.cutDelta, "matched");
     assert.equal(STYLE_PRESETS.proof.targets?.cutDelta, "slam");
   });
 });
 
 describe("resolveStyle", () => {
-  it("defaults to classic, so a silent reel renders as it always has", () => {
-    // reels/agent-skill.ts and agent-slash-command.ts carry no look field.
-    // Any other default silently restyles them.
-    assert.equal(resolveStyle({}), "classic");
-    assert.equal(DEFAULT_STYLE, "classic");
-    assert.equal(STYLE_PRESETS[DEFAULT_STYLE].look, "framed");
+  it("defaults to proof, and that RESTYLES a silent reel", () => {
+    // This used to assert "classic", on the grounds that
+    // reels/agent-skill.ts and agent-slash-command.ts carry no look field and
+    // any other default silently restyles them. It does restyle them — that was
+    // the decision, not an accident. Both moved from the framed window to
+    // full-bleed, and a reel that must not move now has to pin `look: "framed"`.
+    assert.equal(resolveStyle({}), "proof");
+    assert.equal(DEFAULT_STYLE, "proof");
+    assert.equal(STYLE_PRESETS[DEFAULT_STYLE].look, "fullbleed");
+  });
+
+  it("still honours an explicitly named framed look", () => {
+    // The half that must NOT move. While the default was "classic", `framed`
+    // could fall through to it and mean the right thing; now falling through
+    // would resolve an explicit framed request to a full-bleed grammar, so
+    // resolveStyle maps both looks by name.
+    assert.equal(resolveStyle({ look: "framed" }), "classic");
+    assert.equal(STYLE_PRESETS[resolveStyle({ look: "framed" })].look, "framed");
   });
 
   it("reads a legacy fullbleed look as proof", () => {
@@ -188,7 +212,10 @@ describe("styleProblem", () => {
 
   it("isStyle narrows only real names", () => {
     assert.ok(isStyle("proof"));
-    assert.ok(isStyle("narration"));
+    assert.ok(isStyle("ledger"));
+    // "narration" was MERGED INTO ledger. A reel still naming it must fail
+    // validation loudly rather than silently resolving to the default.
+    assert.ok(!isStyle("narration"));
     assert.ok(!isStyle("kinetic"));
     assert.ok(!isStyle(undefined));
   });
@@ -243,15 +270,20 @@ describe("palettes", () => {
       );
   });
 
-  it("assigns narration's grounds by role, not by taste", () => {
-    // Film B's code: white narrates, warm grey is the workbench, black is the
-    // third-party register. Three DISTINCT grounds — the moment two collapse
-    // to the same hex the viewer can no longer read the role off the colour.
-    const p = STYLE_PRESETS.narration.palette;
-    assert.equal(p.light.ground, "#ffffff");
-    assert.equal(p.plain.ground, "#e6e4e0");
-    assert.equal(p.plate.ground, "#0a0a0a");
-    assert.equal(new Set(Object.values(p).map((g) => g.ground)).size, 3);
+  it("gives ledger two grounds — cream and one accent, monid's own scheme", () => {
+    // ⚠️ THIS TEST USED TO ASSERT FILM B's THREE-GROUND CODE — white narrates,
+    // warm grey is the workbench, black is the third-party register — on the
+    // `narration` preset. That preset was merged into ledger, and ledger keeps
+    // monid's palette, which has no third register. So the role-assignment
+    // scheme is no longer implemented by anything; it is recorded on the
+    // cursor_origin_intro entry in REFERENCE_FILMS.
+    //
+    // What IS still worth guarding is that ledger's own scheme stays coherent:
+    // one ground for everything, plus a single saturated accent for the payoff.
+    const p = STYLE_PRESETS.ledger.palette;
+    assert.equal(p.plain.ground, p.light.ground, "one working ground");
+    assert.notEqual(p.plate.ground, p.plain.ground, "the accent must differ");
+    assert.equal(new Set(Object.values(p).map((g) => g.ground)).size, 2);
   });
 
   it("keeps proof to one voice plus a light alternative", () => {
@@ -373,18 +405,38 @@ describe("type scale", () => {
     assert.ok(pf.pitchPx / pf.capPx < 1.8, "proof pitch/cap");
   });
 
-  it("gives ledger a real face and leaves every other style's alone", () => {
+  it("keeps the pre-font-field styles on the face they shipped with", () => {
     // The face is the one type field that can fail SILENTLY: name a family
     // nothing loads and the browser falls back without complaint, which is
     // exactly the state the ledger cards were in before font.ts existed.
-    assert.match(STYLE_PRESETS.ledger.type.fontFamily, /^"Inter"/);
-    for (const name of STYLES)
-      if (name !== "ledger")
-        assert.equal(
-          STYLE_PRESETS[name].type.fontFamily,
-          FONT_STACK_LEGACY,
-          `${name} must keep the face it shipped with`,
-        );
+    //
+    // Named explicitly rather than "everything except ledger": a new style is
+    // FREE to pick a face, and a test that forbids it would have to be edited
+    // every time one is added — which is how a guard stops guarding.
+    for (const name of ["classic", "proof"] as const)
+      assert.equal(
+        STYLE_PRESETS[name].type.fontFamily,
+        FONT_STACK_LEGACY,
+        `${name} shipped before TypeStyle.fontFamily and must not move`,
+      );
+  });
+
+  it("only names a face src/lib/font.ts actually loads", () => {
+    // A family nothing registers falls back silently, and then the measured
+    // cap and pitch stop meaning anything. font.ts loads exactly one file.
+    const loaded = fs.readFileSync(
+      path.join(process.cwd(), "src/lib/font.ts"),
+      "utf8",
+    );
+    for (const name of STYLES) {
+      const stack = STYLE_PRESETS[name].type.fontFamily;
+      const first = stack.split(",")[0].trim().replace(/^"|"$/g, "");
+      if (stack === FONT_STACK_LEGACY) continue;
+      assert.ok(
+        loaded.includes(`"${first}"`) || loaded.includes(`= "${first}"`),
+        `${name} names "${first}", which font.ts does not load`,
+      );
+    }
   });
 });
 
@@ -405,22 +457,32 @@ describe("shot motion and bookend length", () => {
     }
   });
 
-  it("scales narration's shots in, per Film B's measured window", () => {
-    // Fit B: 841 -> 941 px over 23 frames, so the shot starts at 0.894 of rest.
-    const e = STYLE_PRESETS.narration.shot.enter;
-    assert.equal(e.kind, "push");
-    if (e.kind !== "push") return;
-    assert.equal(e.axis, "scale");
-    assert.equal(Math.round((1 + e.dist) * 1000) / 1000, 0.894);
-    assert.equal(e.frames, 23);
+  it("holds ledger's shots still, which is where it PARTS from Film B", () => {
+    // ⚠️ THIS TEST USED TO ASSERT FILM B's SHOT ENTRANCE — 841 -> 941px over 23
+    // frames, i.e. starting at 0.894 of rest — on the `narration` preset.
+    //
+    // It is one of exactly TWO mechanism differences that survived the merge
+    // into ledger (the other is cut vs dissolve), and ledger kept monid's:
+    // the shot does not move. Film B's measured push is recorded on the
+    // cursor_origin_intro entry in REFERENCE_FILMS, so re-adding that preset is
+    // a data change rather than a re-measurement.
+    assert.equal(STYLE_PRESETS.ledger.shot.enter.kind, "none");
+    assert.equal(STYLE_PRESETS.ledger.join.kind, "dissolve");
   });
 
   it("floors a bookend even where sentences have no clamp", () => {
-    // narration refuses to slot its sentences AND insists its sign-off
-    // breathes — the two are different questions, which is why they are
-    // different fields. Film B: sentences 31-89f, logo card 90f.
-    assert.equal(STYLE_PRESETS.narration.card.length.minS, null);
-    assert.ok((STYLE_PRESETS.narration.bookend.minS ?? 0) >= 3);
+    // A grammar can refuse to slot its SENTENCES and still insist its sign-off
+    // breathes — two different questions, which is why they are two fields.
+    // Film B: sentences 31-89f, logo card 90f.
+    //
+    // Asserted as "a floor exists" rather than against a specific number: the
+    // number is per-style (ledger 2.2s, stage 3.0s because its mark performs
+    // alone first), and pinning one here made the test about that style rather
+    // than about the rule.
+    for (const name of ["ledger", "stage"] as const) {
+      assert.equal(STYLE_PRESETS[name].card.length.minS, null, name);
+      assert.ok((STYLE_PRESETS[name].bookend.minS ?? 0) > 0, name);
+    }
   });
 
   it("never lets a bookend floor fall below the card floor", () => {

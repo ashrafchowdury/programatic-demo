@@ -35,25 +35,39 @@ import type { PushAxis } from "./push";
 /**
  * Every style that can be named on a reel.
  *
- * THREE ENTRIES, and each has a film or a history behind it. A name here with
- * invented numbers behind it is worse than no name,
- * because it looks addressable and renders a film nobody chose. New styles get
- * added when a reference film has been analysed into `docs/reel/<name>/` — see
- * "Adding a style" at the bottom of this file.
+ * FOUR ENTRIES, and each has a film or a history behind it. A name here with
+ * invented numbers behind it is worse than no name, because it looks
+ * addressable and renders a film nobody chose. New styles get added when a
+ * reference film has been analysed into `docs/reel/<name>/` — see "Adding a
+ * style" at the bottom of this file.
+ *
+ * THERE WAS A FIFTH, `narration`, MERGED INTO `ledger`. The two measured 79%
+ * identical across 85 comparable fields and only two of the differences were
+ * mechanism. Its film is still recorded in REFERENCE_FILMS with the values the
+ * merge dropped, so re-adding it is a data change rather than a re-measurement.
  */
-export const STYLES = ["classic", "proof", "narration", "ledger"] as const;
+export const STYLES = ["classic", "proof", "ledger", "stage"] as const;
 export type ReelStyle = (typeof STYLES)[number];
 
 /**
  * What a reel gets when it says nothing.
  *
- * "classic", NOT "proof", and this is load-bearing: reels/agent-skill.ts and
- * reels/agent-slash-command.ts carry no `look` field, so they render framed
- * today. Defaulting to the Cursor grammar would silently restyle both. The
- * default is "whatever a silent reel already renders as", which is the only
- * default that cannot break the back catalogue.
+ * "proof" — the Cursor full-bleed grammar — because that is the house style
+ * now, and a new reel written without thinking about it should land there
+ * rather than on the older framed window.
+ *
+ * ⚠️ THIS USED TO BE "classic", AND THE REASON IT DID IS STILL TRUE: a silent
+ * reel is RESTYLED by changing this. reels/agent-skill.ts and
+ * reels/agent-slash-command.ts name neither a `look` nor a `style`, so both
+ * moved from the framed window to full-bleed the moment this changed. That was
+ * a deliberate call, not an oversight — but it is exactly the kind of change
+ * that is invisible until someone re-renders an old reel and finds a different
+ * film. Pin `look: "framed"` on any reel that must not move.
+ *
+ * `harness.ts` is unaffected: it names `look: "fullbleed"`, which resolved to
+ * "proof" before and after.
  */
-export const DEFAULT_STYLE: ReelStyle = "classic";
+export const DEFAULT_STYLE: ReelStyle = "proof";
 
 // ---------------------------------------------------------------------------
 // The preset shape
@@ -94,6 +108,19 @@ export type WordCadence = {
 } & (
   | { kind: "fixed"; staggerS: number }
   | { kind: "fitted"; staggerS: number; minStaggerS: number }
+  /**
+   * A TYPEWRITER: one CHARACTER at a time, at a constant rate.
+   *
+   * MEASURED on the Replit film at one character per 2 frames = 83 ms at its
+   * 24 fps. This is a different unit from the other two, not a smaller number:
+   * `fixed` and `fitted` schedule word tokens, and no stagger small enough
+   * turns a word reveal into a typewriter.
+   *
+   * A chip token does NOT type — it expands in the gap the typing leaves for
+   * it, which is what the reference does at f867: the sentence reads
+   * "Your ______" with a blank rule where the pill lands.
+   */
+  | { kind: "typed"; perCharS: number }
 );
 
 /**
@@ -144,6 +171,20 @@ export type CardStyle = {
   length: CardLength;
   enter: ShotMove;
   exit: ShotMove;
+  /**
+   * Whether inline `==markup==` renders as emphasis, or as plain ink.
+   *
+   * Was a branch on `look === "fullbleed"`: the Cursor reference uses NO
+   * emphasis on any of its five cards, and on a near-black ground a marker
+   * swatch is the highest-contrast object in frame, so the eye lands on the
+   * decoration before the words. That reasoning is about a GRAMMAR, not about
+   * a look, and the Replit grammar disproves the coupling — it is flat-ground
+   * like full-bleed and its closing card is built around a red pill.
+   *
+   * The values below preserve the old branch exactly: framed keeps emphasis,
+   * the three full-bleed styles drop it.
+   */
+  emphasis: boolean;
 };
 
 export type ShotStyle = {
@@ -160,6 +201,32 @@ export type ShotStyle = {
   /** Window chrome and the fraction of frame the window fills. */
   chrome: boolean;
   windowFit: number | null;
+  /**
+   * A FLAT ground behind a framed shot, or null to use the backdrop image.
+   *
+   * `BACKDROPS` are image files, and every style before this one wanted one.
+   * The Replit grammar wants a single flat colour that never changes for 42
+   * seconds — MEASURED #FAF6F1, a warm cream — and a photograph cannot be that
+   * however neutral it is.
+   *
+   * NULL IS LOAD-BEARING: it means "behave exactly as before", so no existing
+   * reel moves. Only a style that sets a colour renders flat.
+   */
+  ground: string | null;
+  /**
+   * Whether a framed shot runs the CLICK-DERIVED ZOOM CAMERA.
+   *
+   * `classic` is built on it: the camera follows the pointer, magnifying
+   * whatever is being pressed. The Replit grammar does the opposite — MEASURED,
+   * its popover holds perfectly still for the seven frames before it leaves
+   * (f286-292, zero delta on both edges). All of that film's motion is at the
+   * SECTION boundary, none of it inside a shot.
+   *
+   * With this off the panel sits at `windowFit` and moves only on its own
+   * enter/exit envelope, which is what keeps a flat-ground composition stable
+   * enough to read as a floating object rather than as a camera hunting.
+   */
+  zoom: boolean;
   /** Whether the pointer and its click ripple are drawn. */
   cursor: boolean;
   ripple: boolean;
@@ -180,7 +247,52 @@ export type ChipStyle = {
   afterPressS: number;
 };
 
+/**
+ * The mark's SOLO PERFORMANCE before the wordmark arrives, or null for none.
+ *
+ * MEASURED on the Replit reference (24fps, f906-f954). Its sign-off is not a
+ * lockup that fades in — the mark arrives ALONE and large, holds the centre of
+ * the frame by itself, and only then demotes itself to lockup size as the
+ * wordmark writes in beside it:
+ *
+ *   f907-f916   the mark grows, span 79 -> 246px          (9f  = 0.375s)
+ *   f916-f930   holds alone at 246px = 19.2% of frame     (14f = 0.58s)
+ *   f931-f948   shrinks to ~67px and slides left          (17f = 0.71s)
+ *   f939-f954   the wordmark writes in beside it          (15f = 0.63s)
+ *   f954-f1007  settled lockup holds                      (53f = 2.2s)
+ *
+ * ⧗ WHAT WE CANNOT REPRODUCE. The reference's mark ASSEMBLES: a dot appears,
+ * becomes two rounded shapes, then four, which arrange into the logo. That
+ * needs the mark as separate vector parts and ours is a single image file, so
+ * the build is out of reach. What is reachable — and is the more transferable
+ * half — is the SCALE AND POSITION story: alone and large, then demoted.
+ *
+ * `null` on every style that predates this field, so no existing bookend moves.
+ */
+export type MarkSolo = {
+  /** Mark magnification while it is alone. MEASURED 246/67 = 3.7x. */
+  scale: number;
+  /** Seconds the mark takes to grow in. */
+  growS: number;
+  /** Seconds it holds alone at full size before the wordmark is due. */
+  holdS: number;
+  /** Seconds to shrink to lockup size while the lockup re-centres. */
+  settleS: number;
+  /**
+   * How far to slide the lockup right, as a fraction of its own width, so the
+   * MARK sits at frame centre during the solo.
+   *
+   * MEASURED on the reference: its final lockup spans 423..857 with the mark's
+   * centre at 456, so the mark sits 184px left of the lockup centre = 0.42 of
+   * the lockup's width. Our own lockup is proportioned similarly (a small mark
+   * beside a wordmark), which is why the same fraction lands.
+   */
+  shiftFrac: number;
+};
+
 export type BookendStyle = {
+  /** See MarkSolo. `null` means the lockup simply fades in, as before. */
+  markSolo: MarkSolo | null;
   tumbleS: number;
   turns: number;
   driftPxPerFrame: number;
@@ -189,7 +301,7 @@ export type BookendStyle = {
    * Floor on a LOGO card's length, or null to let the copy decide.
    *
    * A bookend is one or two words, so a grammar with no card floor renders it
-   * as hold-only and cuts before the mark has arrived — the first narration cut
+   * as hold-only and cuts before the mark has arrived — the first Film B cut
    * of harness gave 35 frames, and its opening frame was a fragment of the logo
    * on an empty field. Every reference holds its sign-off far longer than any
    * sentence: Film B's logo card is 90f where its sentences run 31-89f.
@@ -215,9 +327,11 @@ export type Ground = { ground: string; ink: string; muted: string };
  * The style's grounds, keyed by the card's `background`.
  *
  * FILM B ASSIGNS GROUNDS BY ROLE, not by taste, and that is what this map
- * encodes for `narration`: white is the narration voice (a sentence stating a
- * capability), warm grey is the workbench (a component doing something), black
- * is the third-party register (CI and deploy vendors). A viewer learns the code
+ * encoded for the `narration` preset, which has since been MERGED INTO
+ * `ledger` — see the cursor_origin_intro entry in REFERENCE_FILMS. In that film
+ * white is the narration voice (a sentence stating a capability), warm grey is
+ * the workbench (a component doing something), black is the third-party
+ * register (CI and deploy vendors). A viewer learns the code
  * in the first triplet and it holds for the rest of the film.
  *
  * That directly contradicts the intro-reel skill's "pick a tonal strategy and
@@ -262,6 +376,86 @@ export type TypeStyle = {
    * browser silently falls back and the measured metrics stop meaning anything.
    */
   fontFamily: string;
+};
+
+/**
+ * FLOATING ANNOTATION CHIPS — the pills a film drops over its footage to name
+ * what is happening, or null for a grammar that does not use them.
+ *
+ * MEASURED on the Replit reference at f645, which carries four at once:
+ *
+ *   "Recon"              126 x 50 px      "Auth Check"         224 x 52
+ *   "Input Fuzzing"      268 x 55         "Response Analysis"  344 x 53
+ *
+ * So the pill height is 50-55px in a 720-tall frame = **7.3% of frame height**,
+ * which is DISPLAY scale, not UI scale — five times the 17px UI text in the
+ * same shot. That is the whole point of them: they are the only thing in the
+ * frame a viewer is meant to read at a glance.
+ *
+ * They sit at the panel's EDGES, straddling its boundary rather than floating
+ * free on the ground or sitting safely inside the picture.
+ *
+ * Fill MEASURED #EF3004 — the same brand red as the mark. Ours is not red; see
+ * the note on `fill` below.
+ */
+export type AnnotationStyle = {
+  /**
+   * Pill fill.
+   *
+   * ⚠️ NOT THE REFERENCE'S #EF3004. That red belongs to Replit, and borrowing
+   * it is the mistake the ledger cut made with monid's blue. Ours is the Agenta
+   * mark's own chartreuse, which also keeps ONE accent language across the film
+   * — the inline `==word|#f0f05a==` pill in a card and a floating chip over
+   * footage are then visibly the same object.
+   */
+  fill: string;
+  /** Text colour on the pill. */
+  ink: string;
+  /** Pill height as a fraction of frame height. MEASURED 0.073. */
+  heightFrac: number;
+  /** Text cap height as a fraction of the pill's height. */
+  capRatio: number;
+  /** Corner radius as a fraction of the pill's height. Not a full stadium. */
+  radiusFrac: number;
+  /**
+   * How the chip arrives.
+   *
+   * ⚠️ THE REFERENCE'S MECHANISM IS MEASURED HERE AND DELIBERATELY NOT USED.
+   * Its chips FLY IN from off-screen — "Recon" travels ~385px inward over
+   * f626-f650 while shrinking 1.47x, all four arriving at once from their
+   * nearest edges, settling on a slow r≈0.89/frame curve (~1.4s). That is
+   * written up in §10 of docs/reels/chorography/replit.md and it is genuinely
+   * what makes its frames read as designed.
+   *
+   * IT WAS BUILT, RENDERED AND REJECTED ON HOW IT LOOKED. It works there
+   * because its chips cross a website mockup of big flat shapes with wide empty
+   * cream margins. Ours cross a dense app picker — a sidebar, a category list
+   * and twelve cards — and a pill sliding over that for 1.4 seconds reads as
+   * noise rather than as annotation. Measured, it also put the chip in motion
+   * for over a second at a time, which is a long distraction on a 4-second shot.
+   *
+   * So a chip does not travel. It UNROLLS in place, from the edge nearest its
+   * own anchor, on the film's own 0.645 entrance curve — a wipe rather than a
+   * slide. Nothing crosses the picture, the gesture is a quarter of the length,
+   * and it reads as a label being applied to the thing under it.
+   *
+   * The reference does have a pill that does exactly this: its inline `built-in`
+   * chip expands over 5 frames at 24fps with ink deltas 5077, 3022, 2196, 1531,
+   * 877 — ratios averaging 0.6447. So this is its own vocabulary, borrowed from
+   * the card and used on the footage.
+   */
+  /** Seconds the pill takes to unroll. MEASURED 0.208 on the inline chip. */
+  wipeS: number;
+  /**
+   * Scale the pill carries as it unrolls, settling to 1.
+   *
+   * A small echo of the reference's 1.47x arrival shrink, which cannot survive
+   * without the travel that carried it. Kept subtle — at this size anything
+   * larger reads as a bounce.
+   */
+  oversize: number;
+  /** Seconds a chip takes to roll back up and leave. */
+  exitS: number;
 };
 
 export type RecapStyle = {
@@ -354,6 +548,8 @@ export type StylePreset = {
   chip: ChipStyle;
   palette: PaletteStyle;
   type: TypeStyle;
+  /** Floating annotation chips, or null for a grammar without them. */
+  annotation: AnnotationStyle | null;
   bookend: BookendStyle;
   recap: RecapStyle;
   source: StyleSource | null;
@@ -379,12 +575,18 @@ export const FONT_STACK_LEGACY =
 /**
  * Inter, with the legacy stack behind it as a fallback.
  *
+ * Shared by `ledger` and `stage`. Named for the face rather than for a style
+ * because a second grammar wanted it: monid's grotesque and Replit's are
+ * different faces, and Inter is a defensible stand-in for both at the metrics
+ * each preset records. If a style ever needs a face Inter cannot stand in for,
+ * vendor that one and give it its own constant rather than widening this.
+ *
  * The fallback is deliberate and load-bearing: if src/lib/font.ts fails to
  * register the file, the cards still render readable type instead of blank
  * boxes. It also means a missing font shows up as "the metrics look wrong"
  * rather than as a crash, so check font.ts before re-tuning any number here.
  */
-export const LEDGER_FONT_STACK =
+export const INTER_STACK =
   `"Inter", ${FONT_STACK_LEGACY}`;
 
 // ---------------------------------------------------------------------------
@@ -423,11 +625,17 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
       },
       enter: { kind: "none" },
       exit: { kind: "ramp", scale: 0.04, durationS: 0.35 },
+      // Preserves the old `look === "fullbleed"` branch exactly.
+      emphasis: true,
     },
     shot: {
       framing: "window",
       chrome: true,
       windowFit: 0.86,
+      // Backdrop image, as before this field existed.
+      ground: null,
+      // The click-derived camera, as before this field existed.
+      zoom: true,
       cursor: true,
       ripple: true,
       enter: { kind: "none" },
@@ -457,7 +665,11 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
       plain: { ground: "#08080a", ink: "#ffffff", muted: "rgba(255,255,255,0.62)" },
       light: { ground: "#f4f2ec", ink: "#101317", muted: "rgba(16,19,23,0.58)" },
     },
+    // No floating chips — this grammar does not use them.
+    annotation: null,
     bookend: {
+      // No solo phase — the lockup arrives whole, as before this field.
+      markSolo: null,
       tumbleS: 0.85,
       turns: 1,
       driftPxPerFrame: 2,
@@ -507,11 +719,17 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
       },
       enter: { kind: "push", axis: "y", dist: 56, frames: 14 },
       exit: { kind: "push", axis: "x", dist: -72, frames: 13 },
+      // Preserves the old `look === "fullbleed"` branch exactly.
+      emphasis: false,
     },
     shot: {
       framing: "fullbleed",
       chrome: false,
       windowFit: null,
+      // Backdrop image, as before this field existed.
+      ground: null,
+      // The click-derived camera, as before this field existed.
+      zoom: true,
       cursor: true,
       ripple: false,
       // Measured on the reference; see the warning above.
@@ -543,7 +761,11 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
       plain: { ground: "#08080a", ink: "#e9ebe6", muted: "#8a8a86" },
       light: { ground: "#edece5", ink: "#0a0a0a", muted: "#86857e" },
     },
+    // No floating chips — this grammar does not use them.
+    annotation: null,
     bookend: {
+      // No solo phase — the lockup arrives whole, as before this field.
+      markSolo: null,
       tumbleS: 0.85,
       turns: 1,
       driftPxPerFrame: 2,
@@ -574,185 +796,57 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
   },
 
   /**
-   * Film B's grammar: sentences that CONTAIN live UI, with isolated components
-   * doing the work. Cards are pixel-locked, so the SHOTS carry the motion —
-   * the exact inverse of `proof`, and the reason both exist.
+   * LEDGER — monid's grammar, WITH FILM B's MERGED INTO IT.
    *
-   * The defining measurement is an absence: docs/reel/02-motion.md §"cards do
-   * not move at all" tracks shot 10's text box across 56 frames and finds ZERO
-   * translation. Words appear in place; the box grows and never moves. That is
-   * why enter and exit are `none` rather than a small push.
+   * ---------------------------------------------------------------------------
+   * TWO REFERENCE FILMS, ONE PRESET, and that is a deliberate consolidation.
    *
-   * LENGTH FOLLOWS THE COPY. Film A slots every card into 3.2-3.3s and
-   * compresses its stagger to fit; Film B refuses, running 31-89f as the words
-   * require. So the cadence is `fixed` and the clamps are null — the observed
-   * 1.03-2.97s band is the CONSEQUENCE of this model, not an input to it, and
-   * it falls out: one beat plus the hold is ~41f, ten beats plus the hold is
-   * ~83f, against a measured 31-89f.
-   */
-  narration: {
-    look: "fullbleed",
-    motionLayer: "shots",
-    join: { kind: "cut" },
-    hud: { kind: "none" },
-    card: {
-      // 6f binary reveal — no fade, the word is simply there. Per shot 4 in
-      // docs/reel/04-design-system.md.
-      cadence: { kind: "fixed", staggerS: 0.2, fadeS: 0 },
-      length: {
-        // MEASURED here, over three cards, because the reference does NOT hold
-        // this constant the way Film A does: shot 2 runs 39f of tail, shot 10
-        // 18f, shot 16 47f. 34.7f is their mean. A single number is what the
-        // engine needs; the spread is the honest caveat, and a card that wants
-        // a specific beat should set `holdS` itself.
-        holdS: 1.16,
-        holdFrom: "lastWord",
-        // No slot. See the note above.
-        minS: null,
-        maxS: null,
-        // Film B cuts to an EMPTY card and reveals from there — shot 10's first
-        // frame measures ink=0. It does not cut into its own reveal, which is
-        // Film A's move, not this one.
-        trimInS: 0,
-      },
-      enter: { kind: "none" },
-      exit: { kind: "none" },
-    },
-    shot: {
-      // Components lifted onto a flat ground — the {rect, fill, isolate} route
-      // in src/lib/crop.ts, which was built for this grammar and reverted for
-      // proof. 5 of Film B's 17 shots. One shot (9) is a framed app window at
-      // 86%; that is an exception inside the film, not the grammar.
-      framing: "isolate",
-      chrome: false,
-      windowFit: null,
-      // Film B is pointer-first where Film A is keyboard-first, and its cursor
-      // LEADS the beat — it starts travelling before the shot needs it.
-      cursor: true,
-      // UNKNOWN, not measured. Left off to match proof rather than invented.
-      ripple: false,
-      /**
-       * THE MOTION OF THIS GRAMMAR. Shots arrive already growing and settle.
-       *
-       * MEASURED, Film B shot 9 (docs/reel/02-motion.md, Fit B): the window
-       * runs 841 -> 941 px over 23 frames, so the shot STARTS at 0.894 of rest
-       * — dist is where it begins, relative to 1.0.
-       *
-       * This is not decoration; it is where the film's 36.8% moving comes from.
-       * 17 shots each moving ~20 frames is ~340 of 927 frames, which lands on
-       * the measured figure almost exactly. A narration cut with static shots
-       * measures LESS motion than a proof cut, not more — the card motion is
-       * removed and nothing replaces it.
-       */
-      enter: { kind: "push", axis: "scale", dist: -0.106, frames: 23 },
-      // No exit. Film B's shots settle and hold — shot 9 is still for its last
-      // 40 frames — and its cuts are carried by tonal continuity rather than by
-      // leaving mid-move, which is Film A's move.
-      exit: { kind: "none" },
-    },
-    chip: {
-      // ⧗ NOT Film B's 7.82x. That figure is a raw pill-height ratio, while
-      // CHIP_PUNCH_SCALE is a COMPOSITION TARGET (chip as a fraction of frame
-      // width). Pasting it would over-zoom our chip, whose rest width differs.
-      // Re-derive against a real render before changing this — open question Q4
-      // in choreography-styles.md.
-      punchScale: 4,
-      // MEASURED and directly transferable: 1.0x -> 7.82x in THREE frames
-      // (f186->f189), against our 13. This is the number that makes the punch
-      // read as a snap rather than a zoom.
-      punchS: 0.1,
-      // The punch starts as the cursor arrives (enters f180, hovers f186,
-      // punch f187), so there is almost no lead.
-      leadS: 0.03,
-      settleS: 0.03,
-      afterPressS: 0.03,
-    },
-    // MEASURED, and it turns out to match proof: Film B's headline cap runs
-    // 51, 51, 52, 54 px across shots 2, 10, 14 and 16 — mean 52, the same scale
-    // Film A uses. Its cards are also SINGLE LINE throughout, which is why no
-    // pitch is quoted: nothing wraps, so the reference has no line pitch to
-    // measure. The two films share a type scale and disagree on everything
-    // else, which is itself worth knowing.
-    type: {
-      sizePx: 72,
-      lineHeight: 1.194,
-      letterSpacing: "0em",
-      capPx: 52,
-      pitchPx: 86,
-      // Carried verbatim: this style predates the field and must not move.
-      fontFamily: FONT_STACK_LEGACY,
-    },
-    // GROUNDS BY ROLE — the whole point, see PaletteStyle. Hexes MEASURED in
-    // docs/reel/03-composition.md: pure white (unlike Film A's warm off-white),
-    // the #E6E4E0 warm grey that every isolated component stands on, and the
-    // same #0A0A0A black Film A uses. Film B's fourth ground, the purple, is an
-    // app-shot BACKDROP rather than a card ground, so it is not here.
-    palette: {
-      // the third-party register — CI and deploy vendors
-      plate: { ground: "#0a0a0a", ink: "#ffffff", muted: "rgba(255,255,255,0.62)" },
-      // the workbench — every isolated component performing an action
-      plain: { ground: "#e6e4e0", ink: "#0a0a0a", muted: "rgba(10,10,10,0.58)" },
-      // the narration voice — every sentence that states a capability
-      light: { ground: "#ffffff", ink: "#0a0a0a", muted: "rgba(10,10,10,0.55)" },
-    },
-    // ⧗ Tumble duration and turn count carried from proof. NOT for want of
-    // trying: shot 17's cube sits on a purple field, so its ink is ~1.3M px and
-    // the tumble moves it by ~2000 — under the noise. Isolating it needs a
-    // colour-band pass on the cube itself. The LENGTH is MEASURED: shot 17 runs
-    // f837-926 = 90f = 3.0s.
-    bookend: {
-      tumbleS: 0.85,
-      turns: 1,
-      driftPxPerFrame: 2,
-      driftFrames: 14,
-      minS: 3.0,
-    },
-    // ⧗ UNMEASURABLE, not unmeasured: Film B has no recap card at all. These
-    // are proof's, kept so the preset is structurally complete. A narration
-    // reel that uses a recap is off-reference by construction, and no amount of
-    // looking at the film will produce a number for it.
-    recap: {
-      leadS: 0.17,
-      lockupStaggerS: 0.27,
-      itemsLeadS: 0.37,
-      itemStaggerS: 0.533,
-    },
-    source: {
-      file: "cursor_origin_intro.mp4",
-      shots: 17,
-      durationS: 30.9,
-      // Film B ships with no audio at all. Silence is a design decision.
-      loudnessLUFS: null,
-    },
-    targets: {
-      meanShotS: 1.817,
-      cutsPerMin: 31.1,
-      movingFrac: 0.368,
-      longestStillF: 75,
-      // Film B keeps tonal continuity and lets MOTION carry the cut: white card
-      // (235) to warm grey (210) is a delta of 25, where Film A slams ~200.
-      cutDelta: "matched",
-    },
-  },
-
-  /**
-   * monid's grammar: THE FILM THAT DOES NOT CUT.
+   * This was two styles: `narration` (Cursor's origin film) and `ledger`
+   * (monid). They measured **79% identical across 85 comparable fields** — the
+   * next-closest pair in the registry is 18 points behind — because they share
+   * a grammar: composited components on a flat ground, cards pixel-locked, the
+   * SHOTS carrying the motion, no HUD, no chrome, and the same card timing.
    *
-   * Named for its signature — a running cost counter that survives every change
-   * of content. Two thirds of the reference is ONE 22.73-second take in which
-   * components swap in place; its only transitions are two 6-frame dissolves.
-   * 6.9 cuts/min against Film B's 31.1, from the same composited-component
-   * framing. Same vocabulary, opposite pacing.
+   * Only TWO of the eighteen differences were mechanism, and this preset keeps
+   * monid's on both:
    *
-   * Measured in docs/design/reels/choreography-references.md §3.
+   *   join        Film B CUTS;    here a 6-frame dissolve
+   *   shot.enter  Film B pushes;  here the shot holds still
+   *               scale -0.106 over 23f
    *
-   * ⚠️ WHAT IS NOT HERE YET. The persistent HUD — the `SPENT $0.00 -> $0.07`
-   * counter and the monospace step line — is what buys those 22 seconds: it
-   * carries the continuity that cutting would otherwise supply. It cannot be a
-   * preset field, because it spans segments and every segment renders
-   * independently. It needs a post-concat overlay pass, the way audio already
-   * works. Until then a `ledger` cut has this grammar's pacing and palette but
-   * not the thing that makes it hold together.
+   * The rest were surface — type scale, face, palette, bookend floor. All of it
+   * is recorded on the cursor_origin_intro entry in REFERENCE_FILMS, so
+   * re-separating them is a data change rather than a re-measurement.
+   *
+   * ⚠️ THE COST IS REAL: Film B is no longer reproducible from this file. It is
+   * MEASURED and unimplemented, which is why its REFERENCE_FILMS entry now
+   * carries `style: null` alongside Uber's.
+   * ---------------------------------------------------------------------------
+   *
+   * THE FILM THAT DOES NOT CUT. Named for its signature — a running cost counter
+   * that survives every change of content. Two thirds of monid is ONE
+   * 22.73-second take in which components swap in place; its only transitions
+   * are two 6-frame dissolves. 6.9 cuts/min against Film B's 31.1, from the
+   * same composited-component framing. Same vocabulary, opposite pacing — which
+   * is exactly the pair of numbers the two styles disagreed on.
+   *
+   * WHY THE CARDS HOLD PERFECTLY STILL, which is the inherited half. The
+   * defining measurement is an absence: docs/reel/02-motion.md §"cards do not
+   * move at all" tracks Film B's shot 10 text box across 56 frames and finds
+   * ZERO translation. Words appear in place; the box grows and never moves.
+   * That is why `card.enter` and `card.exit` are `none` rather than a small
+   * push, and it is monid's behaviour too.
+   *
+   * LENGTH FOLLOWS THE COPY, also inherited. Film A slots every card into
+   * 3.2-3.3s and compresses its stagger to fit; Film B refuses, running 31-89f
+   * as the words require. So the cadence is `fixed` and the clamps are null —
+   * the observed 1.03-2.97s band is the CONSEQUENCE of this model, not an input
+   * to it: one beat plus the hold is ~41f, ten beats plus the hold is ~83f,
+   * against a measured 31-89f. monid gave no card tail to measure (it never cuts
+   * between cards), so this is where its 1.16s hold came from in the first
+   * place — and it is the reason the two presets were mergeable at all.
+   *
+   * Measured in docs/design/reels/choreography-references.md §3 and docs/reel/.
    */
   ledger: {
     look: "fullbleed",
@@ -790,8 +884,10 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
         // ⧗ STRUCTURALLY UNMEASURABLE on this reference. A card tail is the gap
         // between the last word and the CUT — and monid does not cut between
         // its cards. Its copy is replaced within one continuous 22.7s take, so
-        // there is no boundary to measure to. Carried from narration as the
-        // nearest measured grammar. Closing this needs a reference that cuts.
+        // there is no boundary to measure to. Carried from Film B
+        // (cursor_origin_intro) as the nearest measured grammar — which is also
+        // why the two presets were 79% identical and could be merged at all.
+        // Closing this needs a reference that cuts BETWEEN CARDS.
         holdS: 1.16,
         holdFrom: "lastWord",
         minS: null,
@@ -800,18 +896,24 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
       },
       enter: { kind: "none" },
       exit: { kind: "none" },
+      // Preserves the old `look === "fullbleed"` branch exactly.
+      emphasis: false,
     },
     shot: {
       framing: "isolate",
       chrome: false,
       windowFit: null,
+      // Backdrop image, as before this field existed.
+      ground: null,
+      // The click-derived camera, as before this field existed.
+      zoom: true,
       cursor: true,
       ripple: false,
       enter: { kind: "none" },
       exit: { kind: "none" },
     },
-    // ⧗ UNMEASURABLE — monid has no chip punch at all. Carried from narration
-    // for structural completeness; a ledger reel using a chip is off-reference.
+    // ⧗ UNMEASURABLE — monid has no chip punch at all. Carried from Film B for
+    // structural completeness; a ledger reel using a chip is off-reference.
     chip: {
       punchScale: 4,
       punchS: 0.1,
@@ -842,7 +944,7 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
       // measured off a film set in a grotesque of this class; reproducing
       // them in whatever system-ui resolves to is why an earlier cut read as
       // a default slide deck rather than as a designed frame.
-      fontFamily: LEDGER_FONT_STACK,
+      fontFamily: INTER_STACK,
     },
     // MEASURED. Cream with a green cast, NOT white — rgb(247,251,243) — and one
     // saturated accent ground carrying the payoff. There is no third register:
@@ -861,14 +963,19 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
     },
     // ⧗ monid's sign-off is a static wordmark, not a tumble; tumble values
     // carried. Its LENGTH is MEASURED: f960-1038 = 79f = 2.63s.
+    // No floating chips — this grammar does not use them.
+    annotation: null,
     bookend: {
+      // No solo phase — the lockup arrives whole, as before this field.
+      markSolo: null,
       tumbleS: 0.85,
       turns: 1,
       driftPxPerFrame: 2,
       driftFrames: 14,
       minS: 2.63,
     },
-    // ⧗ UNMEASURABLE — monid has no recap card. Carried, same as narration.
+    // ⧗ UNMEASURABLE — monid has no recap card. Carried from Film B, same as
+    // the chip block above.
     recap: {
       leadS: 0.17,
       lockupStaggerS: 0.27,
@@ -886,6 +993,240 @@ export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = {
       cutsPerMin: 6.9,
       movingFrac: 0.261,
       longestStillF: 77,
+      cutDelta: "matched",
+    },
+  },
+  /**
+   * STAGE — Replit's launch grammar. One flat ground, and nothing ever cuts.
+   *
+   * Measured in docs/reels/chorography/replit.md. It is the first style here
+   * whose defining property is a NEGATIVE: in 42.048 seconds the reference
+   * contains ZERO hard cuts. The default detector finds none; dropping the gate
+   * to |dLuma| >= 4 surfaces five candidates and every one turns out on a
+   * per-frame contact sheet to be a continuous element move. Sections change by
+   * the frame EMPTYING to bare ground — measured at f378 (ink 59), f513 (1047)
+   * and f589 (3238) — and the next element arriving into the vacancy.
+   *
+   * We still cut, because segments render independently and are concatenated.
+   * The trick is WHERE: a cut that lands on a frame showing nothing but ground
+   * is invisible, so `join: "cut"` plus a shot exit big enough to clear frame
+   * reproduces the reference's seam exactly. That is why the exit distances
+   * here are an order of magnitude larger than any other style's.
+   *
+   * THE ENVELOPE IS ALREADY OURS. push.ts was reverse-engineered from a CURSOR
+   * film and its docstring — arrive decelerating, hold, accelerate away, cut
+   * mid-move — describes this reference almost word for word. MEASURED:
+   * Replit's entrance decays at r = 0.6451/frame at 24 fps, which resamples to
+   * 0.7042 at our 30; PUSH_BEZIER gives 0.694 over 9 frames and 0.741 over 11.
+   * Two unrelated launch films share one curve. That is a house style of the
+   * genre, not a company's signature.
+   *
+   * ⚠️ WHAT IS NOT HERE. The reference floats annotation chips over the panel
+   * (`Scanning 20%`, `Recon`, `Auth`, `Fuzzing`, `Response Analysis`), pinned
+   * to its edges with their own entrances. We have no per-beat overlay concept;
+   * the nearest thing is the step HUD, which is one centred derived line rather
+   * than several positioned chips. It is the most visible thing a `stage` cut
+   * is missing and it is a feature, not a preset value.
+   */
+  stage: {
+    // Cards are FLAT — no backdrop plate — which is what `fullbleed` means on
+    // the card side. The shots are still windowed; see `shot.framing`. This is
+    // the first preset to want that pair, and it is why `emphasis` had to stop
+    // being a branch on `look`.
+    look: "fullbleed",
+    motionLayer: "shots",
+    // The seam is a cut onto bare ground. See the note above.
+    join: { kind: "cut" },
+    hud: { kind: "none" },
+    card: {
+      // MEASURED: one character every 2 frames at 24 fps. `ink` steps at f854,
+      // f856, f858 and again f880-f888, evenly spaced, with no fade between.
+      cadence: { kind: "typed", perCharS: 0.0833, fadeS: 0 },
+      length: {
+        // MEASURED: last character lands at f888 (37.0s), the copy is gone by
+        // f903 (37.6s). 0.6s of hold, which is short because the reference's
+        // type card is a punctuation mark between two moving sections rather
+        // than a beat to read.
+        holdS: 0.6,
+        holdFrom: "lastWord",
+        minS: null,
+        maxS: null,
+        trimInS: 0,
+      },
+      // MEASURED: the type card does not move. All of this film's motion is on
+      // the panel layer, which is what `motionLayer: "shots"` records.
+      enter: { kind: "none" },
+      exit: { kind: "none" },
+      // ON, against every other flat-ground style. The reference's closing card
+      // is BUILT around an inline red pill, so dropping emphasis would delete
+      // the point of the card.
+      emphasis: true,
+    },
+    shot: {
+      // A window, NOT `isolate`: the reference's panel has a corner radius, a
+      // soft shadow and the app's own surrounding surface inside it. `isolate`
+      // clips to a rect and fills the rest with pageBg, giving a component on a
+      // flat mat with no radius and no shadow — and crop.ts records that cut
+      // being measured and rejected on how it looked.
+      framing: "window",
+      // No browser chrome. The reference shows the app's surface, not a
+      // simulated browser around it.
+      chrome: false,
+      // MEASURED at f84: panel box x 140-1148, y 72-676 of 1280x720 = 78.8%
+      // wide, 83.9% tall. 0.84 takes the taller of the two, which is what
+      // windowFit fits against.
+      windowFit: 0.84,
+      // MEASURED #FAF6F1 — a WARM cream (R > G > B), sampled at three widely
+      // separated flat points and re-confirmed 900 frames later. Note the cast
+      // is the opposite of ledger's #f7fbf3, which is green.
+      ground: "#faf6f1",
+      // OFF, and this is the difference between a floating panel and a camera
+      // hunting a cursor. See ShotStyle.zoom.
+      zoom: false,
+      cursor: true,
+      ripple: false,
+      // MEASURED entrance (f314-322): the element grows from a fixed baseline
+      // — `hi` pinned at 493 while `lo` rises 337 -> 180 — so this is a SCALE,
+      // not a translate. 11 frames per the curve fit above.
+      enter: { kind: "push", axis: "scale", dist: -0.2, frames: 11 },
+      // MEASURED exit (f368-377): pure translate, span constant at 243-244px,
+      // still accelerating on the last frame in shot.
+      //
+      // THE DISTANCE IS OURS, NOT THE REFERENCE'S, AND THE REASON IS GEOMETRY.
+      // The measured cube travels 391px at 720p = 587 design px, but that cube
+      // is 243px wide in a 1280 frame — 19% of it. Our panel is `windowFit`,
+      // 84%, so the same distance leaves two thirds of it still on screen when
+      // the cut lands and the seam reads as an ordinary cut. Measured on the
+      // first stage render at 620: the panel top was still mid-frame.
+      //
+      // ⚠️ `dist` IS NOT WHERE THE SHOT ENDS UP. pushOut is
+      // `dist * settle(1 - g/frames)` and the last VISIBLE frame is g = frames-1,
+      // so at frames=11 the exit reaches settle(1/11) = 0.660 of `dist` before
+      // the cut lands — the remaining third happens on a frame nobody sees.
+      // Measured, after a render at 1000 left a third of the panel on screen.
+      //
+      // A 0.84-fit panel spans y 86..993 of a 1080-tall design frame, so
+      // clearing it downward needs 994px of actual travel: 994 / 0.660 = 1506.
+      // 1520 gives a little margin.
+      //
+      // For scale, the reference's own large-panel exit (the popover, f293-302)
+      // travels ~807 design px in 0.375s. This is the same gesture sized for a
+      // subject that fills 84% of frame instead of 56%.
+      exit: { kind: "push", axis: "y", dist: 1520, frames: 11 },
+    },
+    // The reference's inline pill EXPANDS over 5 frames (208ms) on the shared
+    // 0.645 curve rather than punching. ChipStyle describes a punch zoom, which
+    // is a different mechanism; carried from Film B so the shape is complete.
+    // ⧗ A stage reel using a chip CARD is off-reference.
+    chip: {
+      punchScale: 4,
+      punchS: 0.1,
+      leadS: 0.03,
+      settleS: 0.03,
+      afterPressS: 0.03,
+    },
+    // MEASURED on the closing card (f891): cap 39px at 720p = 58.5px at 1080p,
+    // line width 51.2% of frame, centred on both axes.
+    //
+    // ⧗ LINE PITCH IS UNMEASURABLE HERE. The reference's only type card is one
+    // line and never wraps, so there is no pitch to read. 1.2 is authored, and
+    // pitchPx below follows it rather than a measurement.
+    type: {
+      sizePx: 82,
+      lineHeight: 1.2,
+      letterSpacing: "-0.01em",
+      capPx: 59,
+      pitchPx: 98,
+      fontFamily: INTER_STACK,
+    },
+    // ONE GROUND, and that is the finding. The reference has no dark register
+    // and no accent GROUND anywhere in 42 seconds — #F03000 appears only as the
+    // logo mark, the inline pill and the floating annotations, never as a field.
+    // So all three keys are the same cream on purpose: a `background: "plate"`
+    // card renders identically, because the grammar has nowhere else to go.
+    palette: {
+      plate: { ground: "#faf6f1", ink: "#0a0a0a", muted: "rgba(10,10,10,0.55)" },
+      plain: { ground: "#faf6f1", ink: "#0a0a0a", muted: "rgba(10,10,10,0.55)" },
+      light: { ground: "#faf6f1", ink: "#0a0a0a", muted: "rgba(10,10,10,0.55)" },
+    },
+    // MEASURED: the closing lockup runs 37.7s -> 42.0s = 4.3s, the longest hold
+    // in the film by a wide margin.
+    //
+    // WE DO NOT TAKE 4.3, AND 3.0 WAS ALSO WRONG. The reference's bookend is
+    // 4.3 seconds of continuous ANIMATION — the mark assembles from two squares
+    // and a circle, then the wordmark writes beside it — so it costs nothing in
+    // stillness. Ours writes its wordmark and then holds, so every extra tenth
+    // is a dead frame. Measured on the first stage cut: two 3.0s bookends were
+    // 30% of a 20s film and the single largest static block in it.
+    //
+    // 2.2 is long enough for the lockup to land and read, and no longer.
+    // THE REFERENCE'S SIGNATURE OVERLAY. See AnnotationStyle for the four
+    // chips it was measured from and for why ours is not red.
+    annotation: {
+      fill: "#f0f05a",
+      ink: "#0a0a0a",
+      heightFrac: 0.073,
+      capRatio: 0.58,
+      radiusFrac: 0.18,
+      wipeS: 0.208,
+      oversize: 1.06,
+      exitS: 0.16,
+    },
+    bookend: {
+      // MEASURED off the reference's sign-off — see MarkSolo for the frame
+      // table and for the part of it we cannot reproduce.
+      markSolo: {
+        scale: 3.7,
+        growS: 0.375,
+        holdS: 0.58,
+        settleS: 0.71,
+        shiftFrac: 0.42,
+      },
+      tumbleS: 0.85,
+      turns: 1,
+      driftPxPerFrame: 2,
+      driftFrames: 14,
+      // The solo needs room: grow 0.375 + hold 0.58 + settle 0.71 is 1.67s
+      // before the lockup even exists, so a floor tuned for a lockup that
+      // simply fades in would cut the mark off mid-performance.
+      //
+      // MEASURED, the reference's two bookends are NOT the same length —
+      // opening f0-f72 = 3.0s, closing f906-f1007 = 4.2s — and `minS` is one
+      // number for both. 3.0 matches its opening exactly and gives the closing
+      // ~1.3s of settled hold against the reference's 2.2s. The alternative was
+      // splitting this into two fields, which is machinery for a difference no
+      // viewer is going to time.
+      minS: 3.0,
+    },
+    // ⧗ UNMEASURABLE — the reference has no recap card. Carried.
+    recap: {
+      leadS: 0.17,
+      lockupStaggerS: 0.27,
+      itemsLeadS: 0.37,
+      itemStaggerS: 0.533,
+    },
+    source: {
+      file: "Replit Replit X.mp4",
+      shots: 9,
+      durationS: 42.048,
+      loudnessLUFS: -14.0,
+    },
+    targets: {
+      // 9 sections in 42.048s. "Shot" means section here: there are no cuts to
+      // bound one.
+      meanShotS: 4.67,
+      // THE DEFINING NUMBER. Zero. Our own cut cannot hit it — we concatenate
+      // segments — so this target is the one place a stage reel is expected to
+      // miss, and the comparison should read it as "how invisible are the
+      // seams", not as a defect.
+      cutsPerMin: 0,
+      // MEASURED 683/1007 frames. Nearly four times ledger's 0.261: this film
+      // is almost never still.
+      movingFrac: 0.678,
+      // MEASURED 54 frames at 24fps = 2.25s, converted to our 30fps.
+      longestStillF: 68,
+      // No cuts, so no cut delta. "matched" is the honest of the two options —
+      // nothing here slams.
       cutDelta: "matched",
     },
   },
@@ -924,8 +1265,31 @@ export const REFERENCE_FILMS: {
   },
   {
     file: "cursor_origin_intro.mp4",
-    label: "Cursor — Origin / Code Hosting",
-    style: "narration",
+    label: "Cursor — origin (Film B)",
+    // WAS "narration", UNTIL THAT PRESET WAS MERGED INTO `ledger`.
+    //
+    // The two were 79% identical across 85 comparable fields — same
+    // motionLayer, same look, same isolate framing, same still cards, and the
+    // SAME card timing, because ledger's tail was carried from this film in the
+    // first place (monid never cuts between cards, so there was no boundary to
+    // measure one against). Only two of the eighteen differences were
+    // mechanism, and `ledger` kept its own on both:
+    //
+    //   join        this film CUTS;    ledger dissolves over 6 frames
+    //   shot.enter  this film pushes   ledger holds still
+    //               scale -0.106 / 23f
+    //
+    // The rest were surface, and are recorded here rather than lost:
+    //
+    //   type      72px / 1.194 line-height / 0em tracking, cap 52 on pitch 86
+    //   palette   plate #0a0a0a on #ffffff · plain #e6e4e0 · light #ffffff
+    //   bookend   minS 3.0
+    //   targets   mean shot 1.817s · 31.1 cuts/min · 36.8% moving · still 75f
+    //
+    // `style: null` is the honest value now: this film is MEASURED, and nothing
+    // in STYLE_PRESETS reproduces it. Re-adding it means re-adding a preset,
+    // and the numbers above are what it would need.
+    style: null,
     durationS: 30.9,
     shots: 17,
     movingFrac: 0.368,
@@ -987,7 +1351,13 @@ export function resolveStyle(input: {
   look?: ReelLook;
 }): ReelStyle {
   if (input.style) return input.style;
+  // BOTH looks map EXPLICITLY, and that became load-bearing when DEFAULT_STYLE
+  // moved to "proof". While the default was "classic", `framed` could fall
+  // through to it and mean the right thing; now falling through would resolve a
+  // reel that explicitly asked for the framed window to a full-bleed grammar.
+  // A look that is named is an instruction, not an absence.
   if (input.look === "fullbleed") return "proof";
+  if (input.look === "framed") return "classic";
   return DEFAULT_STYLE;
 }
 

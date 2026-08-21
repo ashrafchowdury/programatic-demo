@@ -45,7 +45,7 @@ import {
 } from "./lib/intro";
 import { pushEnvelope, pushToCss, type PushSpec } from "./lib/push";
 import { RecapCard } from "./RecapCard";
-import { resolvePreset } from "./lib/style";
+import { resolvePreset, type MarkSolo } from "./lib/style";
 
 export type IntroProps = {
   intro: IntroStoryboard;
@@ -148,6 +148,34 @@ const Line: React.FC<LineProps> = ({ progress, children, style }) => (
  * italic brand lockup) works with exactly the vocabulary the headline uses.
  * Spacing is a leading margin, matching the headline, so tight punctuation hugs.
  */
+/**
+ * One unit revealed a CHARACTER at a time across its own cue window.
+ *
+ * Untyped characters keep their box (`visibility`, not `display`), so the line
+ * is laid out at its FINAL width from the first frame and the sentence grows
+ * rightward into a block that never reflows. The reference does exactly this —
+ * its first letter sits at x=331 and the finished line starts at x=317, i.e.
+ * the copy was already holding its place.
+ *
+ * `p` is linear over the unit's typing window, so `floor(p * length)` is the
+ * character count with no easing: a typewriter runs at a constant rate.
+ */
+const Typed: React.FC<{ text: string; p: number }> = ({ text, p }) => {
+  const shown = Math.floor(Math.max(0, Math.min(1, p)) * text.length);
+  return (
+    <>
+      {[...text].map((ch, i) => (
+        <span
+          key={`${i}-${ch}`}
+          style={{ visibility: i < shown ? "visible" : "hidden" }}
+        >
+          {ch}
+        </span>
+      ))}
+    </>
+  );
+};
+
 const StyledInline: React.FC<{ text: string; look: IntroLook }> = ({
   text,
   look,
@@ -186,12 +214,14 @@ const LogoLockup: React.FC<{
   k: number;
   tS: number;
   fullbleed?: boolean;
-}> = ({ text, look, k, tS, fullbleed = false }) => {
+  /** The mark's solo phase, or null for a lockup that simply arrives whole. */
+  solo?: MarkSolo | null;
+}> = ({ text, look, k, tS, fullbleed = false, solo = null }) => {
   // Full-bleed runs a longer, larger settle. The framed 0.92 -> 1.0 nudge over
   // 0.45s reads as a fade with a hint of scale; the reference's mark travels a
   // factor of 1.57 over ~0.63s, which is what gives the opening something to
   // watch instead of something to land on.
-  const inS = fullbleed ? LOGO_IN_S : WORDMARK_IN_S;
+  const inS = solo ? solo.growS : fullbleed ? LOGO_IN_S : WORDMARK_IN_S;
   const markP = flooredEntry(
     cameraEase(progressAt({ startS: 0, endS: inS }, tS)),
   );
@@ -214,8 +244,33 @@ const LogoLockup: React.FC<{
   const markSpin = fullbleed
     ? ` perspective(${LOGO_PERSPECTIVE * k}px) rotate3d(${ax}, ${ay}, ${az}, ${spin}deg)`
     : "";
-  // The wordmark starts once the mark is mostly in.
-  const writeStart = inS * 0.6;
+  // THE SOLO PHASE. Off unless the style asks for it, and when it is off every
+  // value below collapses to what this component did before it existed.
+  //
+  // `soloP` is the DEMOTION's progress: 0 while the mark is growing and holding
+  // alone, then 0 -> 1 as it shrinks to lockup size. Eased on the same curve
+  // the rest of the film uses, so the mark does not arrive on a different
+  // clock from everything around it.
+  const soloP = solo
+    ? cameraEase(
+        progressAt(
+          { startS: solo.growS + solo.holdS, endS: solo.growS + solo.holdS + solo.settleS },
+          tS,
+        ),
+      )
+    : 1;
+  // Magnification on TOP of the normal entry scale, so the mark still arrives
+  // the way it always did — it just arrives much bigger and then shrinks.
+  const soloScale = solo ? 1 + (solo.scale - 1) * (1 - soloP) : 1;
+  // Slide the whole lockup right by a fraction of its OWN width, which is what
+  // puts the mark — sitting at the lockup's left end — in the centre of frame
+  // while it is alone. A percentage translate resolves against the element's
+  // own width, so this needs no measurement at render time.
+  const soloShift = solo ? solo.shiftFrac * (1 - soloP) * 100 : 0;
+
+  // The wordmark starts once the mark is mostly in — or, with a solo phase,
+  // not until the mark has finished holding the frame by itself.
+  const writeStart = solo ? solo.growS + solo.holdS : inS * 0.6;
   return (
     <div
       style={{
@@ -223,6 +278,7 @@ const LogoLockup: React.FC<{
         alignItems: "center",
         justifyContent: "center",
         gap: LOGO_GAP * k,
+        transform: soloShift ? `translateX(${soloShift}%)` : undefined,
       }}
     >
       <Img
@@ -231,7 +287,7 @@ const LogoLockup: React.FC<{
           height: LOGO_MARK_SIZE * k,
           width: "auto",
           opacity: markP,
-          transform: `translateY(${markRise}px) scale(${markScale})${markSpin}`,
+          transform: `translateY(${markRise}px) scale(${markScale * soloScale})${markSpin}`,
         }}
       />
       <div
@@ -456,6 +512,9 @@ const SentenceCard: React.FC<IntroProps> = ({ intro }) => {
   // fields — see the `type` group proposed in choreography-references.md §5 —
   // but this reads a FIELD of the resolved preset, never a style's name.
   const fullbleed = preset.look === "fullbleed";
+  // Inline emphasis is now the style's call, not the look's — see
+  // CardStyle.emphasis for why the two came apart.
+  const emphasis = preset.card.emphasis;
   const totalFrames = Math.max(1, Math.ceil(t.totalS * fps));
 
   // Does this grammar travel its cards on the push envelope? `push` says yes;
@@ -526,6 +585,7 @@ const SentenceCard: React.FC<IntroProps> = ({ intro }) => {
             k={k}
             tS={tS}
             fullbleed={fullbleed}
+            solo={preset.bookend.markSolo}
           />
         ) : (
           <>
@@ -584,8 +644,13 @@ const SentenceCard: React.FC<IntroProps> = ({ intro }) => {
                   // tight unit (a trailing period) get none, so the line stays
                   // centred and punctuation hugs its word.
                   marginLeft: i === 0 || cue.tight ? 0 : "0.26em",
-                  opacity: p,
-                  transform: `translateY(${(1 - p) * RISE_EM}em)`,
+                  // A TYPED unit manages its own reveal per character below, so
+                  // the unit-level fade and rise are off for it. Applying both
+                  // would fade the word in while it was still being typed.
+                  opacity: cue.typed ? 1 : p,
+                  transform: cue.typed
+                    ? undefined
+                    : `translateY(${(1 - p) * RISE_EM}em)`,
                   // Per-word inline styling last, so bold/italic/highlight win
                   // over the block defaults for exactly the marked words.
                   //
@@ -596,10 +661,10 @@ const SentenceCard: React.FC<IntroProps> = ({ intro }) => {
                   // frame, so the eye lands on the decoration before the words.
                   // `==markup==` still parses so copy stays portable between
                   // looks; it just renders as plain ink here.
-                  ...wordCss(fullbleed ? undefined : cue.style, look),
+                  ...wordCss(emphasis ? cue.style : undefined, look),
                 }}
               >
-                {cue.word}
+                {cue.typed ? <Typed text={cue.word} p={p} /> : cue.word}
               </span>
             );
           })}
