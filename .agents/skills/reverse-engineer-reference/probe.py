@@ -609,11 +609,23 @@ def cmd_audio(a):
     env = audio_envelope(a.file, a.window)
     if env:
         print(f"\n--- RMS envelope, {a.window}s windows (dBFS) ---")
-        lo, hi = min(env), max(env)
-        for i, v in enumerate(env):
+        # A fully silent window measures -inf dBFS, and one of those poisons
+        # min/max: the span becomes inf or nan and the bar width is then
+        # `int(nan)`, which raises rather than printing. Scale against the
+        # FINITE windows only and render the silent ones as a marker, so a
+        # reference with a silent head or tail still gets an envelope.
+        finite = [v for v in env if math.isfinite(v)]
+        if not finite:
+            print("  (every window is silent)")
+        else:
+            lo, hi = min(finite), max(finite)
             span = max(hi - lo, 1e-6)
-            bar = "#" * int(28 * (v - lo) / span)
-            print(f"  {i*a.window:6.1f}s {v:7.1f} {bar}")
+            for i, v in enumerate(env):
+                if not math.isfinite(v):
+                    print(f"  {i*a.window:6.1f}s     -inf  (silent)")
+                    continue
+                bar = "#" * max(0, min(28, int(28 * (v - lo) / span)))
+                print(f"  {i*a.window:6.1f}s {v:7.1f} {bar}")
 
     # ---- classification -------------------------------------------------
     print("\n--- reading ---")
