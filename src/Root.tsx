@@ -1,5 +1,6 @@
 import React from "react";
 import { Composition, Still, staticFile } from "remotion";
+import { ChipOverlay, type ChipOverlayProps } from "./ChipOverlay";
 import { DemoClip, type DemoClipProps } from "./DemoClip";
 import { HudOverlay, type HudOverlayProps } from "./HudOverlay";
 import { Intro, type IntroProps } from "./Intro";
@@ -113,6 +114,46 @@ export const RemotionRoot: React.FC = () => {
           props,
         }: {
           props: HudOverlayProps;
+        }) => ({
+          durationInFrames: Math.max(1, Math.round(props.totalS * FPS)),
+        })}
+      />
+      {/*
+        Floating annotation chips, on the same transparent-ground pattern as the
+        HUD above: a layer that spans segments cannot be baked into any one of
+        them, so scripts/reel.ts composites it onto the finished picture.
+
+        `totalS` drives the length rather than the chips themselves — a chip
+        list that ends early must not shorten the overlay, or the composite runs
+        out before the film does.
+      */}
+      <Composition
+        id="ChipOverlay"
+        component={ChipOverlay}
+        durationInFrames={FPS * 30}
+        fps={FPS}
+        width={2560}
+        height={1440}
+        defaultProps={
+          {
+            chips: [],
+            totalS: 30,
+            style: {
+              fill: "#f0f05a",
+              ink: "#0a0a0a",
+              heightFrac: 0.073,
+              capRatio: 0.58,
+              radiusFrac: 0.18,
+              wipeS: 0.208,
+              oversize: 1.06,
+              exitS: 0.16,
+            },
+          } satisfies ChipOverlayProps
+        }
+        calculateMetadata={async ({
+          props,
+        }: {
+          props: ChipOverlayProps;
         }) => ({
           durationInFrames: Math.max(1, Math.round(props.totalS * FPS)),
         })}

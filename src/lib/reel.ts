@@ -13,6 +13,7 @@
  * Pure by design: no ffmpeg, no Remotion. scripts/reel.ts does the rendering.
  */
 import { introProblem, type IntroStoryboard } from "./intro";
+import type { ReelChip } from "./chips";
 import { DEFAULT_LOOK, LOOKS, type ReelLook } from "./look";
 import { styleProblem, type ReelStyle } from "./style";
 import type { PushSpec } from "./push";
@@ -232,6 +233,15 @@ export type Reel = {
   duck?: boolean | ReelDuck;
   /** Step-HUD tuning. Only read when the style draws one. */
   hud?: ReelHud;
+  /**
+   * Floating annotation chips, in REEL seconds. Only drawn when the style
+   * defines an `annotation` look.
+   *
+   * AUTHORED, unlike the step HUD, which is derived from the click log. A chip
+   * names something the footage does not say out loud, so no recording carries
+   * it — see src/lib/chips.ts.
+   */
+  chips?: ReelChip[];
   /** Visual treatment of the footage. Absent = "framed", i.e. unchanged. */
   look?: ReelLook;
   /**

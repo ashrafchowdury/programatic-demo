@@ -27,6 +27,7 @@ import {
   type ClickLog,
 } from "../src/lib/click-log";
 import { cropUpscale, SHARPNESS_CEILING } from "../src/lib/crop";
+import { chipProblem } from "../src/lib/chips";
 import { hudSteps } from "../src/lib/hud";
 import { resolvePreset, type StylePreset } from "../src/lib/style";
 import type { PushSpec } from "../src/lib/push";
@@ -471,10 +472,15 @@ async function main() {
       ? overlayHud(reel, preset, videoOnly, workDir, counts, log, speed, joins, runtimeS)
       : videoOnly;
 
+  // Chips ride ON TOP of the HUD, not under it: both are transparent layers, so
+  // the order only matters where they overlap, and a step line is the smaller,
+  // quieter object of the two.
+  const chipSrc = overlayChips(reel, preset, hudSrc, workDir, runtimeS);
+
   if (hasAudio)
     muxAudio(
       reel,
-      hudSrc,
+      chipSrc,
       out,
       runtimeS,
       counts,
@@ -483,7 +489,7 @@ async function main() {
       joins,
     );
 
-  if (!hasAudio && hudSrc !== videoOnly) fs.copyFileSync(hudSrc, out);
+  if (!hasAudio && chipSrc !== videoOnly) fs.copyFileSync(chipSrc, out);
 
   reportLoudness(reel, hasAudio ? out : null);
 
@@ -687,6 +693,82 @@ function overlayHud(
     { stdio: "inherit" },
   );
   console.log(`hud        -> ${steps.length} step(s) composited`);
+  return out;
+}
+
+/**
+ * Composite the reel's floating annotation chips onto the finished picture.
+ *
+ * Same shape as overlayHud, and for the same architectural reason: a chip is
+ * placed in REEL time and every segment renders independently, so this cannot
+ * be a segment prop. It is a post-concat overlay pass.
+ *
+ * Returns the input untouched when the style has no chip look or the reel
+ * authored none, so a reel that wants neither pays no extra encode.
+ */
+function overlayChips(
+  reel: Reel,
+  preset: StylePreset,
+  src: string,
+  workDir: string,
+  runtimeS: number,
+): string {
+  const chips = reel.chips ?? [];
+  const style = preset.annotation;
+  if (!style || chips.length === 0) return src;
+
+  // Validate BEFORE rendering. A chip placed outside the frame or past the end
+  // of the film renders nothing at all, which is a silent way to lose one — and
+  // the render costs a minute before you would notice.
+  for (const c of chips) {
+    const problem = chipProblem(c, runtimeS);
+    if (problem) throw new Error(`reels/${reel.name}.ts: ${problem}`);
+  }
+
+  const mov = path.join(workDir, `${reel.name}.chips.mov`);
+  execFileSync(
+    REMOTION_BIN,
+    [
+      "render",
+      "ChipOverlay",
+      `--props=${JSON.stringify({ chips, style, totalS: runtimeS })}`,
+      mov,
+      "--codec=prores",
+      "--prores-profile=4444",
+      // Same trap the HUD hit: prores-profile=4444 alone still encodes
+      // yuv422p12le and the alpha is silently dropped, which turns a
+      // transparent overlay into an opaque black one covering the film.
+      "--pixel-format=yuva444p10le",
+      `--gl=${resolveGl(process.env.DEMO_GL)}`,
+      "--muted",
+    ],
+    { stdio: "inherit" },
+  );
+
+  const out = path.join(workDir, `${reel.name}.chips.mp4`);
+  execFileSync(
+    "ffmpeg",
+    [
+      "-y",
+      "-i",
+      src,
+      "-i",
+      mov,
+      "-filter_complex",
+      "[0:v][1:v]overlay=format=auto[v]",
+      "-map",
+      "[v]",
+      "-crf",
+      "16",
+      "-pix_fmt",
+      "yuv420p",
+      "-movflags",
+      "+faststart",
+      out,
+    ],
+    { stdio: "inherit" },
+  );
+  console.log(`chips      -> ${chips.length} composited`);
   return out;
 }
 
