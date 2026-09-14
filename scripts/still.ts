@@ -38,6 +38,8 @@ const argv = process.argv.slice(2);
 const name = argv.find((a) => !a.startsWith("-")) ?? "smoke";
 const rest = argv.filter((a) => a !== name);
 
-step("shoot-still.ts", [name]);
+// Both stages get every argument. Each reads the flags it knows — --scale for
+// the shoot, the preset and framing for the render — and ignores the rest.
+step("shoot-still.ts", [name, ...rest]);
 step("render-still.ts", [name, ...rest]);
 console.log(`\nDone. See out/still/${name}-*.png`);

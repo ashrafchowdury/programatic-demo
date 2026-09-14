@@ -396,6 +396,88 @@ which drives the steps and then writes `.diag/shots/<name>.probe.png` — the fu
 viewport under a 100px coordinate grid — plus a listing of what was on screen.
 Read the numbers off it and paste them in as a rect.
 
+### Looks
+
+`look` names how the region is framed. Three, and `window` is what you get
+when you say nothing:
+
+| `look` | what it is | for |
+| --- | --- | --- |
+| `window` | the crop inside the floating window frame, exactly as the clips draw it | a panel, or the **whole app** — omit `region` and the full viewport is the shot |
+| `cutout` | the element **alone**: its own shadow, its own corners, real alpha around it, straight on the ground | a popover, a menu, a composer — anything that *is already a card* |
+| `bleed` | the window drawn larger than the canvas and pinned to a corner, running off the edges | a whole screen where the detail matters more than the edges |
+
+```ts
+export default defineShot({
+  // ...steps as usual
+  look: "cutout",
+  region: css('[role="listbox"]'),   // the element that owns the shadow
+  ground: "#f3f3f3",
+  fit: 1.35, anchor: "left", inset: 0.08,   // crop into it, run off the right
+});
+```
+
+**`cutout` is a capture decision.** It photographs differently: everything but
+the element is hidden (layout untouched), the page background is cleared,
+translucent fills are flattened over what was behind them, and the screenshot
+keeps real alpha — the shadow and the anti-aliased corners are *in* the PNG.
+The crop is then measured off the painted pixels, so nothing is guessed. It
+needs a `region` that is one element (a name or `css()`); a rect is refused.
+A cutout never upscales: if the element is too small to fill `fit` at the
+scale the viewport allows, it is drawn at native pixels and you are told.
+
+**`bleed` is a render decision** over an ordinary window capture, so any
+window shot can be reframed as a bleed — and back — without re-shooting.
+
+### Controls
+
+Every knob lives in the shot spec. Most can also be overridden at render time
+as a flag, which is the fast way to iterate on framing — the capture is the
+slow half and it is already done.
+
+| spec field | render flag | applies to | default | what it does |
+| --- | --- | --- | --- | --- |
+| `look` | `--look=` | — | `window` | `window`, `cutout` or `bleed`. The flag may switch window↔bleed only; a cutout is captured differently |
+| `region` | — | all | whole viewport | a visible name, `css("…")`, or `{ x, y, w, h }` |
+| `padding` | — | window, bleed | 16 | CSS px of breathing room around a resolved element. Not applied to a rect; irrelevant to a cutout, which measures its own extent |
+| `backdrop` | `--backdrop=` | all | `glaze` | one of the sixteen images below, or a file in `public/backdrops/` |
+| `ground` | `--ground=` | all | — | a flat `#rrggbb` instead of the backdrop image. Wins over `backdrop`. What cutouts and bleeds want |
+| `fit` | `--fit=` | cutout | 0.8 | fraction of the canvas the element's body may fill, on whichever axis binds. Over 1 (up to 2) crops *into* it |
+| `anchor` | `--anchor=` | cutout, bleed | `center` / `top-left` | `top-left`, `top`, `top-right`, `left`, `center`, `right`, `bottom-left`, `bottom`, `bottom-right` |
+| `inset` | `--inset=` | cutout, bleed | 0 / 0.06 | fraction of the canvas edge kept clear on the anchored side(s) |
+| `zoom` | `--zoom=` | bleed | 1.3 | how much larger than the fitted window |
+| `chrome` | `--chrome` | window, bleed | off | the fake macOS titlebar |
+| `shadow` | `--shadow` | cutout | auto | cast a soft shadow under the element. Auto = only when the element painted none of its own |
+| `scale` | `--scale=` | all | measured | force the device scale factor and skip the measuring pass. Capped by the viewport's surface budget (below) |
+| `mobile` | — | all | off | present as a mobile client (tablet UA + mobile hints) for apps that serve a mobile layout on its own route |
+| `viewport`, `startUrl`, `ready`, `prepare`, `targets`, `steps` | — | all | — | exactly as in a flow — the recipe for reaching the state worth photographing |
+
+```bash
+pnpm still <name> [preset|--all]            # capture + frame
+pnpm shot <name>                            # capture only  → public/shots/<name>.png + .json
+pnpm shot <name> --probe                    # coordinate grid + element listing, no capture
+pnpm render:still <name> [preset|--all]     # frame only    → out/still/<name>-<preset>[-<look>][-<backdrop>|-<ground>].png
+pnpm render:still <name> --look=bleed --anchor=bottom-right --zoom=1.5 --ground=#f3f3f3
+```
+
+The output filename carries the look and the ground or backdrop, so rendering
+one capture several ways never overwrites itself.
+
+Elevation is decided for you. On a **light** ground or backdrop a cutout keeps
+its own shadow, or gets a soft cast one if it painted none; a window gets the
+dark rim shadow. On a **dark** one a dark shadow has nothing darker to be, so a
+cutout gets a hairline lift that follows its alpha and a window gets the white
+rim. `--ground=` a hex colour and the light/dark question is answered by its
+luminance; an image answers it from the `LIGHT_BACKDROPS` list.
+
+Things a cutout will tell you about, rather than quietly ship:
+
+- the element's shadow reaches the viewport edge (raise the viewport, or scroll);
+- an ancestor with `overflow: hidden` cuts the shadow — named, so you can
+  include that ancestor or use `window`;
+- the element is too small to fill `fit` at the allowed scale — it sits native;
+- the ground is dark, so the native shadow will not read.
+
 ### Backdrops
 
 Sixteen ship with the repo. Pick one by name — no code change:
@@ -472,10 +554,16 @@ from the file's real dimensions, so the upscale warning stays honest — a
 
 `deviceScaleFactor` can only be set when the browser context is created, so the
 capture runs once at 2×, measures what the region actually came out to, and
-re-runs at a higher factor if it fell short. Set `scale` in the spec once a shot
-is settled to skip the second pass. If a region is too small to reach 4K even at
-4× — anything under about 960 CSS px — you get a warning saying so rather than a
-quietly upscaled image.
+re-runs at a higher factor if it fell short of what the biggest preset — or the
+look's `fit` — will ask for. Set `scale` in the spec once a shot is settled to
+skip the second pass.
+
+The ceiling is a **surface budget**, not a number: 1920×1080 at 4× (33
+megapixels) is where Chromium was measured to still rasterise cleanly, and that
+is the budget. A 1920×1080 viewport therefore stops at 4×; a tablet-shaped
+820×1180 page reaches 5.8×, which is what lets a 260 CSS px popover fill a
+frame at native pixels. Past the budget you get a warning, never a quiet
+upscale — shoot a larger region, or a smaller viewport.
 
 ## How it works
 

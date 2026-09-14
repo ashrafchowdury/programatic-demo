@@ -43,7 +43,120 @@ export type ShotMeta = {
   via?: string;
   /** Studio backdrop name for this shot. See src/lib/backdrop.ts. */
   backdrop?: string;
+  /** Flat ground colour (#rrggbb) instead of a backdrop image. Wins over `backdrop`. */
+  ground?: string;
+  /**
+   * How the region was captured, and so how it must be framed. Absent means
+   * "window" — every sidecar written before looks existed is a window capture.
+   */
+  look?: StillLook;
+  /** Framing knobs, authored in the spec. Which ones apply depends on `look`. */
+  fit?: number;
+  anchor?: Anchor;
+  inset?: number;
+  zoom?: number;
+  chrome?: boolean;
+  /**
+   * Cutout only: cast a soft shadow under the element. Absent means "when the
+   * element brought none of its own" — see hasOwnShadow.
+   */
+  shadow?: boolean;
+  /**
+   * Cutout only: the element's border box in CSS px, relative to the PNG's
+   * top-left. The PNG is the element's PAINTED extent — shadow included — and a
+   * shadow is usually offset downward, so centring the PNG would sit the element
+   * visibly high. The composition centres this box and lets the shadow hang.
+   */
+  body?: Box;
 };
+
+/** An axis-aligned box, in whatever unit the caller says. */
+export type Box = { x: number; y: number; width: number; height: number };
+
+/**
+ * The three ways a still can be framed. Named so a shot can ask for one.
+ *
+ *   window  the crop inside the floating window frame — the default, and the
+ *           treatment the clips use
+ *   cutout  the element ALONE, with its own shadow and transparent edges, on the
+ *           backdrop. A capture-time decision: the PNG is different (alpha)
+ *   bleed   the window, larger than the canvas and anchored to an edge so it
+ *           runs off. A render-time decision over a window capture
+ */
+export const STILL_LOOKS = ["window", "cutout", "bleed"] as const;
+export type StillLook = (typeof STILL_LOOKS)[number];
+export const DEFAULT_LOOK: StillLook = "window";
+
+export const isLook = (v: unknown): v is StillLook =>
+  typeof v === "string" && (STILL_LOOKS as readonly string[]).includes(v);
+
+/** Look from CLI input. Throws with the list, since that is the fix. */
+export function resolveLook(raw?: string | null): StillLook {
+  if (raw == null || raw === "") return DEFAULT_LOOK;
+  if (isLook(raw)) return raw;
+  throw new Error(`unknown look "${raw}" — expected one of ${STILL_LOOKS.join(", ")}`);
+}
+
+/** Where an anchored box sits on the canvas. */
+export const ANCHORS = [
+  "top-left",
+  "top",
+  "top-right",
+  "left",
+  "center",
+  "right",
+  "bottom-left",
+  "bottom",
+  "bottom-right",
+] as const;
+export type Anchor = (typeof ANCHORS)[number];
+
+export const isAnchor = (v: unknown): v is Anchor =>
+  typeof v === "string" && (ANCHORS as readonly string[]).includes(v);
+
+export function resolveAnchor(raw?: string | null): Anchor {
+  if (raw == null || raw === "") return "center";
+  if (isAnchor(raw)) return raw;
+  throw new Error(`unknown anchor "${raw}" — expected one of ${ANCHORS.join(", ")}`);
+}
+
+/**
+ * Fraction of the canvas a cutout's BODY may occupy, on whichever axis binds.
+ *
+ * A touch under WINDOW_FIT: the references sit a component at 75-90% of the
+ * frame — the product is the picture, the ground is a margin, not a set.
+ */
+export const CUTOUT_FIT = 0.8;
+/**
+ * A cutout may be framed LARGER than the canvas — `fit: 1.4` with
+ * `anchor: "left"` runs a composer off the right edge, which is how the
+ * reference stills crop into a component rather than presenting it whole.
+ * Still never upscaled: the capture has to have the pixels, or it sits native.
+ */
+export const MAX_CUTOUT_FIT = 2;
+/** How much larger than windowBox a bleed window is drawn. */
+export const BLEED_ZOOM = 1.3;
+/** Fraction of the canvas edge kept clear on a bleed's anchored side(s). */
+export const BLEED_INSET = 0.06;
+
+/**
+ * Largest device scale factor a viewport may be shot at.
+ *
+ * The limit is the compositor SURFACE, not the factor: 1920x1080 at 4 (a 33
+ * megapixel surface) is where Chromium was measured to still rasterise
+ * cleanly, and that is the budget. A smaller viewport can therefore go higher
+ * — a tablet-shaped 820x1180 page reaches 5.8 — which is what lets a 260px
+ * popover fill a frame at native pixels instead of sitting small. Tenths, so
+ * the budget is actually used; Chromium takes fractional factors as a matter
+ * of course (every 1.25x Windows laptop). Hard-capped at MAX_SCALE regardless.
+ */
+export const SURFACE_BUDGET_PX = 1920 * 1080 * 4 * 4;
+export const MAX_SCALE = 8;
+
+export function maxScaleFor(viewport: Canvas): number {
+  const byArea = Math.sqrt(SURFACE_BUDGET_PX / (viewport.width * viewport.height));
+  return Math.max(1, Math.min(MAX_SCALE, Math.floor(byArea * 10) / 10));
+}
 
 /** Native pixel size of the captured PNG. */
 export const shotPixels = (meta: ShotMeta): Canvas => ({
@@ -160,6 +273,181 @@ export function windowBox(
   return { width: Math.round(width), height: Math.round(height) };
 }
 
+/**
+ * Native pixels the capture must reach so no preset upscales it, per look.
+ *
+ * The window target is unchanged from before looks existed. A bleed draws the
+ * window `zoom` times larger, so it needs that many more pixels; a cutout is
+ * placed at CUTOUT_FIT (or the spec's own `fit`), so it needs fewer.
+ */
+export function captureTargetPx(
+  look: StillLook,
+  windowFit: number,
+  opts: { fit?: number; zoom?: number } = {},
+): number {
+  if (look === "cutout") return maxWindowPx(opts.fit ?? CUTOUT_FIT);
+  if (look === "bleed") return maxWindowPx(windowFit * (opts.zoom ?? BLEED_ZOOM));
+  return maxWindowPx(windowFit);
+}
+
+/**
+ * Top-left of a box of `size` placed on `canvas` at `anchor`.
+ *
+ * `inset` is a fraction of the canvas edge kept clear on each anchored side —
+ * "top-left" with 0.06 sits 6% in from the left and 6% down from the top. An
+ * axis the anchor does not name is centred. A box larger than the canvas
+ * simply gets a negative offset on the far side; that is what a bleed is.
+ */
+export function anchorBox(
+  size: Canvas,
+  canvas: Canvas,
+  anchor: Anchor,
+  inset: number,
+): { left: number; top: number } {
+  const [v, h] = anchorAxes(anchor);
+  const left =
+    h === "left"
+      ? canvas.width * inset
+      : h === "right"
+        ? canvas.width - canvas.width * inset - size.width
+        : (canvas.width - size.width) / 2;
+  const top =
+    v === "top"
+      ? canvas.height * inset
+      : v === "bottom"
+        ? canvas.height - canvas.height * inset - size.height
+        : (canvas.height - size.height) / 2;
+  return { left, top };
+}
+
+const anchorAxes = (
+  anchor: Anchor,
+): ["top" | "center" | "bottom", "left" | "center" | "right"] => {
+  const v = anchor.startsWith("top")
+    ? "top"
+    : anchor.startsWith("bottom")
+      ? "bottom"
+      : "center";
+  const h = anchor.endsWith("left")
+    ? "left"
+    : anchor.endsWith("right")
+      ? "right"
+      : "center";
+  return [v, h];
+};
+
+/**
+ * Did the captured element paint a shadow of its own?
+ *
+ * The PNG is the painted extent and `body` the border box, so their difference
+ * is exactly the shadow's reach. A hairline border anti-aliases into one extra
+ * pixel, so anything under 3 css px on every side counts as none — and the
+ * composition casts one instead, or the element sits on the ground like a
+ * sticker.
+ */
+export function hasOwnShadow(meta: ShotMeta): boolean {
+  const b = meta.body;
+  if (!b) return false;
+  const reach = Math.max(
+    b.x,
+    b.y,
+    meta.region.width - (b.x + b.width),
+    meta.region.height - (b.y + b.height),
+  );
+  return reach >= 3;
+}
+
+export type CutoutLayout = {
+  /** Where to draw the PNG, in canvas px. */
+  img: Box;
+  /** Where the element's border box lands, in canvas px. */
+  body: Box;
+  /** Canvas px per PNG px. Never above 1. */
+  scale: number;
+  /** True when the PNG is drawn pixel-for-pixel because `fit` would upscale it. */
+  native: boolean;
+  /**
+   * True when the painted extent (shadow) runs past the canvas. Expected when
+   * `fit` is over 1 — that is the point — a warning sign otherwise.
+   */
+  overflows: boolean;
+};
+
+/**
+ * Place a cutout: the BODY is fitted to `fit` of the canvas and anchored; the
+ * PNG is positioned so its body lands there and its shadow hangs around it.
+ *
+ * The one rule is never to upscale. A screenshot is captured at the scale the
+ * fit asked for; if it still came up short (small element, MAX_SCALE reached)
+ * it is drawn at 1:1 rather than stretched, and `native` says so. Offsets are
+ * rounded to whole canvas px so a 1:1 draw is pixel-exact.
+ */
+export function cutoutLayout(
+  meta: ShotMeta,
+  canvas: Canvas,
+  opts: { fit?: number; anchor?: Anchor; inset?: number } = {},
+): CutoutLayout {
+  const body = meta.body;
+  if (!body) throw new Error(`shot "${meta.name}" is not a cutout (no body)`);
+  const fit = opts.fit ?? meta.fit ?? CUTOUT_FIT;
+  const anchor = opts.anchor ?? meta.anchor ?? "center";
+  const inset = opts.inset ?? meta.inset ?? 0;
+
+  const png = shotPixels(meta);
+  const bodyPx = { width: body.width * meta.scale, height: body.height * meta.scale };
+  const want = windowBox(body.height / body.width, canvas, fit);
+  const scale = Math.min(1, want.width / bodyPx.width);
+
+  const placed = { width: bodyPx.width * scale, height: bodyPx.height * scale };
+  const at = anchorBox(placed, canvas, anchor, inset);
+  const left = Math.round(at.left - body.x * meta.scale * scale);
+  const top = Math.round(at.top - body.y * meta.scale * scale);
+  const img = {
+    x: left,
+    y: top,
+    width: scale === 1 ? png.width : png.width * scale,
+    height: scale === 1 ? png.height : png.height * scale,
+  };
+  return {
+    img,
+    body: {
+      x: left + body.x * meta.scale * scale,
+      y: top + body.y * meta.scale * scale,
+      ...placed,
+    },
+    scale,
+    native: scale === 1,
+    overflows:
+      img.x < 0 ||
+      img.y < 0 ||
+      img.x + img.width > canvas.width ||
+      img.y + img.height > canvas.height,
+  };
+}
+
+/**
+ * Place a bleed: the window at `zoom` times its fitted size, anchored so it
+ * runs off the canvas on the far side(s). Same window geometry as the window
+ * look, just bigger and moved; the Stage's overflow clips the rest.
+ */
+export function bleedLayout(
+  meta: ShotMeta,
+  canvas: Canvas,
+  windowFit: number,
+  opts: { zoom?: number; anchor?: Anchor; inset?: number } = {},
+): Box {
+  const zoom = opts.zoom ?? meta.zoom ?? BLEED_ZOOM;
+  const anchor = opts.anchor ?? meta.anchor ?? "top-left";
+  const inset = opts.inset ?? meta.inset ?? BLEED_INSET;
+  const base = windowBox(shotAspect(meta), canvas, windowFit);
+  const size = {
+    width: Math.round(base.width * zoom),
+    height: Math.round(base.height * zoom),
+  };
+  const at = anchorBox(size, canvas, anchor, inset);
+  return { x: Math.round(at.left), y: Math.round(at.top), ...size };
+}
+
 /** Stand-in so Studio opens before anything has been shot. */
 export function fallbackShotMeta(name: string): ShotMeta {
   return {
@@ -193,5 +481,52 @@ export function shotMetaProblem(value: unknown): string | null {
   }
   if (!(typeof meta.scale === "number" && meta.scale > 0))
     return "`scale` must be a number > 0";
+  const framing = framingProblem(meta);
+  if (framing) return framing;
+  if (meta.look === "cutout" && meta.body === undefined)
+    return "a cutout sidecar must carry a `body` — re-run `pnpm shot`";
+  return null;
+}
+
+/**
+ * Shape check for the look and framing fields, shared with the spec check in
+ * scripts/lib/shot.ts so a bad value is rejected before the browser run, and
+ * again when a sidecar is read back. Every field is optional; only a present
+ * one is judged. Whether a cutout carries its body is the sidecar's own check.
+ */
+export function framingProblem(v: {
+  look?: unknown;
+  fit?: unknown;
+  anchor?: unknown;
+  inset?: unknown;
+  zoom?: unknown;
+  chrome?: unknown;
+  shadow?: unknown;
+  ground?: unknown;
+  body?: unknown;
+}): string | null {
+  if (v.look !== undefined && !isLook(v.look))
+    return `\`look\` must be one of ${STILL_LOOKS.join(", ")}`;
+  if (v.fit !== undefined && !(typeof v.fit === "number" && v.fit > 0 && v.fit <= MAX_CUTOUT_FIT))
+    return `\`fit\` must be a number in (0, ${MAX_CUTOUT_FIT}]`;
+  if (v.anchor !== undefined && !isAnchor(v.anchor))
+    return `\`anchor\` must be one of ${ANCHORS.join(", ")}`;
+  if (v.inset !== undefined && !(typeof v.inset === "number" && v.inset >= 0 && v.inset < 0.5))
+    return "`inset` must be a number in [0, 0.5)";
+  if (v.zoom !== undefined && !(typeof v.zoom === "number" && v.zoom >= 1))
+    return "`zoom` must be a number >= 1";
+  if (v.chrome !== undefined && typeof v.chrome !== "boolean")
+    return "`chrome` must be a boolean";
+  if (v.shadow !== undefined && typeof v.shadow !== "boolean")
+    return "`shadow` must be a boolean";
+  if (v.ground !== undefined && !(typeof v.ground === "string" && /^#[0-9a-f]{6}$/i.test(v.ground)))
+    return "`ground` must be a hex colour like #f3f3f3";
+  if (v.body !== undefined) {
+    const b = v.body as Partial<Box>;
+    if (typeof b !== "object" || b === null) return "`body` must be an object";
+    for (const key of ["x", "y", "width", "height"] as const)
+      if (typeof b[key] !== "number") return `\`body.${key}\` must be a number`;
+    if (!(b.width! > 0 && b.height! > 0)) return "`body` must have a positive size";
+  }
   return null;
 }

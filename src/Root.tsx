@@ -1,5 +1,6 @@
 import React from "react";
 import { Composition, Still, staticFile } from "remotion";
+import { DEMO_LOOK } from "./lib/look";
 import { ChipOverlay, type ChipOverlayProps } from "./ChipOverlay";
 import { DemoClip, type DemoClipProps } from "./DemoClip";
 import { HudOverlay, type HudOverlayProps } from "./HudOverlay";
@@ -16,10 +17,12 @@ import { compositionSize, introDurationInFrames } from "./lib/intro";
 import {
   DEFAULT_PRESET,
   fallbackShotMeta,
+  resolveLook,
   resolvePreset,
   shotMetaProblem,
   STILL_PRESETS,
   type ShotMeta,
+  type StillLook,
 } from "./lib/still";
 import smokeIntro from "../intros/smoke";
 
@@ -44,6 +47,12 @@ export const RemotionRoot: React.FC = () => {
             name: CLIP_NAME,
             log: EMPTY_LOG,
             speed: DEFAULT_PLAYBACK_RATE,
+            // Stated, for the same reason scripts/render.ts states it: Studio
+            // must preview a demo in the grammar the demo renders in. Left
+            // absent, this falls through to a reel's DEFAULT_STYLE and the
+            // preview quietly loses the camera and the backdrop — which makes
+            // Studio agree with a broken render instead of catching it.
+            look: DEMO_LOOK,
           } satisfies DemoClipProps
         }
         calculateMetadata={async ({ props }) => {
@@ -226,9 +235,25 @@ export const RemotionRoot: React.FC = () => {
           );
           const backdrop =
             props.backdrop ?? process.env.DEMO_BACKDROP ?? meta.backdrop;
+          // An explicit backdrop on the command line beats the shot's ground;
+          // otherwise the ground, when the shot has one, beats the backdrop.
+          const ground =
+            props.ground ?? (props.backdrop ? undefined : meta.ground);
+          // A cutout's PNG is the element with alpha, not a crop, so it can
+          // only be framed as a cutout; a window capture can be a window or a
+          // bleed. Mismatches warn and fall back rather than refusing — the
+          // CLI rejects them earlier, and Studio must still open.
+          const captured: StillLook = meta.look ?? "window";
+          let look = props.look == null ? captured : resolveLook(props.look);
+          if ((captured === "cutout") !== (look === "cutout")) {
+            console.warn(
+              `shots/${props.name}.json was captured as ${captured}; cannot render as ${look}`,
+            );
+            look = captured;
+          }
           return {
             ...STILL_PRESETS[preset],
-            props: { ...props, meta, backdrop },
+            props: { ...props, meta, backdrop, ground, look },
           };
         }}
       />

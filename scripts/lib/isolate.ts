@@ -1,0 +1,188 @@
+/**
+ * The in-page half of a cutout: leave one element painting, then measure what
+ * it painted.
+ *
+ * Both functions run INSIDE the page through Playwright's evaluate, so they
+ * are closure-free — no imports, no outer variables — and the types are the
+ * DOM's, not Node's. Nothing here is unit-tested for that reason; the smoke
+ * shots exercise it end to end.
+ *
+ * WHY THEY ARE BUILT WITH `new Function`
+ * Playwright serialises a page function with `toString()`, and tsx/esbuild
+ * wraps every named function in a `__name(...)` helper that does not exist in
+ * the page (see recorder.ts for the same trap). The rest of this repo passes
+ * page code as string IIFEs, but these two need an ARGUMENT — the element, the
+ * PNG — and Playwright only calls a string's result when it was handed a real
+ * function. A function constructed at runtime from source is both: esbuild
+ * never sees its body, and `toString()` returns it verbatim.
+ *
+ * WHY VISIBILITY AND NOT DISPLAY
+ * `display: none` removes a box from layout, and everything else would reflow
+ * around the hole — the element would be photographed in a place it never sits.
+ * `visibility: hidden` keeps every box exactly where it is and paints nothing
+ * for it: no background, border, shadow or text. It inherits, and a descendant
+ * may override it, which is exactly the lever: hide everything, then show the
+ * target and whatever inside it was visible to begin with. An intentionally
+ * hidden tooltip inside the target stays hidden because it was never marked.
+ *
+ * WHY THE ROOT BACKGROUND NEEDS ITS OWN RULE
+ * The canvas is painted from the root (or body) background regardless of any
+ * box's visibility — Blink propagates it. So the sheet clears both explicitly;
+ * omitBackground on the screenshot then leaves genuine alpha behind the element.
+ *
+ * WHY TRANSITIONS ARE KILLED
+ * `visibility` is animatable. A `transition: all .3s` keeps an element painting
+ * for the whole ramp after it is set hidden, and a screenshot taken inside that
+ * window catches it half-gone.
+ *
+ * WHY TRANSLUCENT FILLS ARE FLATTENED
+ * Design systems paint surfaces as tints — `bg-muted/50`, a 4% black hover — that
+ * only look right over the page behind them. Take the page away and a grey
+ * input card becomes frosted glass with the backdrop showing through. So every
+ * shown element whose background has 0 < alpha < 1 gets that colour composited
+ * over whatever was behind it in the page (its nearest opaque ancestor, else
+ * the page ground) and set opaque, parents before children so a tint over a
+ * tint resolves in order. A box with NO fill but a visible border or shadow is
+ * a surface too — the page showed through it and read as its fill — so it gets
+ * the ground colour outright. Gradients and backdrop-filter are left alone.
+ */
+
+export type IsolateResult = {
+  /** The element's border box, CSS px, viewport-relative. */
+  box: { x: number; y: number; width: number; height: number };
+  /**
+   * Every ancestor that clips its subtree's paint (overflow, clip-path,
+   * contain), with its padding box. A shadow that reaches one of these edges
+   * has been cut by it, and the capture side says so.
+   */
+  clippers: {
+    label: string;
+    box: { x: number; y: number; width: number; height: number };
+  }[];
+};
+
+export const isolateInPage = new Function(
+  "el",
+  `
+  const rect = (r) => ({ x: r.left, y: r.top, width: r.width, height: r.height });
+  const visible = (n) => getComputedStyle(n).visibility === "visible";
+
+  // Judge visibility BEFORE the sheet goes in, or everything reads hidden.
+  const show = [el, ...Array.from(el.querySelectorAll("*"))].filter(visible);
+
+  // Flatten translucent fills over what was behind them, while it is still there.
+  const parse = (c) => {
+    const m = /^rgba?\\((\\d+),\\s*(\\d+),\\s*(\\d+)(?:,\\s*([\\d.]+))?\\)$/.exec(c || "");
+    return m ? [+m[1], +m[2], +m[3], m[4] === undefined ? 1 : +m[4]] : null;
+  };
+  const over = (top, under) => {
+    const a = top[3];
+    return [0, 1, 2].map((i) => Math.round(top[i] * a + under[i] * (1 - a)));
+  };
+  // The colour behind an element: nearest ancestor with any fill, else white.
+  const ground = (n) => {
+    for (let a = n.parentElement; a; a = a.parentElement) {
+      const c = parse(getComputedStyle(a).backgroundColor);
+      if (c && c[3] > 0) return c[3] < 1 ? [...over(c, [255, 255, 255]), 1] : c;
+    }
+    return [255, 255, 255, 1];
+  };
+  const isSurface = (cs) => {
+    if (cs.boxShadow !== "none") return true;
+    for (const side of ["Top", "Right", "Bottom", "Left"]) {
+      const bc = parse(cs["border" + side + "Color"]);
+      if (parseFloat(cs["border" + side + "Width"]) > 0 && bc && bc[3] > 0) return true;
+    }
+    return false;
+  };
+  for (const n of show) {
+    const cs = getComputedStyle(n);
+    const c = parse(cs.backgroundColor);
+    if (!c || c[3] === 1) continue;
+    if (c[3] === 0 && !isSurface(cs)) continue;
+    const [r, g, b] = c[3] === 0 ? ground(n) : over(c, ground(n));
+    n.style.setProperty("background-color", "rgb(" + r + "," + g + "," + b + ")", "important");
+  }
+
+  const clippers = [];
+  for (let a = el.parentElement; a; a = a.parentElement) {
+    const cs = getComputedStyle(a);
+    const clips =
+      (cs.overflow !== "visible" && a !== document.documentElement && a !== document.body) ||
+      cs.clipPath !== "none" ||
+      cs.contain.includes("paint") ||
+      cs.contain === "strict" ||
+      cs.contain === "content";
+    if (!clips) continue;
+    const id = a.id ? "#" + a.id : "";
+    const cls = a.classList.length ? "." + Array.from(a.classList).slice(0, 2).join(".") : "";
+    clippers.push({
+      label: a.tagName.toLowerCase() + id + cls,
+      box: rect(a.getBoundingClientRect()),
+    });
+  }
+
+  const style = document.createElement("style");
+  style.id = "__shot_isolate__";
+  style.textContent =
+    "*,*::before,*::after{visibility:hidden!important;transition:none!important;animation:none!important}" +
+    "html,body{background:transparent!important}" +
+    "[data-shot-show],[data-shot-show]::before,[data-shot-show]::after{visibility:visible!important}";
+  for (const n of show) n.setAttribute("data-shot-show", "");
+  document.head.appendChild(style);
+
+  return { box: rect(el.getBoundingClientRect()), clippers };
+`,
+) as (el: Element) => IsolateResult;
+
+/**
+ * Tight bounding box of every pixel with alpha > 0, in the PNG's own pixels, or
+ * null if nothing was painted.
+ *
+ * Decoded by the browser rather than by Node: the PNG comes back into the page
+ * as a Blob, is drawn on an OffscreenCanvas, and its alpha channel is scanned.
+ * That is Chromium's own decoder, and nothing touches the DOM — so the
+ * isolation sheet cannot hide it, and no PNG library is needed on either side.
+ *
+ * No threshold. Skia clips a blur at three sigma, so a shadow's painted extent
+ * is finite and exact; alpha > 0 is the true edge.
+ */
+export const alphaBoundsInPage = new Function(
+  "base64Png",
+  `return (async () => {
+  const bin = atob(base64Png);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }), {
+    premultiplyAlpha: "none",
+  });
+  const width = bitmap.width, height = bitmap.height;
+  const canvas = new OffscreenCanvas(width, height);
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(bitmap, 0, 0);
+  bitmap.close();
+
+  let minX = width, minY = height, maxX = -1, maxY = -1;
+  // Row bands, so a 4x viewport (over 100 MB of RGBA) never sits in one buffer.
+  const BAND = 64;
+  for (let y0 = 0; y0 < height; y0 += BAND) {
+    const rows = Math.min(BAND, height - y0);
+    const data = ctx.getImageData(0, y0, width, rows).data;
+    for (let r = 0; r < rows; r++) {
+      const row = r * width * 4;
+      for (let x = 0; x < width; x++) {
+        if (data[row + x * 4 + 3] === 0) continue;
+        const y = y0 + r;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+  if (maxX < 0) return null;
+  return { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 };
+})();`,
+) as (
+  base64Png: string,
+) => Promise<{ x: number; y: number; width: number; height: number } | null>;

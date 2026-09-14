@@ -1,11 +1,23 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  ANCHORS,
+  BLEED_ZOOM,
+  CUTOUT_FIT,
   DEFAULT_PRESET,
   STILL_PRESETS,
   STILL_PRESET_IDS,
   STILL_SHORT_EDGE,
+  anchorBox,
+  bleedLayout,
+  captureTargetPx,
+  cutoutLayout,
+  framingProblem,
+  hasOwnShadow,
+  maxScaleFor,
   maxWindowPx,
+  resolveAnchor,
+  resolveLook,
   resolvePreset,
   shotAspect,
   shotMetaProblem,
@@ -164,5 +176,228 @@ describe("maxWindowPx", () => {
         assert.ok(box.height <= target, `${id} h ${box.height} > ${target}`);
       }
     }
+  });
+});
+
+describe("resolveLook / resolveAnchor", () => {
+  it("defaults to window and center", () => {
+    assert.equal(resolveLook(undefined), "window");
+    assert.equal(resolveLook(""), "window");
+    assert.equal(resolveAnchor(null), "center");
+  });
+
+  it("rejects an unknown value with the list", () => {
+    assert.throws(() => resolveLook("card"), /window, cutout, bleed/);
+    assert.throws(() => resolveAnchor("middle"), /top-left/);
+  });
+});
+
+describe("captureTargetPx", () => {
+  it("leaves the window target exactly where it was", () => {
+    assert.equal(captureTargetPx("window", FIT), maxWindowPx(FIT));
+  });
+
+  it("asks a bleed for zoom times more and a cutout for its fit", () => {
+    assert.equal(captureTargetPx("bleed", FIT), maxWindowPx(FIT * BLEED_ZOOM));
+    assert.equal(captureTargetPx("bleed", FIT, { zoom: 2 }), maxWindowPx(FIT * 2));
+    assert.equal(captureTargetPx("cutout", FIT), maxWindowPx(CUTOUT_FIT));
+    assert.equal(captureTargetPx("cutout", FIT, { fit: 0.5 }), maxWindowPx(0.5));
+  });
+});
+
+describe("anchorBox", () => {
+  const canvas = { width: 1000, height: 500 };
+  const size = { width: 200, height: 100 };
+
+  it("centres on any axis the anchor does not name", () => {
+    assert.deepEqual(anchorBox(size, canvas, "center", 0), { left: 400, top: 200 });
+    assert.deepEqual(anchorBox(size, canvas, "top", 0), { left: 400, top: 0 });
+    assert.deepEqual(anchorBox(size, canvas, "left", 0), { left: 0, top: 200 });
+  });
+
+  it("keeps inset clear on the anchored sides only", () => {
+    assert.deepEqual(anchorBox(size, canvas, "top-left", 0.1), { left: 100, top: 50 });
+    assert.deepEqual(anchorBox(size, canvas, "bottom-right", 0.1), {
+      left: 1000 - 100 - 200,
+      top: 500 - 50 - 100,
+    });
+    assert.deepEqual(anchorBox(size, canvas, "right", 0.1), { left: 700, top: 200 });
+  });
+
+  it("places every anchor inside the canvas when the box fits", () => {
+    for (const a of ANCHORS) {
+      const { left, top } = anchorBox(size, canvas, a, 0.05);
+      assert.ok(left >= 0 && left + size.width <= canvas.width, a);
+      assert.ok(top >= 0 && top + size.height <= canvas.height, a);
+    }
+  });
+
+  it("lets an oversized box run off the far side", () => {
+    const big = { width: 1300, height: 600 };
+    const { left, top } = anchorBox(big, canvas, "top-left", 0.06);
+    assert.equal(left, 60);
+    assert.equal(top, 30);
+    assert.ok(left + big.width > canvas.width);
+    assert.ok(top + big.height > canvas.height);
+  });
+});
+
+describe("cutoutLayout", () => {
+  // A 400x200 element whose shadow reaches 20px each side and 60px below.
+  const cut = (over: Partial<ShotMeta> = {}): ShotMeta =>
+    meta({
+      look: "cutout",
+      region: { width: 440, height: 280 },
+      scale: 4,
+      body: { x: 20, y: 20, width: 400, height: 200 },
+      ...over,
+    });
+  const canvas = { width: 3840, height: 2160 };
+
+  it("centres the BODY, not the png, so the shadow hangs below", () => {
+    const lay = cutoutLayout(cut(), canvas);
+    assert.equal(lay.body.x + lay.body.width / 2, canvas.width / 2);
+    assert.equal(lay.body.y + lay.body.height / 2, canvas.height / 2);
+    // The png extends further below the body than above it.
+    const above = lay.body.y - lay.img.y;
+    const below = lay.img.y + lay.img.height - (lay.body.y + lay.body.height);
+    assert.ok(below > above);
+  });
+
+  it("fits the body to CUTOUT_FIT of the canvas", () => {
+    const lay = cutoutLayout(cut(), canvas);
+    // 400x200 body at scale 4 is 1600px; fit 0.62 of 3840 wide is 2380 -> scale up? No:
+    // never upscale. 1600 < 2380 so it sits native.
+    assert.equal(lay.native, true);
+    assert.equal(lay.scale, 1);
+    assert.equal(lay.body.width, 1600);
+  });
+
+  it("scales DOWN when the capture is bigger than the fit, never up", () => {
+    const lay = cutoutLayout(cut({ scale: 4, body: { x: 20, y: 20, width: 1000, height: 200 } , region: { width: 1040, height: 280 } }), canvas);
+    assert.equal(lay.native, false);
+    assert.ok(lay.scale < 1);
+    assert.equal(Math.round(lay.body.width), Math.round(canvas.width * CUTOUT_FIT));
+    const up = cutoutLayout(cut({ scale: 1 }), canvas);
+    assert.equal(up.scale, 1);
+  });
+
+  it("draws a native placement at exact png pixels on integer offsets", () => {
+    const lay = cutoutLayout(cut(), canvas);
+    assert.equal(lay.img.width, 440 * 4);
+    assert.equal(lay.img.height, 280 * 4);
+    assert.equal(lay.img.x, Math.round(lay.img.x));
+    assert.equal(lay.img.y, Math.round(lay.img.y));
+  });
+
+  it("honours anchor and inset, and reports overflow", () => {
+    // 15% of 2160 is 324px clear below the body; the shadow needs 240.
+    const lay = cutoutLayout(cut(), canvas, { anchor: "bottom-right", inset: 0.15 });
+    assert.equal(lay.body.x + lay.body.width, canvas.width * 0.85);
+    assert.equal(lay.body.y + lay.body.height, canvas.height * 0.85);
+    assert.equal(lay.overflows, false);
+    const off = cutoutLayout(cut(), canvas, { anchor: "bottom", inset: 0 });
+    assert.equal(off.overflows, true, "the shadow below the body runs off the canvas");
+  });
+
+  it("frames past the canvas when fit is over 1, still without upscaling", () => {
+    // 1000px body at scale 4 = 4000px; fit 1.4 of 3840 wants 5376 -> capped native.
+    const wide = cut({ scale: 4, body: { x: 20, y: 20, width: 1000, height: 200 }, region: { width: 1040, height: 280 } });
+    const lay = cutoutLayout(wide, canvas, { fit: 1.4, anchor: "left", inset: 0.05 });
+    assert.equal(lay.scale, 1);
+    assert.equal(lay.body.x, canvas.width * 0.05);
+    assert.ok(lay.body.x + lay.body.width > canvas.width, "runs off the right");
+    assert.equal(lay.overflows, true);
+    // With the pixels to spare it is scaled DOWN to the asked size.
+    const big = cut({ scale: 4, body: { x: 20, y: 20, width: 1800, height: 200 }, region: { width: 1840, height: 280 } });
+    const fit = cutoutLayout(big, canvas, { fit: 1.4, anchor: "left" });
+    assert.equal(Math.round(fit.body.width), Math.round(canvas.width * 1.4));
+  });
+
+  it("refuses a sidecar with no body", () => {
+    assert.throws(() => cutoutLayout(meta(), canvas), /not a cutout/);
+  });
+});
+
+describe("bleedLayout", () => {
+  const canvas = STILL_PRESETS.wide;
+
+  it("is the fitted window, zoomed, anchored top-left by default", () => {
+    const base = windowBox(shotAspect(meta()), canvas, FIT);
+    const box = bleedLayout(meta(), canvas, FIT);
+    assert.equal(box.width, Math.round(base.width * BLEED_ZOOM));
+    assert.equal(box.height, Math.round(base.height * BLEED_ZOOM));
+    assert.ok(box.x > 0 && box.y > 0);
+    assert.ok(box.x + box.width > canvas.width, "runs off the right");
+    assert.ok(box.y + box.height > canvas.height, "runs off the bottom");
+  });
+
+  it("takes the sidecar's framing, and lets a call override it", () => {
+    const fromMeta = bleedLayout(meta({ zoom: 1.5, anchor: "bottom-right" }), canvas, FIT);
+    const explicit = bleedLayout(meta(), canvas, FIT, { zoom: 1.5, anchor: "bottom-right" });
+    assert.deepEqual(fromMeta, explicit);
+    assert.ok(fromMeta.x < 0, "anchored right, so it runs off the left");
+  });
+});
+
+describe("framingProblem", () => {
+  it("accepts nothing set, and every field at a sane value", () => {
+    assert.equal(framingProblem({}), null);
+    assert.equal(
+      framingProblem({ look: "bleed", fit: 0.5, anchor: "top", inset: 0.1, zoom: 1.3, chrome: true }),
+      null,
+    );
+  });
+
+  it("names the bad field", () => {
+    assert.match(framingProblem({ look: "card" })!, /`look`/);
+    assert.match(framingProblem({ fit: 0 })!, /`fit`/);
+    assert.match(framingProblem({ fit: 2.5 })!, /`fit`/);
+    assert.match(framingProblem({ anchor: "middle" })!, /`anchor`/);
+    assert.match(framingProblem({ inset: 0.5 })!, /`inset`/);
+    assert.match(framingProblem({ zoom: 0.9 })!, /`zoom`/);
+    assert.match(framingProblem({ chrome: "yes" })!, /`chrome`/);
+    assert.match(framingProblem({ body: { x: 0, y: 0, width: 0, height: 1 } })!, /`body`/);
+  });
+});
+
+describe("shotMetaProblem with looks", () => {
+  it("reads a sidecar from before looks existed as a window", () => {
+    assert.equal(shotMetaProblem(meta()), null);
+    assert.equal(meta().look, undefined);
+  });
+
+  it("requires a cutout to carry its body", () => {
+    assert.match(shotMetaProblem(meta({ look: "cutout" }))!, /body/);
+    assert.equal(
+      shotMetaProblem(meta({ look: "cutout", body: { x: 1, y: 1, width: 10, height: 10 } })),
+      null,
+    );
+  });
+});
+
+describe("maxScaleFor", () => {
+  it("is the measured 1920x1080x4 surface, and scales with the viewport", () => {
+    assert.equal(maxScaleFor({ width: 1920, height: 1080 }), 4);
+    assert.equal(maxScaleFor({ width: 820, height: 1180 }), 5.8);
+    assert.equal(maxScaleFor({ width: 960, height: 540 }), 8, "hard cap");
+    assert.equal(maxScaleFor({ width: 7680, height: 4320 }), 1);
+  });
+});
+
+describe("hasOwnShadow", () => {
+  it("reads the shadow's reach off the painted extent around the body", () => {
+    const base = meta({ look: "cutout", region: { width: 440, height: 280 } });
+    assert.equal(hasOwnShadow({ ...base, body: { x: 20, y: 20, width: 400, height: 200 } }), true);
+    assert.equal(hasOwnShadow({ ...base, region: { width: 402, height: 202 }, body: { x: 1, y: 1, width: 400, height: 200 } }), false);
+    assert.equal(hasOwnShadow(meta()), false);
+  });
+});
+
+describe("framingProblem ground", () => {
+  it("wants a six-digit hex", () => {
+    assert.equal(framingProblem({ ground: "#F3F3F3" }), null);
+    assert.match(framingProblem({ ground: "grey" })!, /`ground`/);
+    assert.match(framingProblem({ ground: "#fff" })!, /`ground`/);
   });
 });

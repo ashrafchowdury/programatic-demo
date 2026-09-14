@@ -23,16 +23,18 @@
  * byte-identical at 1/2/3/4 (same innerWidth, same bounding boxes) because the
  * factor only changes rasterisation. So the first pass shoots at the usual 2 and
  * measures what the region came out to; if that fell short of the biggest window
- * any preset could ask for, it runs again at the factor that reaches it. Set
- * `scale` in the spec once a shot is settled to skip the second pass.
+ * any preset could ask for, it runs again at the factor that reaches it, up to
+ * the viewport's surface budget (maxScaleFor). Set `scale` in the spec once a
+ * shot is settled to skip the second pass.
  */
 import "dotenv/config";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
-import { chromium, type BrowserContext, type Page } from "playwright";
+import { chromium, type BrowserContext, type Locator, type Page } from "playwright";
 import { buildContext } from "./lib/recorder";
 import { runSteps } from "./lib/flow";
+import { alphaBoundsInPage, isolateInPage } from "./lib/isolate";
 import { dumpVisible, findByName } from "./lib/selectors";
 import {
   isShotRect,
@@ -41,19 +43,27 @@ import {
   type ShotRect,
   type ShotSpec,
 } from "./lib/shot";
-import { hasStoredSession, openContext, resolveHeadless, waitForReady } from "./lib/session";
+import {
+  hasStoredSession,
+  mobileEmulation,
+  openContext,
+  resolveHeadless,
+  waitForReady,
+} from "./lib/session";
 import { DEVICE_SCALE_FACTOR } from "../src/lib/click-log";
 import { WINDOW_FIT } from "../src/lib/window";
-import { maxWindowPx, shotPixels, type ShotMeta } from "../src/lib/still";
+import {
+  captureTargetPx,
+  DEFAULT_LOOK,
+  maxScaleFor,
+  shotPixels,
+  type Box,
+  type ShotMeta,
+} from "../src/lib/still";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const SHOTS = path.join(ROOT, "public", "shots");
 const DIAG = path.join(ROOT, ".diag", "shots");
-
-/** Native pixels a region needs so no preset ever upscales it. */
-const TARGET_PX = maxWindowPx(WINDOW_FIT);
-/** Chromium rasterises fine at 4; beyond that the surface gets unreasonable. */
-const MAX_SCALE = 4;
 
 async function loadShot(name: string): Promise<ShotSpec> {
   const file = path.join(ROOT, "shots", `${name}.ts`);
@@ -79,11 +89,16 @@ async function openShotContext(
   viewport: { width: number; height: number },
   deviceScaleFactor: number,
   baseUrl: string,
+  mobile: boolean,
 ): Promise<{ context: BrowserContext; close: () => Promise<void> }> {
   if (baseUrl && hasStoredSession(baseUrl))
-    return openContext("isolated", { viewport, deviceScaleFactor, baseUrl });
+    return openContext("isolated", { viewport, deviceScaleFactor, baseUrl, mobile });
   const browser = await chromium.launch({ headless: resolveHeadless() });
-  const context = await browser.newContext({ viewport, deviceScaleFactor });
+  const context = await browser.newContext({
+    viewport,
+    deviceScaleFactor,
+    ...(mobile ? mobileEmulation() : {}),
+  });
   return { context, close: () => browser.close() };
 }
 
@@ -102,11 +117,16 @@ function clampRect(
   return { rect, clipped };
 }
 
-/** Resolve the spec's region to a viewport-relative box, and say how. */
+/**
+ * Resolve the spec's region to a viewport-relative box, and say how.
+ *
+ * Also hands back the locator when the region was an element, because a cutout
+ * needs the element itself, not just where it is.
+ */
 async function resolveRegion(
   page: Page,
   spec: ShotSpec,
-): Promise<{ rect: ShotRect; via: string }> {
+): Promise<{ rect: ShotRect; via: string; locator?: Locator }> {
   const vp = spec.viewport;
   const region = spec.region;
   if (region === undefined)
@@ -133,6 +153,86 @@ async function resolveRegion(
   return {
     rect: { x: box.x - pad, y: box.y - pad, w: box.width + pad * 2, h: box.height + pad * 2 },
     via,
+    locator,
+  };
+}
+
+/**
+ * Photograph one element alone: isolate it, measure what it painted, crop to
+ * exactly that. Returns the crop and the element's border box inside it.
+ *
+ * Two screenshots. The first is the whole viewport with alpha, taken only to
+ * be measured — there is no way to know how far a shadow reaches except by
+ * looking — and the second is the tight crop that goes to disk. Both come off
+ * the same page state; nothing is re-run between them.
+ */
+async function shootCutout(
+  page: Page,
+  locator: Locator,
+  spec: ShotSpec,
+  scale: number,
+): Promise<{ rect: ShotRect; body: Box; clipped: boolean }> {
+  const { box, clippers } = await locator.evaluate(isolateInPage);
+  // The sheet cancels transitions, but give the compositor one frame anyway.
+  await page.waitForTimeout(100);
+
+  const full = await page.screenshot({ omitBackground: true, animations: "disabled" });
+  const painted = await page.evaluate(alphaBoundsInPage, full.toString("base64"));
+  if (!painted)
+    throw new Error(
+      `region ${spec.name}: the element painted nothing once isolated (hidden, or zero-size?)`,
+    );
+
+  // Device px -> CSS px, rounded outward so no painted pixel is lost.
+  const raw: ShotRect = {
+    x: Math.floor(painted.x / scale),
+    y: Math.floor(painted.y / scale),
+    w: 0,
+    h: 0,
+  };
+  raw.w = Math.ceil((painted.x + painted.width) / scale) - raw.x;
+  raw.h = Math.ceil((painted.y + painted.height) / scale) - raw.y;
+  const { rect, clipped } = clampRect(raw, spec.viewport);
+
+  const vp = spec.viewport;
+  const edges: string[] = [];
+  if (rect.x === 0) edges.push("left");
+  if (rect.y === 0) edges.push("top");
+  if (rect.x + rect.w >= vp.width) edges.push("right");
+  if (rect.y + rect.h >= vp.height) edges.push("bottom");
+  if (edges.length)
+    console.warn(
+      `           !  the element's shadow reaches the viewport's ${edges.join("/")} edge ` +
+        `and is cut there — raise \`viewport\` or scroll it further in`,
+    );
+  // A clipping ancestor cuts a shadow cleanly, so the painted extent simply
+  // stops at its edge. Catch that by coincidence rather than by parsing CSS —
+  // it also covers filter: drop-shadow, which no box-shadow parser would see.
+  const touches = (a: number, b: number) => Math.abs(a - b) <= 1;
+  for (const c of clippers) {
+    const sides: string[] = [];
+    if (touches(rect.x, c.box.x)) sides.push("left");
+    if (touches(rect.y, c.box.y)) sides.push("top");
+    if (touches(rect.x + rect.w, c.box.x + c.box.width)) sides.push("right");
+    if (touches(rect.y + rect.h, c.box.y + c.box.height)) sides.push("bottom");
+    if (sides.length)
+      console.warn(
+        `           !  \`${c.label}\` clips its contents and the shadow stops at its ` +
+          `${sides.join("/")} edge — it is cut. Use look: "window", or include that ancestor`,
+      );
+  }
+
+  fs.mkdirSync(SHOTS, { recursive: true });
+  await page.screenshot({
+    path: path.join(SHOTS, `${spec.name}.png`),
+    clip: { x: rect.x, y: rect.y, width: rect.w, height: rect.h },
+    omitBackground: true,
+    animations: "disabled",
+  });
+  return {
+    rect,
+    body: { x: box.x - rect.x, y: box.y - rect.y, width: box.width, height: box.height },
+    clipped,
   };
 }
 
@@ -172,7 +272,7 @@ const GRID = (step: number) => `
   return true;
 })()`;
 
-type PassResult = { rect: ShotRect; via: string; clipped: boolean };
+type PassResult = { rect: ShotRect; via: string; clipped: boolean; body?: Box };
 
 /** One full browser run: drive the steps, resolve the region, write the PNG. */
 async function runPass(
@@ -185,6 +285,7 @@ async function runPass(
     spec.viewport,
     scale,
     startUrl ?? "",
+    spec.mobile ?? false,
   );
   try {
     const page = context.pages()[0] ?? (await context.newPage());
@@ -240,7 +341,11 @@ async function runPass(
       await page.waitForTimeout(400);
     }
 
-    const { rect: raw, via } = await resolveRegion(page, spec);
+    // A region measured before the web fonts land is measured against fallback
+    // metrics, and the crop is off by the difference.
+    await page.evaluate(() => document.fonts.ready).catch(() => {});
+
+    const { rect: raw, via, locator } = await resolveRegion(page, spec);
     const { rect, clipped } = clampRect(raw, spec.viewport);
 
     if (probe) {
@@ -252,6 +357,12 @@ async function runPass(
       console.log(`region     -> ${via} at ${rect.x},${rect.y} ${rect.w}x${rect.h}`);
       console.log(`\nvisible elements:\n${await dumpVisible(page)}`);
       return { rect, via, clipped };
+    }
+
+    if (spec.look === "cutout") {
+      // shotProblem guarantees an element region, so the locator is there.
+      const cut = await shootCutout(page, locator!, spec, scale);
+      return { ...cut, via };
     }
 
     fs.mkdirSync(SHOTS, { recursive: true });
@@ -273,9 +384,19 @@ async function main() {
   const forced = argv.find((a) => a.startsWith("--scale="))?.split("=")[1];
 
   const spec = await loadShot(name);
+  // The ceiling is a surface budget, so it depends on the viewport — see
+  // maxScaleFor. A 1920x1080 page stops at 4; a tablet page reaches 5.8.
+  const maxScale = maxScaleFor(spec.viewport);
   const explicit = forced != null ? Number(forced) : spec.scale;
-  if (explicit != null && !(explicit >= 1 && explicit <= MAX_SCALE))
-    throw new Error(`--scale must be between 1 and ${MAX_SCALE}`);
+  if (explicit != null && !(explicit >= 1 && explicit <= maxScale))
+    throw new Error(`--scale must be between 1 and ${maxScale} for this viewport`);
+
+  const look = spec.look ?? DEFAULT_LOOK;
+  // Native pixels the region needs so no preset ever upscales it. A cutout is
+  // judged on its BODY: the shadow around it is not the thing being sized.
+  const targetPx = captureTargetPx(look, WINDOW_FIT, spec);
+  const longEdge = (p: PassResult) =>
+    p.body ? Math.max(p.body.width, p.body.height) : Math.max(p.rect.w, p.rect.h);
 
   let scale = explicit ?? DEVICE_SCALE_FACTOR;
   let pass = await runPass(spec, scale, probe);
@@ -284,12 +405,12 @@ async function main() {
   // Measure, then re-run only if the region came up short. Layout does not move
   // with the scale factor, so the second pass reproduces the first exactly.
   if (explicit == null) {
-    const longest = Math.max(pass.rect.w, pass.rect.h);
-    const needed = Math.min(MAX_SCALE, Math.ceil(TARGET_PX / longest));
+    const longest = longEdge(pass);
+    const needed = Math.min(maxScale, Math.ceil((targetPx / longest) * 10) / 10);
     if (needed > scale) {
       console.log(
         `scale      -> ${scale} gave ${Math.round(longest * scale)}px on the long ` +
-          `edge, short of ${TARGET_PX}; re-shooting at ${needed}`,
+          `edge, short of ${targetPx}; re-shooting at ${needed}`,
       );
       scale = needed;
       pass = await runPass(spec, scale, false);
@@ -303,6 +424,15 @@ async function main() {
     viewport: spec.viewport,
     via: pass.via,
     backdrop: spec.backdrop,
+    ...(spec.ground ? { ground: spec.ground } : {}),
+    ...(spec.look ? { look: spec.look } : {}),
+    ...(spec.fit != null ? { fit: spec.fit } : {}),
+    ...(spec.anchor ? { anchor: spec.anchor } : {}),
+    ...(spec.inset != null ? { inset: spec.inset } : {}),
+    ...(spec.zoom != null ? { zoom: spec.zoom } : {}),
+    ...(spec.chrome != null ? { chrome: spec.chrome } : {}),
+    ...(spec.shadow != null ? { shadow: spec.shadow } : {}),
+    ...(pass.body ? { body: pass.body } : {}),
   };
   fs.writeFileSync(
     path.join(SHOTS, `${spec.name}.json`),
@@ -310,18 +440,28 @@ async function main() {
   );
 
   const px = shotPixels(meta);
-  const longest = Math.max(px.width, px.height);
+  const longest = Math.round(longEdge(pass) * scale);
+  console.log(`look       -> ${look}`);
   console.log(`region     -> ${pass.via} ${pass.rect.w}x${pass.rect.h} css px`);
+  if (pass.body)
+    console.log(
+      `body       -> ${Math.round(pass.body.width)}x${Math.round(pass.body.height)} css px ` +
+        `at ${Math.round(pass.body.x)},${Math.round(pass.body.y)} inside the crop`,
+    );
   console.log(`captured   -> ${px.width}x${px.height} at scale ${scale}`);
-  if (pass.clipped)
+  if (pass.clipped && !pass.body)
     console.warn(
       `           !  the region ran past the viewport and was cropped — ` +
         `raise viewport in shots/${spec.name}.ts`,
     );
-  if (longest < TARGET_PX)
+  if (longest < targetPx)
     console.warn(
-      `           !  ${longest}px on the long edge is under ${TARGET_PX}; the ` +
-        `composition will upscale it. Shoot a larger region, or a bigger viewport.`,
+      pass.body
+        ? `           !  ${longest}px on the body's long edge is under ${targetPx}; it ` +
+            `will sit at native size, under \`fit\`. Shoot a larger element, lower \`fit\`, ` +
+            `or use a smaller preset.`
+        : `           !  ${longest}px on the long edge is under ${targetPx}; the ` +
+            `composition will upscale it. Shoot a larger region, or a bigger viewport.`,
     );
   console.log(`png        -> public/shots/${spec.name}.png`);
 }

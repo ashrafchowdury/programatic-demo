@@ -72,4 +72,6 @@ reels/*
 # covered by the `out` rule above.
 shots/*
 !shots/smoke.ts
+!shots/smoke-cutout.ts
+!shots/smoke-bleed.ts
 public/shots/

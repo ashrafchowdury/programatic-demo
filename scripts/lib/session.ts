@@ -18,7 +18,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { chromium, type Browser, type BrowserContext } from "playwright";
+import { chromium, devices, type Browser, type BrowserContext } from "playwright";
 import {
   DEVICE_SCALE_FACTOR,
   RECORD_SLOW_MO_MS,
@@ -66,6 +66,14 @@ export type SessionMode = "profile" | "isolated";
 export type ContextSpec = {
   /** LOGICAL viewport the flow authored against. Enlarged when captureScale > 1. */
   viewport: { width: number; height: number };
+  /**
+   * Present as a mobile browser: a tablet user agent with the `isMobile` and
+   * touch emulation that make Chromium send `Sec-CH-UA-Mobile: ?1`. Some apps
+   * route their mobile layout by that hint (agenta's `/m/` pages bounce a
+   * desktop client to the desktop route), and a viewport alone does not pass
+   * it — measured: 700px wide with a desktop UA still redirected.
+   */
+  mobile?: boolean;
   /** Omit for a check run — no video is written. `size` is the LOGICAL size. */
   recordVideo?: { dir: string; size: { width: number; height: number } };
   headless?: boolean;
@@ -130,6 +138,13 @@ export function resolveHeadless(): boolean {
   return true;
 }
 
+/** Context options that make Chromium present as a mobile client. See ContextSpec.mobile. */
+export const mobileEmulation = () => ({
+  userAgent: devices["iPad Pro 11"].userAgent,
+  isMobile: true,
+  hasTouch: true,
+});
+
 export async function openContext(
   mode: SessionMode,
   spec: ContextSpec,
@@ -143,6 +158,7 @@ export async function openContext(
   const common = {
     viewport: physicalViewport,
     deviceScaleFactor: spec.deviceScaleFactor ?? DEVICE_SCALE_FACTOR,
+    ...(spec.mobile ? mobileEmulation() : {}),
     recordVideo: spec.recordVideo
       ? { dir: spec.recordVideo.dir, size: physicalViewport }
       : undefined,

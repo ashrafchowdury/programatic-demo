@@ -74,9 +74,10 @@ pnpm lint            # eslint + tsc --noEmit, covers src/ scripts/ flows/
 Demo: `pnpm record:live <name>` → `pnpm convert <name>` → `pnpm render <name>`.
 Reel: author `reels/<name>.ts` (cards + clip ranges), then `pnpm reel <name>`
 (cards render, demo clips are cut in, all concatenated).
-Still: author `shots/<name>.ts` (steps + the region to keep), then
-`pnpm still <name> [preset|--all]`. `pnpm shot <name> --probe` writes a
-coordinate grid to `.diag/shots/` for picking a rect by eye.
+Still: author `shots/<name>.ts` (steps + the region to keep + a `look`:
+`window`, `cutout` or `bleed`), then `pnpm still <name> [preset|--all]`.
+`pnpm shot <name> --probe` writes a coordinate grid to `.diag/shots/` for
+picking a rect by eye.
 
 Needs **system ffmpeg** (`brew install ffmpeg`); the bundled one lacks
 `signalstats` and the recorder silently mis-syncs without it.

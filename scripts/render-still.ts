@@ -7,6 +7,14 @@
  *   pnpm render:still <name> og         one named preset
  *   pnpm render:still <name> --all      every preset
  *   pnpm render:still <name> --from shot.png    frame an image you already have
+ *   pnpm render:still <name> --look=bleed --anchor=bottom-right --zoom=1.5
+ *                                       reframe a window capture without re-shooting
+ *
+ * Framing flags: --look=window|bleed, --anchor=, --inset=, --zoom= (bleed),
+ * --fit= (cutout), --chrome, --shadow, --ground=#f3f3f3 (a flat colour instead
+ * of the backdrop image). Each overrides the shot's own. A cutout is a
+ * CAPTURE decision (its PNG carries alpha), so --look cannot turn a window
+ * capture into one or a cutout into anything else; it says so and stops.
  *
  * The capture is the slow half and it is already done by the time this runs, so
  * re-framing is cheap — iterate on the preset here rather than re-shooting.
@@ -23,17 +31,38 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
+  CUTOUT_FIT,
+  cutoutLayout,
+  framingProblem,
   isPresetId,
   maxWindowPx,
+  resolveAnchor,
+  resolveLook,
   resolvePreset,
   shotMetaProblem,
   STILL_PRESET_IDS,
+  STILL_PRESETS,
+  type Anchor,
+  type StillLook,
   type StillPresetId,
 } from "../src/lib/still";
+import { isLightBackdrop, isLightGround } from "../src/lib/backdrop";
 import { WINDOW_FIT } from "../src/lib/window";
 import { outPath, outRel } from "./lib/out";
 import { imageSize } from "./lib/image-size";
 import type { ShotMeta } from "../src/lib/still";
+
+/** Framing overrides from the command line, passed through to the composition. */
+type Framing = {
+  look?: StillLook;
+  ground?: string;
+  shadow?: boolean;
+  fit?: number;
+  anchor?: Anchor;
+  inset?: number;
+  zoom?: number;
+  chrome?: boolean;
+};
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const REMOTION_BIN = path.join(ROOT, "node_modules", ".bin", "remotion");
@@ -44,25 +73,62 @@ const resolveGl = (raw?: string): string =>
 function renderOne(
   name: string,
   preset: StillPresetId,
+  look: StillLook,
+  framing: Framing,
   backdrop?: string,
 ): string {
-  // An explicit backdrop goes in the filename: rendering the same shot on two
-  // backdrops is a normal thing to want, and a shared name would silently leave
-  // you with only the last one.
-  const suffix = backdrop ? `-${backdrop.replace(/\.[^.]+$/, "")}` : "";
+  // The look and an explicit backdrop go in the filename: rendering the same
+  // shot as a window and as a bleed, or on two backdrops, is a normal thing to
+  // want, and a shared name would silently leave you with only the last one.
+  const suffix =
+    (look === "window" ? "" : `-${look}`) +
+    (backdrop ? `-${backdrop.replace(/\.[^.]+$/, "")}` : "") +
+    (framing.ground ? `-${framing.ground.slice(1).toLowerCase()}` : "");
   const out = outPath("still", `${name}-${preset}${suffix}.png`);
+  const props = { name, preset, ...framing, look, ...(backdrop ? { backdrop } : {}) };
   execFileSync(
     REMOTION_BIN,
-    [
-      "still",
-      "Still",
-      out,
-      `--props=${JSON.stringify({ name, preset, ...(backdrop ? { backdrop } : {}) })}`,
-      `--gl=${resolveGl(process.env.DEMO_GL)}`,
-    ],
+    ["still", "Still", out, `--props=${JSON.stringify(props)}`, `--gl=${resolveGl(process.env.DEMO_GL)}`],
     { stdio: "inherit" },
   );
   return out;
+}
+
+/** `--name=value` from argv, or undefined. */
+const flag = (argv: string[], name: string): string | undefined =>
+  argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3);
+
+const numberFlag = (argv: string[], name: string): number | undefined => {
+  const raw = flag(argv, name);
+  if (raw == null) return undefined;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) throw new Error(`--${name} wants a number, got "${raw}"`);
+  return n;
+};
+
+/**
+ * Which look this render uses, given what was captured and what was asked.
+ *
+ * A cutout's PNG is the element with alpha; a window's is an opaque crop. The
+ * composition cannot turn one into the other, so a request across that line
+ * is refused here — with the fix — rather than rendering something that is
+ * neither.
+ */
+function pickLook(meta: ShotMeta, asked: string | undefined, name: string): StillLook {
+  const captured: StillLook = meta.look ?? "window";
+  if (asked == null) return captured;
+  const look = resolveLook(asked);
+  if (captured === "cutout" && look !== "cutout")
+    throw new Error(
+      `${name} was captured as a cutout; to frame it as ${look}, set look: "${look}" ` +
+        `in shots/${name}.ts and re-run \`pnpm shot ${name}\``,
+    );
+  if (captured !== "cutout" && look === "cutout")
+    throw new Error(
+      `${name} was captured as a ${captured} crop; a cutout is captured differently — ` +
+        `set look: "cutout" in shots/${name}.ts and re-run \`pnpm shot ${name}\``,
+    );
+  return look;
 }
 
 /**
@@ -126,8 +192,24 @@ async function main() {
       `Missing public/shots/${name}.json — the sidecar carries the region's ` +
         `shape. Re-run \`pnpm shot ${name}\`.`,
     );
-  const problem = shotMetaProblem(JSON.parse(fs.readFileSync(json, "utf8")));
+  const meta = JSON.parse(fs.readFileSync(json, "utf8")) as ShotMeta;
+  const problem = shotMetaProblem(meta);
   if (problem) throw new Error(`public/shots/${name}.json is ${problem}`);
+
+  const look = pickLook(meta, flag(argv, "look"), name);
+  const framing: Framing = {
+    fit: numberFlag(argv, "fit"),
+    anchor: flag(argv, "anchor") != null ? resolveAnchor(flag(argv, "anchor")) : undefined,
+    inset: numberFlag(argv, "inset"),
+    zoom: numberFlag(argv, "zoom"),
+    chrome: argv.includes("--chrome") ? true : undefined,
+    shadow: argv.includes("--shadow") ? true : undefined,
+    ground: flag(argv, "ground"),
+  };
+  for (const key of Object.keys(framing) as (keyof Framing)[])
+    if (framing[key] === undefined) delete framing[key];
+  const framingIssue = framingProblem(framing);
+  if (framingIssue) throw new Error(framingIssue);
 
   // A second positional is a preset; reject a typo here rather than silently
   // rendering the default, which looks like the flag was ignored.
@@ -140,8 +222,29 @@ async function main() {
     ? [...STILL_PRESET_IDS]
     : [resolvePreset(asked ?? process.env.DEMO_PRESET)];
 
-  for (const preset of presets)
-    console.log(`still      -> ${outRel(renderOne(name, preset, backdrop))}`);
+  const flat = framing.ground ?? (backdrop ? undefined : meta.ground);
+  const onLight = flat
+    ? isLightGround(flat)
+    : isLightBackdrop(backdrop ?? process.env.DEMO_BACKDROP ?? meta.backdrop ?? "");
+  if (look === "cutout" && !onLight)
+    console.warn(
+      `           !  a cutout's own shadow cannot read on a dark backdrop; it gets a ` +
+        `hairline lift instead. For a soft shadow use --ground=#f3f3f3 or a light backdrop.`,
+    );
+
+  for (const preset of presets) {
+    if (look === "cutout") {
+      const lay = cutoutLayout(meta, STILL_PRESETS[preset], framing);
+      if (lay.native)
+        console.warn(
+          `           !  ${preset}: drawn at native size (${lay.img.width}px wide) — ` +
+            `the capture is too small to fill \`fit\` without upscaling`,
+        );
+      if (lay.overflows && (framing.fit ?? meta.fit ?? CUTOUT_FIT) <= 1)
+        console.warn(`           !  ${preset}: the element's shadow runs past the canvas`);
+    }
+    console.log(`still      -> ${outRel(renderOne(name, preset, look, framing, backdrop))}`);
+  }
 }
 
 main().catch((err) => {

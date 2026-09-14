@@ -16,6 +16,12 @@
 import type { Page } from "playwright";
 import type { CssTarget, Step } from "./flow";
 import type { TargetOverrides } from "./selectors";
+import {
+  framingProblem,
+  maxScaleFor,
+  type Anchor,
+  type StillLook,
+} from "../../src/lib/still";
 
 /** An explicit region in viewport CSS px. */
 export type ShotRect = { x: number; y: number; w: number; h: number };
@@ -40,6 +46,12 @@ export type ShotSpec = {
   /** Output name: public/shots/<name>.png and out/shots/<name>-<preset>.png. */
   name: string;
   viewport: { width: number; height: number };
+  /**
+   * Present as a mobile browser (tablet UA + mobile client hints). For apps
+   * that serve a separate mobile layout and route by the hint rather than the
+   * viewport — see ContextSpec.mobile in ./session.
+   */
+  mobile?: boolean;
   /** Where to start. Read from process.env.DEMO_URL_<NAME> — never hardcoded. */
   startUrl?: string;
   /** Polled until the app is usable, exactly as a flow's is. */
@@ -52,6 +64,12 @@ export type ShotSpec = {
   steps?: readonly Step[];
   /** Studio backdrop name. See src/lib/backdrop.ts. */
   backdrop?: string;
+  /**
+   * A flat ground colour instead of a backdrop image, e.g. "#f3f3f3". The
+   * reference stills all sit on one: the product is the picture and the ground
+   * is a margin, so a photograph behind it competes. Wins over `backdrop`.
+   */
+  ground?: string;
   /** The part to keep. Omit for the whole viewport. */
   region?: ShotRegion;
   /**
@@ -68,10 +86,33 @@ export type ShotSpec = {
    *
    * The capture stage otherwise runs once at DEVICE_SCALE_FACTOR, measures what
    * the region actually came out to, and re-runs at a higher factor if it fell
-   * short of 4K. Setting this skips the second pass — worth doing once a shot
-   * is settled, since the re-run drives the whole step list again.
+   * short — up to what the viewport's surface budget allows (maxScaleFor in
+   * src/lib/still.ts). Setting this skips the second pass — worth doing once a
+   * shot is settled, since the re-run drives the whole step list again.
    */
   scale?: number;
+  /**
+   * How to frame it. See STILL_LOOKS in src/lib/still.ts.
+   *
+   *   window  (default) the crop in the floating window frame
+   *   cutout  the element alone, own shadow, transparent edges. Needs an
+   *           element region — a name or css() — since there has to be one
+   *           element to isolate; a rect or the whole viewport is refused
+   *   bleed   the window drawn larger than the canvas, anchored to an edge
+   */
+  look?: StillLook;
+  /** cutout: fraction of the canvas the element may occupy. Default CUTOUT_FIT. */
+  fit?: number;
+  /** cutout, bleed: where on the canvas. Cutout defaults to center, bleed to top-left. */
+  anchor?: Anchor;
+  /** cutout, bleed: fraction of the canvas edge kept clear on the anchored side(s). */
+  inset?: number;
+  /** bleed: how much larger than the fitted window. Default BLEED_ZOOM. */
+  zoom?: number;
+  /** window, bleed: draw the fake macOS titlebar. */
+  chrome?: boolean;
+  /** cutout: cast a soft shadow. Default: only when the element brought none. */
+  shadow?: boolean;
 };
 
 export const defineShot = (spec: ShotSpec): ShotSpec => spec;
@@ -98,6 +139,8 @@ export function shotProblem(value: unknown): string | null {
     return "`viewport.width` must be a number > 0";
   if (!(typeof vp.height === "number" && vp.height > 0))
     return "`viewport.height` must be a number > 0";
+  if (shot.mobile !== undefined && typeof shot.mobile !== "boolean")
+    return "`mobile` must be a boolean";
   if (shot.steps !== undefined && !Array.isArray(shot.steps))
     return "`steps` must be an array";
   if (
@@ -105,11 +148,11 @@ export function shotProblem(value: unknown): string | null {
     !(typeof shot.padding === "number" && shot.padding >= 0)
   )
     return "`padding` must be a number >= 0";
-  if (
-    shot.scale !== undefined &&
-    !(typeof shot.scale === "number" && shot.scale >= 1 && shot.scale <= 4)
-  )
-    return "`scale` must be a number between 1 and 4";
+  if (shot.scale !== undefined) {
+    const max = maxScaleFor(vp as { width: number; height: number });
+    if (!(typeof shot.scale === "number" && shot.scale >= 1 && shot.scale <= max))
+      return `\`scale\` must be a number between 1 and ${max} for a ${vp.width}x${vp.height} viewport`;
+  }
   const region = shot.region;
   if (region !== undefined) {
     if (typeof region === "string") {
@@ -131,6 +174,13 @@ export function shotProblem(value: unknown): string | null {
     } else {
       return "`region` must be a name, css(...), or {x,y,w,h}";
     }
+  }
+  const framing = framingProblem(shot);
+  if (framing) return framing;
+  if (shot.look === "cutout") {
+    if (region === undefined) return "a cutout needs a `region` naming one element";
+    if (typeof region === "object" && isShotRect(region as ShotRegion))
+      return "a cutout `region` must be a name or css(...), not a rect — there is no element to isolate";
   }
   return null;
 }

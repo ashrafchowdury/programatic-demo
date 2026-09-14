@@ -3,8 +3,18 @@ import { AbsoluteFill, Img, staticFile, useVideoConfig } from "remotion";
 import { Backdrop } from "./DemoClip";
 import { RimLight, Stage, WindowFrame } from "./WindowFrame";
 import { WINDOW_FIT } from "./lib/window";
-import { shotAspect, windowBox, type ShotMeta } from "./lib/still";
-import { isLightBackdrop } from "./lib/backdrop";
+import {
+  bleedLayout,
+  cutoutLayout,
+  hasOwnShadow,
+  shotAspect,
+  windowBox,
+  type Anchor,
+  type ShotMeta,
+  type StillLook,
+} from "./lib/still";
+import { isLightBackdrop, isLightGround } from "./lib/backdrop";
+import { useDesignScale } from "./WindowFrame";
 
 export type StillShotProps = {
   /** Reads public/shots/<name>.png. */
@@ -15,6 +25,22 @@ export type StillShotProps = {
   chrome?: boolean;
   /** Studio backdrop name. See src/lib/backdrop.ts. Defaults to "glaze". */
   backdrop?: string;
+  /** Flat ground colour instead of the backdrop image. Wins over `backdrop`. */
+  ground?: string;
+  /** Cutout: cast a soft shadow. Defaults to "only if the element has none". */
+  shadow?: boolean;
+  /**
+   * How to frame it. See STILL_LOOKS. Defaults to the sidecar's, then "window".
+   * A cutout can only be rendered as a cutout — its PNG is the element with
+   * alpha, not a crop — and Root falls back to the sidecar's look if asked
+   * otherwise.
+   */
+  look?: StillLook;
+  /** Framing knobs; each overrides the sidecar's. Which apply depends on `look`. */
+  fit?: number;
+  anchor?: Anchor;
+  inset?: number;
+  zoom?: number;
 };
 
 /**
@@ -44,8 +70,88 @@ export const StillShot: React.FC<StillShotProps> = ({
   meta,
   chrome,
   backdrop,
+  ground,
+  shadow,
+  look,
+  fit,
+  anchor,
+  inset,
+  zoom,
 }) => {
   const { width, height } = useVideoConfig();
+  const k = useDesignScale();
+  // A flat ground answers the light/dark question by measurement, an image by
+  // the hand-kept list — exactly as DemoClip decides it.
+  const light = ground ? isLightGround(ground) : isLightBackdrop(backdrop ?? "");
+  const resolved = look ?? meta.look ?? "window";
+
+  if (resolved === "cutout" && meta.body) {
+    const lay = cutoutLayout(meta, { width, height }, { fit, anchor, inset });
+    // Elevation. On a light ground: the element's own shadow if it painted
+    // one, else a soft cast shadow so it does not sit like a sticker — both
+    // drawn from the alpha, so they follow the exact shape. On a dark ground a
+    // dark shadow has nothing darker to be, so it gets RimLight's hairline
+    // lift instead, for the same reason RimLight exists.
+    const cast = shadow ?? meta.shadow ?? !hasOwnShadow(meta);
+    const filter = !light
+      ? `drop-shadow(0 0 ${k}px rgba(255,255,255,0.14))`
+      : cast
+        ? `drop-shadow(0 ${18 * k}px ${22 * k}px rgba(15,23,42,0.10)) ` +
+          `drop-shadow(0 ${2 * k}px ${4 * k}px rgba(15,23,42,0.06))`
+        : undefined;
+    return (
+      <AbsoluteFill>
+        <Backdrop name={backdrop} ground={ground} />
+        {/*
+          The element alone. Its own shadow and anti-aliased corners are in the
+          PNG's alpha, so nothing is drawn AROUND it: no frame, no rim, no
+          colour filter, no clip. Elevation, when needed, is a filter on the
+          image itself — see `filter` above.
+        */}
+        <Img
+          src={staticFile(`shots/${name}.png`)}
+          style={{
+            position: "absolute",
+            left: lay.img.x,
+            top: lay.img.y,
+            width: lay.img.width,
+            height: lay.img.height,
+            filter,
+          }}
+        />
+      </AbsoluteFill>
+    );
+  }
+
+  if (resolved === "bleed") {
+    // The window look's two layers — rim, then window — at the same box, but
+    // that box is larger than the canvas and anchored, so Stage's flex centring
+    // cannot place it. Absolute positioning inside a clipping fill instead.
+    const box = bleedLayout(meta, { width, height }, WINDOW_FIT, { zoom, anchor, inset });
+    const at: React.CSSProperties = {
+      position: "absolute",
+      left: box.x,
+      top: box.y,
+      width: box.width,
+      height: box.height,
+    };
+    return (
+      <AbsoluteFill style={{ overflow: "hidden" }}>
+        <Backdrop name={backdrop} ground={ground} />
+        <div style={at}>
+          <RimLight light={light} />
+        </div>
+        <div style={at}>
+          <WindowFrame chrome={chrome ?? meta.chrome} hostLabel={name.replace(/-/g, ".")}>
+            <Img
+              src={staticFile(`shots/${name}.png`)}
+              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            />
+          </WindowFrame>
+        </div>
+      </AbsoluteFill>
+    );
+  }
   // The window takes the region's shape, fitted into the preset's canvas on
   // whichever axis binds first — the two aspects are independent here, unlike
   // in a clip where the window always matches the recording. See windowBox.
@@ -58,16 +164,16 @@ export const StillShot: React.FC<StillShotProps> = ({
 
   return (
     <AbsoluteFill>
-      <Backdrop name={backdrop} />
+      <Backdrop name={backdrop} ground={ground} />
       {/* Elevation first, as its own layer, exactly as DemoClip stacks it. */}
       <Stage>
         <div style={frame}>
-          <RimLight light={isLightBackdrop(backdrop ?? "")} />
+          <RimLight light={light} />
         </div>
       </Stage>
       <Stage>
         <div style={frame}>
-          <WindowFrame chrome={chrome} hostLabel={name.replace(/-/g, ".")}>
+          <WindowFrame chrome={chrome ?? meta.chrome} hostLabel={name.replace(/-/g, ".")}>
             {/*
               `cover`, not `fill`: windowBox preserves the region's aspect, but
               it rounds to whole pixels, and `fill` would turn that half-pixel
