@@ -441,13 +441,14 @@ slow half and it is already done.
 | `region` | — | all | whole viewport | a visible name, `css("…")`, or `{ x, y, w, h }` |
 | `padding` | — | window, bleed | 16 | CSS px of breathing room around a resolved element. Not applied to a rect; irrelevant to a cutout, which measures its own extent |
 | `backdrop` | `--backdrop=` | all | `glaze` | one of the sixteen images below, or a file in `public/backdrops/` |
-| `ground` | `--ground=` | all | — | a flat `#rrggbb` instead of the backdrop image. Wins over `backdrop`. What cutouts and bleeds want |
+| `ground` | `--ground=` | all | — | a flat `#rrggbb` instead of the backdrop image, or `transparent` for a PNG with alpha. Wins over `backdrop`. What cutouts and bleeds want |
 | `fit` | `--fit=` | cutout | 0.8 | fraction of the canvas the element's body may fill, on whichever axis binds. Over 1 (up to 2) crops *into* it |
 | `anchor` | `--anchor=` | cutout, bleed | `center` / `top-left` | `top-left`, `top`, `top-right`, `left`, `center`, `right`, `bottom-left`, `bottom`, `bottom-right` |
 | `inset` | `--inset=` | cutout, bleed | 0 / 0.06 | fraction of the canvas edge kept clear on the anchored side(s) |
 | `zoom` | `--zoom=` | bleed | 1.3 | how much larger than the fitted window |
-| `chrome` | `--chrome` | window, bleed | off | the fake macOS titlebar |
 | `shadow` | `--shadow` | cutout | auto | cast a soft shadow under the element. Auto = only when the element painted none of its own |
+| `split` | `--split=` | all | — | cut the still into this many pieces side by side, each the preset's size, laid out as one picture (below) |
+| `gutter` | `--gutter=` | all | 0 | output px of the composition left out between pieces — the platform's gap |
 | `scale` | `--scale=` | all | measured | force the device scale factor and skip the measuring pass. Capped by the viewport's surface budget (below) |
 | `mobile` | — | all | off | present as a mobile client (tablet UA + mobile hints) for apps that serve a mobile layout on its own route |
 | `viewport`, `startUrl`, `ready`, `prepare`, `targets`, `steps` | — | all | — | exactly as in a flow — the recipe for reaching the state worth photographing |
@@ -469,6 +470,27 @@ dark rim shadow. On a **dark** one a dark shadow has nothing darker to be, so a
 cutout gets a hairline lift that follows its alpha and a window gets the white
 rim. `--ground=` a hex colour and the light/dark question is answered by its
 luminance; an image answers it from the `LIGHT_BACKDROPS` list.
+
+### Splits: one picture, posted as several
+
+```bash
+pnpm render:still sessions-filter-bleed portrait --split=3 --gutter=8
+#  → out/still/sessions-filter-bleed-portrait-bleed-{1,2,3}of3.png
+```
+
+A split lays the still out **once** across a canvas `split` pieces wide, then
+renders each piece as its own image — the same layout, translated. Posted in
+order, they read as one picture: a window running across three portrait
+frames, a component straddling two squares. The cut is exact by construction;
+no image is ever sliced, and every look works inside a split unchanged.
+
+`gutter` is the strip between pieces that no piece renders. Platforms draw
+their own gap between images laid side by side; leaving that much of the
+composition out is what makes a line continue straight across the gap
+instead of jogging at it. Use 0 for a swipe carousel, where pieces butt
+together, and a few px for a multi-image post. The capture side knows about
+the split too — a window three pieces wide needs three times the pixels, and
+the scale is measured against that.
 
 Things a cutout will tell you about, rather than quietly ship:
 

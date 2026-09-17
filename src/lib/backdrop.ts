@@ -112,6 +112,9 @@ export function backdropProblem(value: unknown): string | null {
  * `mist` get.
  */
 export function isLightGround(hex: string): boolean {
+  // Nothing behind it: assume it will land on something light, where a cast
+  // shadow is useful and a white hairline would be invisible anyway.
+  if (hex === "transparent") return true;
   const h = hex.replace("#", "");
   if (h.length !== 6) return false;
   const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);

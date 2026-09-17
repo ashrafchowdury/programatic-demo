@@ -138,7 +138,6 @@ export default defineShot({
   region: css(".app"),
   padding: 0,
   anchor: "top-left",   // which corner stays on screen
-  chrome: true,         // the macOS titlebar, if the region is a whole screen
 });
 ```
 
@@ -162,13 +161,14 @@ Framing knobs, in the spec or as `--flag=` on `render:still` (the flag wins):
 
 | knob | applies to | default | meaning |
 | --- | --- | --- | --- |
-| `ground` | all | — | flat colour instead of the backdrop image, `#f3f3f3` |
+| `ground` | all | — | flat colour instead of the backdrop image, `#f3f3f3`, or `transparent` |
+| `split` | all | — | cut into this many pieces side by side, laid out as one picture |
+| `gutter` | all | 0 | output px left out between pieces — the platform's gap |
 | `fit` | cutout | 0.8 | fraction of the canvas the element may fill — over 1 crops INTO it (up to 2) |
 | `shadow` | cutout | auto | cast a soft shadow; default only when the element painted none |
 | `anchor` | cutout, bleed | center / top-left | `top-left`, `top`, … `bottom-right`, `center` |
 | `inset` | cutout, bleed | 0 / 0.06 | fraction of the canvas edge kept clear on the anchored side(s) |
 | `zoom` | bleed | 1.3 | how much larger than the fitted window |
-| `chrome` | window, bleed | off | the fake macOS titlebar |
 
 **Crop into the subject, don't present it whole.** The reference stills run a
 composer off the right edge and a window off two sides; a component centred
@@ -176,6 +176,14 @@ with a margin on every side is a catalogue shot. `fit: 1.35, anchor: "left",
 inset: 0.08` frames a cutout wider than the canvas and pins its left edge.
 And give it something to show — an empty input with placeholder text is not
 a picture of anything: type the task and attach the files in `steps` first.
+
+**A split is one picture posted as several.** `split: 3` (or `--split=3`)
+lays the still out across three pieces of the preset's size and renders each
+as its own file, `-1of3` … `-3of3`; posted in order they read as one. `gutter`
+leaves the platform's gap between images out of the composition so lines
+continue straight across it — 0 for a swipe carousel, ~8 for a multi-image
+post. Every look works inside a split; the cut is exact because nothing is
+sliced — each piece is the same layout, translated.
 
 A cutout **never upscales**. The capture shoots at the scale `fit` asks for;
 if the element is still too small to fill it, it is drawn at native pixels and

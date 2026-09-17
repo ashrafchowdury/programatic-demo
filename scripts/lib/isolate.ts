@@ -35,6 +35,17 @@
  * for the whole ramp after it is set hidden, and a screenshot taken inside that
  * window catches it half-gone.
  *
+ * WHY THE HOVERED ELEMENT STAYS HIT-TESTABLE
+ * A hidden box is not hit-tested, so hiding the page changes which element is
+ * under the pointer, and Chromium then dispatches the boundary events
+ * (mouseout/leave) on its next deferred fake mouse move. Anything open on
+ * hover — a submenu, a tooltip, a hover card — closes on that event and the
+ * screenshot finds nothing. Measured: the same submenu survived at 2x and
+ * vanished at 4x, purely because the larger screenshot took longer than the
+ * timer. So the deepest `:hover` element, when it is not part of what is
+ * kept, is left visible at opacity 0: it paints nothing and still hit-tests,
+ * so the pointer target never changes and no event fires.
+ *
  * WHY TRANSLUCENT FILLS ARE FLATTENED
  * Design systems paint surfaces as tints — `bg-muted/50`, a 4% black hover — that
  * only look right over the page behind them. Take the page away and a grey
@@ -48,7 +59,7 @@
  */
 
 export type IsolateResult = {
-  /** The element's border box, CSS px, viewport-relative. */
+  /** The kept elements' border box (their union), CSS px, viewport-relative. */
   box: { x: number; y: number; width: number; height: number };
   /**
    * Every ancestor that clips its subtree's paint (overflow, clip-path,
@@ -63,12 +74,16 @@ export type IsolateResult = {
 
 export const isolateInPage = new Function(
   "el",
+  "extras",
   `
   const rect = (r) => ({ x: r.left, y: r.top, width: r.width, height: r.height });
   const visible = (n) => getComputedStyle(n).visibility === "visible";
+  // Every root kept: the element, plus any the shot named alongside it — a
+  // popover with its submenu, a menu with the control it opened from.
+  const roots = [el, ...(extras || [])];
 
   // Judge visibility BEFORE the sheet goes in, or everything reads hidden.
-  const show = [el, ...Array.from(el.querySelectorAll("*"))].filter(visible);
+  const show = roots.flatMap((r) => [r, ...Array.from(r.querySelectorAll("*"))]).filter(visible);
 
   // Flatten translucent fills over what was behind them, while it is still there.
   const parse = (c) => {
@@ -122,18 +137,31 @@ export const isolateInPage = new Function(
     });
   }
 
+  const hovered = Array.from(document.querySelectorAll(":hover"));
+  const underPointer = hovered[hovered.length - 1];
+  if (underPointer && !show.includes(underPointer)) underPointer.setAttribute("data-shot-hit", "");
+
   const style = document.createElement("style");
   style.id = "__shot_isolate__";
   style.textContent =
     "*,*::before,*::after{visibility:hidden!important;transition:none!important;animation:none!important}" +
     "html,body{background:transparent!important}" +
-    "[data-shot-show],[data-shot-show]::before,[data-shot-show]::after{visibility:visible!important}";
+    "[data-shot-show],[data-shot-show]::before,[data-shot-show]::after{visibility:visible!important}" +
+    "[data-shot-hit]{visibility:visible!important;opacity:0!important}";
   for (const n of show) n.setAttribute("data-shot-show", "");
   document.head.appendChild(style);
 
-  return { box: rect(el.getBoundingClientRect()), clippers };
+  // The body is the union of the roots' border boxes.
+  const rs = roots.map((r) => r.getBoundingClientRect());
+  const x = Math.min(...rs.map((r) => r.left)), y = Math.min(...rs.map((r) => r.top));
+  const box = {
+    x, y,
+    width: Math.max(...rs.map((r) => r.right)) - x,
+    height: Math.max(...rs.map((r) => r.bottom)) - y,
+  };
+  return { box, clippers };
 `,
-) as (el: Element) => IsolateResult;
+) as (el: Element, extras?: Element[]) => IsolateResult;
 
 /**
  * Tight bounding box of every pixel with alpha > 0, in the PNG's own pixels, or

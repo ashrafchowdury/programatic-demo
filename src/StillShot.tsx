@@ -8,21 +8,21 @@ import {
   cutoutLayout,
   hasOwnShadow,
   shotAspect,
+  splitCanvas,
   windowBox,
   type Anchor,
   type ShotMeta,
+  type Split,
   type StillLook,
 } from "./lib/still";
 import { isLightBackdrop, isLightGround } from "./lib/backdrop";
-import { useDesignScale } from "./WindowFrame";
+import { DesignWidthContext, useDesignScale } from "./WindowFrame";
 
 export type StillShotProps = {
   /** Reads public/shots/<name>.png. */
   name: string;
   /** The sidecar written beside it, supplying the region's shape. */
   meta: ShotMeta;
-  /** Fake macOS titlebar, as in DemoClip. Off by default for the same reason. */
-  chrome?: boolean;
   /** Studio backdrop name. See src/lib/backdrop.ts. Defaults to "glaze". */
   backdrop?: string;
   /** Flat ground colour instead of the backdrop image. Wins over `backdrop`. */
@@ -41,6 +41,11 @@ export type StillShotProps = {
   anchor?: Anchor;
   inset?: number;
   zoom?: number;
+  /**
+   * Render one piece of a still cut into several. The composition is the
+   * PIECE's size; the layout is done across the whole. See splitCanvas.
+   */
+  split?: Split;
 };
 
 /**
@@ -50,7 +55,11 @@ export type StillShotProps = {
  * rim — over a screenshot instead of a video. That is the point: a still shared
  * next to a clip should look like it came from the same place.
  *
- * Three things are deliberately NOT here:
+ * Four things are deliberately NOT here:
+ *
+ * 0. No fake macOS titlebar, ever. A still is a picture of the product; the
+ *    chrome is a prop from the video grammar and read as clutter on every
+ *    still it was tried on. WindowFrame keeps it for clips only.
  *
  * 1. No <CameraMotionBlur>. Nothing moves, so the shutter is pure cost, and it
  *    is destructive to colour. Its absence also lifts the banding rule that
@@ -65,10 +74,37 @@ export type StillShotProps = {
  *    1920px wide and magnifying it softens. A still is captured at whatever
  *    scale it needs, so nothing is being stretched to begin with.
  */
-export const StillShot: React.FC<StillShotProps> = ({
+export const StillShot: React.FC<StillShotProps> = (props) => {
+  const piece = useVideoConfig();
+  if (!props.split) return <StillBody {...props} canvas={piece} />;
+  // One piece of a wider layout: lay the whole out at its full width, then
+  // show the slice this piece owns. Everything inside positions itself
+  // against the nearest positioned ancestor, which is the wide div, so the
+  // three bodies below need no idea they are being cut.
+  const { canvas, offset } = splitCanvas(piece, props.split);
+  return (
+    <AbsoluteFill style={{ overflow: "hidden" }}>
+      <div
+        style={{
+          position: "absolute",
+          left: -offset,
+          top: 0,
+          width: canvas.width,
+          height: canvas.height,
+        }}
+      >
+        <DesignWidthContext.Provider value={canvas.width}>
+          <StillBody {...props} canvas={canvas} />
+        </DesignWidthContext.Provider>
+      </div>
+    </AbsoluteFill>
+  );
+};
+
+/** The still itself, laid out against `canvas` — the composition, or the whole a split is cut from. */
+const StillBody: React.FC<StillShotProps & { canvas: { width: number; height: number } }> = ({
   name,
   meta,
-  chrome,
   backdrop,
   ground,
   shadow,
@@ -77,8 +113,9 @@ export const StillShot: React.FC<StillShotProps> = ({
   anchor,
   inset,
   zoom,
+  canvas,
 }) => {
-  const { width, height } = useVideoConfig();
+  const { width, height } = canvas;
   const k = useDesignScale();
   // A flat ground answers the light/dark question by measurement, an image by
   // the hand-kept list — exactly as DemoClip decides it.
@@ -142,7 +179,7 @@ export const StillShot: React.FC<StillShotProps> = ({
           <RimLight light={light} />
         </div>
         <div style={at}>
-          <WindowFrame chrome={chrome ?? meta.chrome} hostLabel={name.replace(/-/g, ".")}>
+          <WindowFrame>
             <Img
               src={staticFile(`shots/${name}.png`)}
               style={{ width: "100%", height: "100%", objectFit: "cover" }}
@@ -173,7 +210,7 @@ export const StillShot: React.FC<StillShotProps> = ({
       </Stage>
       <Stage>
         <div style={frame}>
-          <WindowFrame chrome={chrome ?? meta.chrome} hostLabel={name.replace(/-/g, ".")}>
+          <WindowFrame>
             {/*
               `cover`, not `fill`: windowBox preserves the region's aspect, but
               it rounds to whole pixels, and `fill` would turn that half-pixel

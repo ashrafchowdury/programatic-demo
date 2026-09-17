@@ -11,8 +11,14 @@
  *                                       reframe a window capture without re-shooting
  *
  * Framing flags: --look=window|bleed, --anchor=, --inset=, --zoom= (bleed),
- * --fit= (cutout), --chrome, --shadow, --ground=#f3f3f3 (a flat colour instead
- * of the backdrop image). Each overrides the shot's own. A cutout is a
+ * --fit= (cutout), --shadow, --ground=#f3f3f3 (a flat colour instead
+ * of the backdrop image, or "transparent"). Each overrides the shot's own.
+ *
+ *   pnpm render:still <name> portrait --split=3 --gutter=8
+ *
+ * cuts the still into three portrait pieces laid out as one picture — for a
+ * carousel or a multi-image post. One render per piece; the layout is shared,
+ * so the pieces line up exactly. See splitCanvas in src/lib/still.ts. A cutout is a
  * CAPTURE decision (its PNG carries alpha), so --look cannot turn a window
  * capture into one or a cutout into anything else; it says so and stops.
  *
@@ -33,6 +39,8 @@ import * as path from "node:path";
 import {
   CUTOUT_FIT,
   cutoutLayout,
+  splitCanvas,
+  splitProblem,
   framingProblem,
   isPresetId,
   maxWindowPx,
@@ -57,11 +65,12 @@ type Framing = {
   look?: StillLook;
   ground?: string;
   shadow?: boolean;
+  split?: number;
+  gutter?: number;
   fit?: number;
   anchor?: Anchor;
   inset?: number;
   zoom?: number;
-  chrome?: boolean;
 };
 
 const ROOT = path.resolve(import.meta.dirname, "..");
@@ -76,16 +85,27 @@ function renderOne(
   look: StillLook,
   framing: Framing,
   backdrop?: string,
+  piece?: { count: number; piece: number; gutter: number },
 ): string {
-  // The look and an explicit backdrop go in the filename: rendering the same
-  // shot as a window and as a bleed, or on two backdrops, is a normal thing to
-  // want, and a shared name would silently leave you with only the last one.
+  // The look, an explicit backdrop and the piece go in the filename: rendering
+  // the same shot as a window and as a bleed, or on two backdrops, is a normal
+  // thing to want, and a shared name would silently leave you with only the
+  // last one.
   const suffix =
     (look === "window" ? "" : `-${look}`) +
     (backdrop ? `-${backdrop.replace(/\.[^.]+$/, "")}` : "") +
-    (framing.ground ? `-${framing.ground.slice(1).toLowerCase()}` : "");
+    (framing.ground ? `-${framing.ground.replace(/^#/, "").toLowerCase()}` : "") +
+    (piece ? `-${piece.piece + 1}of${piece.count}` : "");
   const out = outPath("still", `${name}-${preset}${suffix}.png`);
-  const props = { name, preset, ...framing, look, ...(backdrop ? { backdrop } : {}) };
+  const { split: _count, gutter: _gutter, ...rest } = framing;
+  const props = {
+    name,
+    preset,
+    ...rest,
+    look,
+    ...(backdrop ? { backdrop } : {}),
+    ...(piece ? { split: piece } : {}),
+  };
   execFileSync(
     REMOTION_BIN,
     ["still", "Still", out, `--props=${JSON.stringify(props)}`, `--gl=${resolveGl(process.env.DEMO_GL)}`],
@@ -202,14 +222,18 @@ async function main() {
     anchor: flag(argv, "anchor") != null ? resolveAnchor(flag(argv, "anchor")) : undefined,
     inset: numberFlag(argv, "inset"),
     zoom: numberFlag(argv, "zoom"),
-    chrome: argv.includes("--chrome") ? true : undefined,
     shadow: argv.includes("--shadow") ? true : undefined,
     ground: flag(argv, "ground"),
+    split: numberFlag(argv, "split"),
+    gutter: numberFlag(argv, "gutter"),
   };
   for (const key of Object.keys(framing) as (keyof Framing)[])
     if (framing[key] === undefined) delete framing[key];
-  const framingIssue = framingProblem(framing);
+  const framingIssue = framingProblem(framing) ?? splitProblem(framing);
   if (framingIssue) throw new Error(framingIssue);
+  // The split and its gutter come from the flag, else the shot.
+  const count = framing.split ?? meta.split;
+  const gutter = framing.gutter ?? meta.gutter ?? 0;
 
   // A second positional is a preset; reject a typo here rather than silently
   // rendering the default, which looks like the flag was ignored.
@@ -233,8 +257,11 @@ async function main() {
     );
 
   for (const preset of presets) {
+    const whole = count
+      ? splitCanvas(STILL_PRESETS[preset], { count, piece: 0, gutter }).canvas
+      : STILL_PRESETS[preset];
     if (look === "cutout") {
-      const lay = cutoutLayout(meta, STILL_PRESETS[preset], framing);
+      const lay = cutoutLayout(meta, whole, framing);
       if (lay.native)
         console.warn(
           `           !  ${preset}: drawn at native size (${lay.img.width}px wide) — ` +
@@ -243,7 +270,14 @@ async function main() {
       if (lay.overflows && (framing.fit ?? meta.fit ?? CUTOUT_FIT) <= 1)
         console.warn(`           !  ${preset}: the element's shadow runs past the canvas`);
     }
-    console.log(`still      -> ${outRel(renderOne(name, preset, look, framing, backdrop))}`);
+    if (!count) {
+      console.log(`still      -> ${outRel(renderOne(name, preset, look, framing, backdrop))}`);
+      continue;
+    }
+    for (let piece = 0; piece < count; piece++)
+      console.log(
+        `still      -> ${outRel(renderOne(name, preset, look, framing, backdrop, { count, piece, gutter }))}`,
+      );
   }
 }
 

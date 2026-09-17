@@ -15,7 +15,7 @@ describe("shotProblem", () => {
     assert.equal(shotProblem(spec()), null);
     assert.equal(shotProblem(spec({ look: "cutout", backdrop: "chalk" })), null);
     assert.equal(
-      shotProblem(spec({ look: "bleed", anchor: "top-left", chrome: true, padding: 0 })),
+      shotProblem(spec({ look: "bleed", anchor: "top-left", padding: 0 })),
       null,
     );
     assert.equal(shotProblem(spec({ region: { x: 0, y: 0, w: 10, h: 10 } })), null);
@@ -34,6 +34,17 @@ describe("shotProblem", () => {
     assert.equal(shotProblem(spec({ scale: 4 })), null);
     assert.match(shotProblem(spec({ scale: 5 }))!, /between 1 and 4/);
     assert.equal(shotProblem(spec({ scale: 5.8, viewport: { width: 820, height: 1180 } })), null);
+  });
+
+  it("takes extra elements to keep, for cutouts only", () => {
+    assert.equal(shotProblem(spec({ look: "cutout", keep: [css(".sub")] })), null);
+    assert.match(shotProblem(spec({ keep: [css(".sub")] }))!, /only applies/);
+    assert.match(shotProblem(spec({ look: "cutout", keep: ["x" as never] }))!, /`keep`/);
+  });
+
+  it("takes a split and its gutter", () => {
+    assert.equal(shotProblem(spec({ split: 3, gutter: 8 })), null);
+    assert.match(shotProblem(spec({ split: 1 }))!, /`split`/);
   });
 
   it("validates the framing fields through the shared check", () => {

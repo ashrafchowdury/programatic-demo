@@ -43,8 +43,12 @@ export type ShotMeta = {
   via?: string;
   /** Studio backdrop name for this shot. See src/lib/backdrop.ts. */
   backdrop?: string;
-  /** Flat ground colour (#rrggbb) instead of a backdrop image. Wins over `backdrop`. */
+  /** Flat ground colour (#rrggbb, or "transparent") instead of a backdrop image. Wins over `backdrop`. */
   ground?: string;
+  /** Cut the still into this many pieces side by side. See splitCanvas. */
+  split?: number;
+  /** Output px left unrendered between pieces — the platform's gutter. */
+  gutter?: number;
   /**
    * How the region was captured, and so how it must be framed. Absent means
    * "window" — every sidecar written before looks existed is a window capture.
@@ -55,7 +59,6 @@ export type ShotMeta = {
   anchor?: Anchor;
   inset?: number;
   zoom?: number;
-  chrome?: boolean;
   /**
    * Cutout only: cast a soft shadow under the element. Absent means "when the
    * element brought none of its own" — see hasOwnShadow.
@@ -283,11 +286,13 @@ export function windowBox(
 export function captureTargetPx(
   look: StillLook,
   windowFit: number,
-  opts: { fit?: number; zoom?: number } = {},
+  opts: { fit?: number; zoom?: number; split?: number } = {},
 ): number {
-  if (look === "cutout") return maxWindowPx(opts.fit ?? CUTOUT_FIT);
-  if (look === "bleed") return maxWindowPx(windowFit * (opts.zoom ?? BLEED_ZOOM));
-  return maxWindowPx(windowFit);
+  // A split lays out across `count` pieces, so the window can be that much wider.
+  const pieces = opts.split ?? 1;
+  if (look === "cutout") return maxWindowPx(opts.fit ?? CUTOUT_FIT) * pieces;
+  if (look === "bleed") return maxWindowPx(windowFit * (opts.zoom ?? BLEED_ZOOM)) * pieces;
+  return maxWindowPx(windowFit) * pieces;
 }
 
 /**
@@ -335,6 +340,53 @@ const anchorAxes = (
       : "center";
   return [v, h];
 };
+
+/**
+ * A still cut into pieces, for a carousel or a multi-image post.
+ *
+ * The composition is laid out ONCE across a canvas `count` pieces wide, and
+ * each piece is a window onto it: the same layout, translated. So the cut is
+ * exact by construction — no image is ever sliced — and every look works
+ * inside it unchanged, because they only ever asked for a canvas.
+ *
+ * `gutter` is the strip between pieces that no piece renders. A platform
+ * draws its own gap between the images it lays side by side; leaving that
+ * much of the composition out is what makes a line continue straight across
+ * the gap instead of jogging at it. Zero for a swipe carousel, where the
+ * pieces butt together.
+ */
+export type Split = {
+  /** Number of pieces, 2 or more. */
+  count: number;
+  /** Which piece this render is, 0-based. */
+  piece: number;
+  /** Output px between pieces. */
+  gutter: number;
+};
+
+export const MAX_SPLIT = 8;
+
+/** The whole canvas a split lays out across, and where this piece's window starts. */
+export function splitCanvas(
+  piece: Canvas,
+  split: Split,
+): { canvas: Canvas; offset: number } {
+  const { count, gutter } = split;
+  return {
+    canvas: { width: piece.width * count + gutter * (count - 1), height: piece.height },
+    offset: split.piece * (piece.width + gutter),
+  };
+}
+
+/** Reason a split is unusable, or null. */
+export function splitProblem(v: { split?: unknown; gutter?: unknown }): string | null {
+  if (v.split !== undefined && !(Number.isInteger(v.split) && (v.split as number) >= 2 && (v.split as number) <= MAX_SPLIT))
+    return `\`split\` must be a whole number from 2 to ${MAX_SPLIT}`;
+  if (v.gutter !== undefined && !(typeof v.gutter === "number" && v.gutter >= 0))
+    return "`gutter` must be a number >= 0";
+  if (v.gutter !== undefined && v.split === undefined) return "`gutter` needs a `split`";
+  return null;
+}
 
 /**
  * Did the captured element paint a shadow of its own?
@@ -481,7 +533,7 @@ export function shotMetaProblem(value: unknown): string | null {
   }
   if (!(typeof meta.scale === "number" && meta.scale > 0))
     return "`scale` must be a number > 0";
-  const framing = framingProblem(meta);
+  const framing = framingProblem(meta) ?? splitProblem(meta);
   if (framing) return framing;
   if (meta.look === "cutout" && meta.body === undefined)
     return "a cutout sidecar must carry a `body` — re-run `pnpm shot`";
@@ -500,7 +552,6 @@ export function framingProblem(v: {
   anchor?: unknown;
   inset?: unknown;
   zoom?: unknown;
-  chrome?: unknown;
   shadow?: unknown;
   ground?: unknown;
   body?: unknown;
@@ -515,12 +566,13 @@ export function framingProblem(v: {
     return "`inset` must be a number in [0, 0.5)";
   if (v.zoom !== undefined && !(typeof v.zoom === "number" && v.zoom >= 1))
     return "`zoom` must be a number >= 1";
-  if (v.chrome !== undefined && typeof v.chrome !== "boolean")
-    return "`chrome` must be a boolean";
   if (v.shadow !== undefined && typeof v.shadow !== "boolean")
     return "`shadow` must be a boolean";
-  if (v.ground !== undefined && !(typeof v.ground === "string" && /^#[0-9a-f]{6}$/i.test(v.ground)))
-    return "`ground` must be a hex colour like #f3f3f3";
+  if (
+    v.ground !== undefined &&
+    !(typeof v.ground === "string" && (v.ground === "transparent" || /^#[0-9a-f]{6}$/i.test(v.ground)))
+  )
+    return "`ground` must be a hex colour like #f3f3f3, or \"transparent\"";
   if (v.body !== undefined) {
     const b = v.body as Partial<Box>;
     if (typeof b !== "object" || b === null) return "`body` must be an object";

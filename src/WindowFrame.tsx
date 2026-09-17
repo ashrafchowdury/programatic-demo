@@ -24,7 +24,19 @@ import { CHROME_H, WINDOW_RADIUS } from "./lib/window";
  * higher-resolution one. Scaling them keeps the composition looking identical at
  * any output size — only the rasterisation gets finer.
  */
-export const useDesignScale = (): number => useVideoConfig().width / DESIGN_WIDTH;
+export const useDesignScale = (): number => {
+  const override = React.useContext(DesignWidthContext);
+  const width = useVideoConfig().width;
+  return (override ?? width) / DESIGN_WIDTH;
+};
+
+/**
+ * The width the design is being laid out against, when it is not the
+ * composition's. A split still (src/lib/still.ts) renders one piece of a
+ * canvas several pieces wide; its rim and radius must be sized for the whole
+ * canvas or every piece would carry a different, smaller treatment.
+ */
+export const DesignWidthContext = React.createContext<number | null>(null);
 
 /** Centres a camera group in the frame. */
 export const Stage: React.FC<{ children: React.ReactNode }> = ({ children }) => (

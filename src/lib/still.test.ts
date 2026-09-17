@@ -16,6 +16,8 @@ import {
   hasOwnShadow,
   maxScaleFor,
   maxWindowPx,
+  splitCanvas,
+  splitProblem,
   resolveAnchor,
   resolveLook,
   resolvePreset,
@@ -344,7 +346,7 @@ describe("framingProblem", () => {
   it("accepts nothing set, and every field at a sane value", () => {
     assert.equal(framingProblem({}), null);
     assert.equal(
-      framingProblem({ look: "bleed", fit: 0.5, anchor: "top", inset: 0.1, zoom: 1.3, chrome: true }),
+      framingProblem({ look: "bleed", fit: 0.5, anchor: "top", inset: 0.1, zoom: 1.3 }),
       null,
     );
   });
@@ -356,7 +358,6 @@ describe("framingProblem", () => {
     assert.match(framingProblem({ anchor: "middle" })!, /`anchor`/);
     assert.match(framingProblem({ inset: 0.5 })!, /`inset`/);
     assert.match(framingProblem({ zoom: 0.9 })!, /`zoom`/);
-    assert.match(framingProblem({ chrome: "yes" })!, /`chrome`/);
     assert.match(framingProblem({ body: { x: 0, y: 0, width: 0, height: 1 } })!, /`body`/);
   });
 });
@@ -399,5 +400,54 @@ describe("framingProblem ground", () => {
     assert.equal(framingProblem({ ground: "#F3F3F3" }), null);
     assert.match(framingProblem({ ground: "grey" })!, /`ground`/);
     assert.match(framingProblem({ ground: "#fff" })!, /`ground`/);
+  });
+});
+
+describe("splitCanvas", () => {
+  const piece = { width: 2160, height: 2700 };
+
+  it("lays out across count pieces plus the gutters between them", () => {
+    const { canvas } = splitCanvas(piece, { count: 3, piece: 0, gutter: 8 });
+    assert.deepEqual(canvas, { width: 2160 * 3 + 16, height: 2700 });
+  });
+
+  it("offsets each piece by a piece and a gutter, so the gutter is skipped", () => {
+    assert.equal(splitCanvas(piece, { count: 3, piece: 0, gutter: 8 }).offset, 0);
+    assert.equal(splitCanvas(piece, { count: 3, piece: 1, gutter: 8 }).offset, 2168);
+    assert.equal(splitCanvas(piece, { count: 3, piece: 2, gutter: 8 }).offset, 4336);
+    // The last piece ends exactly at the canvas edge.
+    const { canvas, offset } = splitCanvas(piece, { count: 3, piece: 2, gutter: 8 });
+    assert.equal(offset + piece.width, canvas.width);
+  });
+
+  it("with no gutter the pieces tile the canvas", () => {
+    const { canvas, offset } = splitCanvas(piece, { count: 2, piece: 1, gutter: 0 });
+    assert.equal(canvas.width, 4320);
+    assert.equal(offset, 2160);
+  });
+});
+
+describe("splitProblem", () => {
+  it("wants a whole count of at least two, and a gutter only with a split", () => {
+    assert.equal(splitProblem({}), null);
+    assert.equal(splitProblem({ split: 3, gutter: 8 }), null);
+    assert.match(splitProblem({ split: 1 })!, /`split`/);
+    assert.match(splitProblem({ split: 2.5 })!, /`split`/);
+    assert.match(splitProblem({ split: 9 })!, /`split`/);
+    assert.match(splitProblem({ split: 2, gutter: -1 })!, /`gutter`/);
+    assert.match(splitProblem({ gutter: 8 })!, /needs a `split`/);
+  });
+});
+
+describe("captureTargetPx with a split", () => {
+  it("asks for count times the pixels, since the window can be that much wider", () => {
+    assert.equal(captureTargetPx("window", FIT, { split: 3 }), maxWindowPx(FIT) * 3);
+    assert.equal(captureTargetPx("cutout", FIT, { split: 2 }), maxWindowPx(CUTOUT_FIT) * 2);
+  });
+});
+
+describe("framingProblem ground transparent", () => {
+  it("accepts transparent as a ground", () => {
+    assert.equal(framingProblem({ ground: "transparent" }), null);
   });
 });

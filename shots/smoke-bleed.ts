@@ -28,5 +28,4 @@ export default defineShot({
   padding: 0,
   look: "bleed",
   anchor: "top-left",
-  chrome: true,
 });

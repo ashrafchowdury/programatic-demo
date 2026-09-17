@@ -194,12 +194,32 @@ export async function openContext(
     headless,
     slowMo: RECORD_SLOW_MO_MS,
   });
+  const stateFile = stateFileFor(spec.baseUrl);
   const context = await browser.newContext({
     ...common,
-    storageState: stateFileFor(spec.baseUrl),
+    storageState: stateFile,
   });
   await withScale(context);
-  return { context, close: () => browser.close(), physicalViewport };
+  // Write the session BACK on close. An app that rotates its refresh token
+  // (SuperTokens does, on every refresh) hands this context a new one about
+  // an hour after login and retires the one in the file; the next run then
+  // presents the retired token, which reads as theft, and the whole session
+  // is revoked — measured: every login here died within the hour. Keeping the
+  // file current is what lets a session outlive its first refresh. Best-effort
+  // and only when the host still has cookies, so a run that logged out cannot
+  // clobber a good snapshot.
+  const close = async () => {
+    try {
+      const host = new URL(spec.baseUrl).hostname;
+      const state = await context.storageState({ indexedDB: true });
+      if (state.cookies.some((c) => c.domain.replace(/^\./, "") === host))
+        fs.writeFileSync(stateFile, JSON.stringify(state, null, 2));
+    } catch {
+      // The browser may already be gone; the old snapshot stays as it was.
+    }
+    await browser.close();
+  };
+  return { context, close, physicalViewport };
 }
 
 /**

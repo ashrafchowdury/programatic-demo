@@ -19,6 +19,7 @@ import type { TargetOverrides } from "./selectors";
 import {
   framingProblem,
   maxScaleFor,
+  splitProblem,
   type Anchor,
   type StillLook,
 } from "../../src/lib/still";
@@ -73,6 +74,12 @@ export type ShotSpec = {
   /** The part to keep. Omit for the whole viewport. */
   region?: ShotRegion;
   /**
+   * Cutout only: further elements kept alongside `region`, as css() targets —
+   * a popover's submenu, the chip a menu opened from. Isolated together; the
+   * body is their union, so the shadow of each is in the picture.
+   */
+  keep?: readonly CssTarget[];
+  /**
    * Breathing room around a resolved element, in CSS px. Default SHOT_PADDING.
    *
    * An element's bounding box stops at its border, so a card with a drop shadow
@@ -109,10 +116,16 @@ export type ShotSpec = {
   inset?: number;
   /** bleed: how much larger than the fitted window. Default BLEED_ZOOM. */
   zoom?: number;
-  /** window, bleed: draw the fake macOS titlebar. */
-  chrome?: boolean;
   /** cutout: cast a soft shadow. Default: only when the element brought none. */
   shadow?: boolean;
+  /**
+   * Cut the still into this many pieces, side by side, each the preset's size.
+   * The layout happens once across all of them, so posted in order they read
+   * as one picture. See splitCanvas in src/lib/still.ts.
+   */
+  split?: number;
+  /** Output px of the composition left out between pieces: the platform's gap. */
+  gutter?: number;
 };
 
 export const defineShot = (spec: ShotSpec): ShotSpec => spec;
@@ -175,8 +188,13 @@ export function shotProblem(value: unknown): string | null {
       return "`region` must be a name, css(...), or {x,y,w,h}";
     }
   }
-  const framing = framingProblem(shot);
+  const framing = framingProblem(shot) ?? splitProblem(shot);
   if (framing) return framing;
+  if (shot.keep !== undefined) {
+    if (!Array.isArray(shot.keep) || shot.keep.some((k) => typeof k?.css !== "string" || k.css === ""))
+      return "`keep` must be a list of css(...) targets";
+    if (shot.look !== "cutout") return "`keep` only applies to look: \"cutout\"";
+  }
   if (shot.look === "cutout") {
     if (region === undefined) return "a cutout needs a `region` naming one element";
     if (typeof region === "object" && isShotRect(region as ShotRegion))

@@ -172,16 +172,27 @@ async function shootCutout(
   spec: ShotSpec,
   scale: number,
 ): Promise<{ rect: ShotRect; body: Box; clipped: boolean }> {
-  const { box, clippers } = await locator.evaluate(isolateInPage);
+  const extras = [];
+  for (const k of spec.keep ?? []) {
+    const handle = await page.locator(k.css).first().elementHandle({ timeout: 5000 }).catch(() => null);
+    if (!handle) throw new Error(`keep css(${k.css}) matched nothing on screen`);
+    extras.push(handle);
+  }
+  const { box, clippers } = await locator.evaluate(isolateInPage, extras);
   // The sheet cancels transitions, but give the compositor one frame anyway.
   await page.waitForTimeout(100);
 
   const full = await page.screenshot({ omitBackground: true, animations: "disabled" });
   const painted = await page.evaluate(alphaBoundsInPage, full.toString("base64"));
-  if (!painted)
+  if (!painted) {
+    fs.mkdirSync(DIAG, { recursive: true });
+    const shot = path.join(DIAG, `${spec.name}-isolated.png`);
+    fs.writeFileSync(shot, full);
     throw new Error(
-      `region ${spec.name}: the element painted nothing once isolated (hidden, or zero-size?)`,
+      `region ${spec.name}: the element painted nothing once isolated (hidden, or zero-size?)` +
+        ` — see ${path.relative(ROOT, shot)}`,
     );
+  }
 
   // Device px -> CSS px, rounded outward so no painted pixel is lost.
   const raw: ShotRect = {
@@ -430,8 +441,9 @@ async function main() {
     ...(spec.anchor ? { anchor: spec.anchor } : {}),
     ...(spec.inset != null ? { inset: spec.inset } : {}),
     ...(spec.zoom != null ? { zoom: spec.zoom } : {}),
-    ...(spec.chrome != null ? { chrome: spec.chrome } : {}),
     ...(spec.shadow != null ? { shadow: spec.shadow } : {}),
+    ...(spec.split != null ? { split: spec.split } : {}),
+    ...(spec.gutter != null ? { gutter: spec.gutter } : {}),
     ...(pass.body ? { body: pass.body } : {}),
   };
   fs.writeFileSync(

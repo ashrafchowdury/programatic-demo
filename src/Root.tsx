@@ -22,6 +22,7 @@ import {
   shotMetaProblem,
   STILL_PRESETS,
   type ShotMeta,
+  type Split,
   type StillLook,
 } from "./lib/still";
 import smokeIntro from "../intros/smoke";
@@ -251,9 +252,12 @@ export const RemotionRoot: React.FC = () => {
             );
             look = captured;
           }
+          // A split is rendered a piece at a time; the composition stays the
+          // preset's size and the piece index rides in with the props.
+          const split = (props as { split?: Split }).split;
           return {
             ...STILL_PRESETS[preset],
-            props: { ...props, meta, backdrop, ground, look },
+            props: { ...props, meta, backdrop, ground, look, split },
           };
         }}
       />
