@@ -22,10 +22,29 @@ import {
   splitProblem,
   type Anchor,
   type StillLook,
+  type Zoom,
 } from "../../src/lib/still";
 
 /** An explicit region in viewport CSS px. */
 export type ShotRect = { x: number; y: number; w: number; h: number };
+
+/** Per-side padding, CSS px. A side left out takes the default. */
+export type Padding = { top?: number; right?: number; bottom?: number; left?: number };
+
+/** Padding as four numbers, from whichever form the spec used. */
+export function paddingSides(
+  padding: number | Padding | undefined,
+  fallback = SHOT_PADDING,
+): Required<Padding> {
+  if (typeof padding === "number")
+    return { top: padding, right: padding, bottom: padding, left: padding };
+  return {
+    top: padding?.top ?? fallback,
+    right: padding?.right ?? fallback,
+    bottom: padding?.bottom ?? fallback,
+    left: padding?.left ?? fallback,
+  };
+}
 
 /**
  * What to photograph.
@@ -86,8 +105,12 @@ export type ShotSpec = {
    * or a focus ring gets it sliced off at the crop. Padding is applied after
    * resolution and clamped to the viewport, so a region at the screen edge
    * simply gets less of it rather than failing.
+   *
+   * One number pads every side; an object pads each side named and leaves the
+   * others at the default — `{ top: 0 }` when the element above would
+   * otherwise peek into the crop.
    */
-  padding?: number;
+  padding?: number | Padding;
   /**
    * Force the capture device scale factor instead of measuring for it.
    *
@@ -114,10 +137,12 @@ export type ShotSpec = {
   anchor?: Anchor;
   /** cutout, bleed: fraction of the canvas edge kept clear on the anchored side(s). */
   inset?: number;
-  /** bleed: how much larger than the fitted window. Default BLEED_ZOOM. */
-  zoom?: number;
+  /** bleed: how much larger than the fitted window, or "fill" to cover the frame. Default BLEED_ZOOM. */
+  zoom?: Zoom;
   /** cutout: cast a soft shadow. Default: only when the element brought none. */
   shadow?: boolean;
+  /** cutout: allow stretching past native by up to this factor (≤ 1.5). Default 1: never. */
+  upscale?: number;
   /**
    * Cut the still into this many pieces, side by side, each the preset's size.
    * The layout happens once across all of them, so posted in order they read
@@ -156,11 +181,18 @@ export function shotProblem(value: unknown): string | null {
     return "`mobile` must be a boolean";
   if (shot.steps !== undefined && !Array.isArray(shot.steps))
     return "`steps` must be an array";
-  if (
-    shot.padding !== undefined &&
-    !(typeof shot.padding === "number" && shot.padding >= 0)
-  )
-    return "`padding` must be a number >= 0";
+  if (shot.padding !== undefined) {
+    const p = shot.padding as unknown;
+    const okNumber = (n: unknown) => typeof n === "number" && n >= 0;
+    if (typeof p === "number") {
+      if (!(p >= 0)) return "`padding` must be a number >= 0";
+    } else if (typeof p === "object" && p !== null) {
+      for (const side of ["top", "right", "bottom", "left"] as const) {
+        const n = (p as Padding)[side];
+        if (n !== undefined && !okNumber(n)) return `\`padding.${side}\` must be a number >= 0`;
+      }
+    } else return "`padding` must be a number >= 0, or { top, right, bottom, left }";
+  }
   if (shot.scale !== undefined) {
     const max = maxScaleFor(vp as { width: number; height: number });
     if (!(typeof shot.scale === "number" && shot.scale >= 1 && shot.scale <= max))

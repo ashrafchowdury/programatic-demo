@@ -8,13 +8,19 @@
  *   pnpm render:still <name> --all      every preset
  *   pnpm render:still <name> --from shot.png    frame an image you already have
  *   pnpm render:still <name> --look=bleed --anchor=bottom-right --zoom=1.5
+ *   pnpm render:still <name> story --look=bleed --zoom=fill     cover the frame
  *                                       reframe a window capture without re-shooting
  *
  * Framing flags: --look=window|bleed, --anchor=, --inset=, --zoom= (bleed),
- * --fit= (cutout), --shadow, --ground=#f3f3f3 (a flat colour instead
+ * --fit= (cutout), --upscale=1.5 (cutout, stretch past native), --shadow /
+ * --shadow=false, --ground=#f3f3f3 (a flat colour instead
  * of the backdrop image, or "transparent"). Each overrides the shot's own.
  *
  *   pnpm render:still <name> portrait --split=3 --gutter=8
+ *
+ * Every flag set here is appended to the output filename, so two renders of
+ * one shot never overwrite each other; `--out=<basename>` names the file
+ * yourself instead (a split still appends -1ofN).
  *
  * cuts the still into three portrait pieces laid out as one picture — for a
  * carousel or a multi-image post. One render per piece; the layout is shared,
@@ -53,6 +59,7 @@ import {
   type Anchor,
   type StillLook,
   type StillPresetId,
+  type Zoom,
 } from "../src/lib/still";
 import { isLightBackdrop, isLightGround } from "../src/lib/backdrop";
 import { WINDOW_FIT } from "../src/lib/window";
@@ -70,7 +77,8 @@ type Framing = {
   fit?: number;
   anchor?: Anchor;
   inset?: number;
-  zoom?: number;
+  zoom?: Zoom;
+  upscale?: number;
 };
 
 const ROOT = path.resolve(import.meta.dirname, "..");
@@ -86,17 +94,28 @@ function renderOne(
   framing: Framing,
   backdrop?: string,
   piece?: { count: number; piece: number; gutter: number },
+  outName?: string,
 ): string {
-  // The look, an explicit backdrop and the piece go in the filename: rendering
-  // the same shot as a window and as a bleed, or on two backdrops, is a normal
-  // thing to want, and a shared name would silently leave you with only the
-  // last one.
+  // Everything set on the command line goes in the filename: rendering the
+  // same shot as a window and as a bleed, on two backdrops, or at three fits
+  // is a normal thing to want, and a shared name would silently leave you
+  // with only the last one. Knobs from the SPEC do not — they define the
+  // shot's own look, and the plain name is that.
+  const knobs =
+    (framing.fit != null ? `-fit${framing.fit}` : "") +
+    (framing.anchor ? `-${framing.anchor}` : "") +
+    (framing.inset != null ? `-inset${framing.inset}` : "") +
+    (framing.zoom != null ? `-zoom${framing.zoom}` : "") +
+    (framing.gutter != null ? `-gutter${framing.gutter}` : "") +
+    (framing.shadow != null ? (framing.shadow ? "-shadow" : "-noshadow") : "") +
+    (framing.upscale != null ? `-up${framing.upscale}` : "");
   const suffix =
     (look === "window" ? "" : `-${look}`) +
     (backdrop ? `-${backdrop.replace(/\.[^.]+$/, "")}` : "") +
     (framing.ground ? `-${framing.ground.replace(/^#/, "").toLowerCase()}` : "") +
+    knobs +
     (piece ? `-${piece.piece + 1}of${piece.count}` : "");
-  const out = outPath("still", `${name}-${preset}${suffix}.png`);
+  const out = outPath("still", `${outName ?? `${name}-${preset}${suffix}`}${outName && piece ? `-${piece.piece + 1}of${piece.count}` : ""}.png`);
   const { split: _count, gutter: _gutter, ...rest } = framing;
   const props = {
     name,
@@ -117,6 +136,16 @@ function renderOne(
 /** `--name=value` from argv, or undefined. */
 const flag = (argv: string[], name: string): string | undefined =>
   argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3);
+
+/** `--name` is true, `--name=false` is false, absent is undefined. */
+const boolFlag = (argv: string[], name: string): boolean | undefined => {
+  if (argv.includes(`--${name}`)) return true;
+  const raw = flag(argv, name);
+  if (raw == null) return undefined;
+  if (raw === "true" || raw === "1") return true;
+  if (raw === "false" || raw === "0") return false;
+  throw new Error(`--${name} wants true or false, got "${raw}"`);
+};
 
 const numberFlag = (argv: string[], name: string): number | undefined => {
   const raw = flag(argv, name);
@@ -217,22 +246,27 @@ async function main() {
   if (problem) throw new Error(`public/shots/${name}.json is ${problem}`);
 
   const look = pickLook(meta, flag(argv, "look"), name);
+  const outName = flag(argv, "out")?.replace(/\.png$/, "");
+  if (outName != null && (outName === "" || /[/\\]/.test(outName)))
+    throw new Error("--out wants a bare filename for out/still/, no path");
   const framing: Framing = {
     fit: numberFlag(argv, "fit"),
     anchor: flag(argv, "anchor") != null ? resolveAnchor(flag(argv, "anchor")) : undefined,
     inset: numberFlag(argv, "inset"),
-    zoom: numberFlag(argv, "zoom"),
-    shadow: argv.includes("--shadow") ? true : undefined,
+    zoom: flag(argv, "zoom") === "fill" ? "fill" : numberFlag(argv, "zoom"),
+    shadow: boolFlag(argv, "shadow"),
     ground: flag(argv, "ground"),
     split: numberFlag(argv, "split"),
     gutter: numberFlag(argv, "gutter"),
+    upscale: numberFlag(argv, "upscale"),
   };
   for (const key of Object.keys(framing) as (keyof Framing)[])
     if (framing[key] === undefined) delete framing[key];
   const framingIssue = framingProblem(framing) ?? splitProblem(framing);
   if (framingIssue) throw new Error(framingIssue);
   // The split and its gutter come from the flag, else the shot.
-  const count = framing.split ?? meta.split;
+  const wanted = framing.split ?? meta.split;
+  const count = wanted != null && wanted > 1 ? wanted : undefined;
   const gutter = framing.gutter ?? meta.gutter ?? 0;
 
   // A second positional is a preset; reject a typo here rather than silently
@@ -265,18 +299,25 @@ async function main() {
       if (lay.native)
         console.warn(
           `           !  ${preset}: drawn at native size (${lay.img.width}px wide) — ` +
-            `the capture is too small to fill \`fit\` without upscaling`,
+            `the capture is too small to fill \`fit\` without upscaling; --upscale=1.5 would stretch it`,
+        );
+      if (lay.stretched)
+        console.warn(
+          `           !  ${preset}: stretched ${lay.scale.toFixed(2)}x past native by \`upscale\` — ` +
+            `it will read softer than a native shot`,
         );
       if (lay.overflows && (framing.fit ?? meta.fit ?? CUTOUT_FIT) <= 1)
         console.warn(`           !  ${preset}: the element's shadow runs past the canvas`);
     }
     if (!count) {
-      console.log(`still      -> ${outRel(renderOne(name, preset, look, framing, backdrop))}`);
+      console.log(
+        `still      -> ${outRel(renderOne(name, preset, look, framing, backdrop, undefined, outName))}`,
+      );
       continue;
     }
     for (let piece = 0; piece < count; piece++)
       console.log(
-        `still      -> ${outRel(renderOne(name, preset, look, framing, backdrop, { count, piece, gutter }))}`,
+        `still      -> ${outRel(renderOne(name, preset, look, framing, backdrop, { count, piece, gutter }, outName))}`,
       );
   }
 }

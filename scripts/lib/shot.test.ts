@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { css } from "./flow";
-import { shotProblem, type ShotSpec } from "./shot";
+import { paddingSides, shotProblem, type ShotSpec } from "./shot";
 
 const spec = (over: Partial<ShotSpec> = {}): ShotSpec => ({
   name: "x",
@@ -44,12 +44,26 @@ describe("shotProblem", () => {
 
   it("takes a split and its gutter", () => {
     assert.equal(shotProblem(spec({ split: 3, gutter: 8 })), null);
-    assert.match(shotProblem(spec({ split: 1 }))!, /`split`/);
+    assert.match(shotProblem(spec({ split: 0 }))!, /`split`/);
   });
 
   it("validates the framing fields through the shared check", () => {
     assert.match(shotProblem(spec({ look: "card" as never }))!, /`look`/);
     assert.match(shotProblem(spec({ zoom: 0.5 }))!, /`zoom`/);
     assert.match(shotProblem(spec({ anchor: "middle" as never }))!, /`anchor`/);
+  });
+});
+
+describe("paddingSides", () => {
+  it("spreads a number to four sides and fills a partial object with the default", () => {
+    assert.deepEqual(paddingSides(24), { top: 24, right: 24, bottom: 24, left: 24 });
+    assert.deepEqual(paddingSides({ top: 0 }), { top: 0, right: 16, bottom: 16, left: 16 });
+    assert.deepEqual(paddingSides(undefined), { top: 16, right: 16, bottom: 16, left: 16 });
+  });
+
+  it("is validated per side", () => {
+    assert.equal(shotProblem(spec({ padding: { top: 0, bottom: 40 } })), null);
+    assert.match(shotProblem(spec({ padding: { top: -1 } }))!, /padding\.top/);
+    assert.match(shotProblem(spec({ padding: "x" as never }))!, /`padding`/);
   });
 });

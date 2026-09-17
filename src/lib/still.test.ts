@@ -18,6 +18,9 @@ import {
   maxWindowPx,
   splitCanvas,
   splitProblem,
+  viewportFor,
+  fillZoom,
+  MAX_UPSCALE,
   resolveAnchor,
   resolveLook,
   resolvePreset,
@@ -431,7 +434,8 @@ describe("splitProblem", () => {
   it("wants a whole count of at least two, and a gutter only with a split", () => {
     assert.equal(splitProblem({}), null);
     assert.equal(splitProblem({ split: 3, gutter: 8 }), null);
-    assert.match(splitProblem({ split: 1 })!, /`split`/);
+    assert.equal(splitProblem({ split: 1 }), null, "1 is whole");
+    assert.match(splitProblem({ split: 0 })!, /`split`/);
     assert.match(splitProblem({ split: 2.5 })!, /`split`/);
     assert.match(splitProblem({ split: 9 })!, /`split`/);
     assert.match(splitProblem({ split: 2, gutter: -1 })!, /`gutter`/);
@@ -449,5 +453,65 @@ describe("captureTargetPx with a split", () => {
 describe("framingProblem ground transparent", () => {
   it("accepts transparent as a ground", () => {
     assert.equal(framingProblem({ ground: "transparent" }), null);
+  });
+});
+
+describe("viewportFor", () => {
+  it("inverts maxScaleFor, keeping the shape", () => {
+    const vp = viewportFor(4, { width: 1920, height: 1080 });
+    assert.equal(vp.width, 1920);
+    assert.equal(vp.height, 1080);
+    const small = viewportFor(8, { width: 1920, height: 1080 });
+    assert.equal(small.width, 960);
+    assert.ok(Math.abs(maxScaleFor(small) - 8) < 0.15);
+  });
+});
+
+describe("cutoutLayout upscale", () => {
+  const cut = meta({
+    look: "cutout",
+    region: { width: 440, height: 280 },
+    scale: 4,
+    body: { x: 20, y: 20, width: 400, height: 200 },
+  });
+  const canvas = { width: 3840, height: 2160 };
+
+  it("never stretches by default, and stretches only to the asked ceiling", () => {
+    const plain = cutoutLayout(cut, canvas);
+    assert.equal(plain.scale, 1);
+    assert.equal(plain.native, true);
+    assert.equal(plain.stretched, false);
+    const up = cutoutLayout(cut, canvas, { upscale: 1.5 });
+    assert.ok(up.scale > 1 && up.scale <= 1.5);
+    assert.equal(up.stretched, true);
+    assert.equal(up.native, false);
+  });
+
+  it("caps the knob at MAX_UPSCALE", () => {
+    assert.match(framingProblem({ upscale: MAX_UPSCALE + 0.1 })!, /`upscale`/);
+    assert.equal(framingProblem({ upscale: 1.5 }), null);
+  });
+});
+
+describe("bleedLayout fill", () => {
+  it("covers the canvas on both axes for a landscape region in a story frame", () => {
+    const story = STILL_PRESETS.story;
+    const box = bleedLayout(meta(), story, FIT, { zoom: "fill", anchor: "top-left", inset: 0 });
+    assert.ok(box.width >= story.width, "covers the width");
+    assert.ok(box.height >= story.height, "covers the height");
+    // And no wider than it must be: the binding axis is exact.
+    assert.ok(Math.abs(box.height - story.height) <= 1);
+  });
+
+  it("fillZoom is the larger of the two ratios", () => {
+    assert.equal(fillZoom({ width: 100, height: 50 }, { width: 200, height: 300 }), 6);
+  });
+
+  it("is accepted as a zoom, and a capture bounds it across presets", () => {
+    assert.equal(framingProblem({ zoom: "fill" }), null);
+    assert.match(framingProblem({ zoom: "big" })!, /`zoom`/);
+    const withAspect = captureTargetPx("bleed", FIT, { zoom: "fill", aspect: 9 / 16 });
+    const fixed = captureTargetPx("bleed", FIT, { zoom: 1.3 });
+    assert.ok(withAspect > fixed, "a 16:9 region filling a story frame needs far more");
   });
 });

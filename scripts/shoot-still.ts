@@ -38,8 +38,8 @@ import { alphaBoundsInPage, isolateInPage } from "./lib/isolate";
 import { dumpVisible, findByName } from "./lib/selectors";
 import {
   isShotRect,
+  paddingSides,
   shotProblem,
-  SHOT_PADDING,
   type ShotRect,
   type ShotSpec,
 } from "./lib/shot";
@@ -55,8 +55,11 @@ import { WINDOW_FIT } from "../src/lib/window";
 import {
   captureTargetPx,
   DEFAULT_LOOK,
+  MAX_SCALE,
+  MAX_UPSCALE,
   maxScaleFor,
   shotPixels,
+  viewportFor,
   type Box,
   type ShotMeta,
 } from "../src/lib/still";
@@ -149,9 +152,14 @@ async function resolveRegion(
   if (!box)
     throw new Error(`region ${via} resolved but has no bounding box (hidden?)`);
 
-  const pad = spec.padding ?? SHOT_PADDING;
+  const pad = paddingSides(spec.padding);
   return {
-    rect: { x: box.x - pad, y: box.y - pad, w: box.width + pad * 2, h: box.height + pad * 2 },
+    rect: {
+      x: box.x - pad.left,
+      y: box.y - pad.top,
+      w: box.width + pad.left + pad.right,
+      h: box.height + pad.top + pad.bottom,
+    },
     via,
     locator,
   };
@@ -403,15 +411,20 @@ async function main() {
     throw new Error(`--scale must be between 1 and ${maxScale} for this viewport`);
 
   const look = spec.look ?? DEFAULT_LOOK;
-  // Native pixels the region needs so no preset ever upscales it. A cutout is
-  // judged on its BODY: the shadow around it is not the thing being sized.
-  const targetPx = captureTargetPx(look, WINDOW_FIT, spec);
   const longEdge = (p: PassResult) =>
     p.body ? Math.max(p.body.width, p.body.height) : Math.max(p.rect.w, p.rect.h);
 
   let scale = explicit ?? DEVICE_SCALE_FACTOR;
   let pass = await runPass(spec, scale, probe);
   if (probe) return;
+
+  // Native pixels the region needs so no preset ever upscales it. A cutout is
+  // judged on its BODY: the shadow around it is not the thing being sized.
+  // Known only now: a "fill" bleed's need depends on the region's shape.
+  const targetPx = captureTargetPx(look, WINDOW_FIT, {
+    ...spec,
+    aspect: pass.rect.h / pass.rect.w,
+  });
 
   // Measure, then re-run only if the region came up short. Layout does not move
   // with the scale factor, so the second pass reproduces the first exactly.
@@ -442,6 +455,7 @@ async function main() {
     ...(spec.inset != null ? { inset: spec.inset } : {}),
     ...(spec.zoom != null ? { zoom: spec.zoom } : {}),
     ...(spec.shadow != null ? { shadow: spec.shadow } : {}),
+    ...(spec.upscale != null ? { upscale: spec.upscale } : {}),
     ...(spec.split != null ? { split: spec.split } : {}),
     ...(spec.gutter != null ? { gutter: spec.gutter } : {}),
     ...(pass.body ? { body: pass.body } : {}),
@@ -466,15 +480,34 @@ async function main() {
       `           !  the region ran past the viewport and was cropped — ` +
         `raise viewport in shots/${spec.name}.ts`,
     );
-  if (longest < targetPx)
+  if (longest < targetPx) {
+    // Name the fix. The scale that reaches the target is a number; the
+    // viewport that can be shot at that scale follows from the surface budget.
+    // The best scale is the one that reaches the target, or MAX_SCALE if
+    // that is out of reach; the viewport that shoots at it follows from the
+    // surface budget. Only worth saying when it beats what was just shot.
+    const needScale = Math.ceil((targetPx / longEdge(pass)) * 10) / 10;
+    const bestScale = Math.min(MAX_SCALE, needScale);
+    const smaller = viewportFor(bestScale, spec.viewport);
+    const viewportTip =
+      bestScale > scale && smaller.width >= 320
+        ? `A viewport of about ${smaller.width}x${smaller.height} can be shot at ${bestScale}x ` +
+          `(${Math.round(longEdge(pass) * bestScale)}px${bestScale < needScale ? ", still short" : ""}). `
+        : "";
+    const stretch = Math.min(MAX_UPSCALE, Math.ceil((targetPx / longest) * 10) / 10);
+    const advice =
+      viewportTip +
+      (pass.body
+        ? `\`upscale: ${stretch}\` stretches it that far at render; a larger element or a lower \`fit\` needs neither.`
+        : `Shoot a larger region, or a bigger viewport.`);
     console.warn(
       pass.body
         ? `           !  ${longest}px on the body's long edge is under ${targetPx}; it ` +
-            `will sit at native size, under \`fit\`. Shoot a larger element, lower \`fit\`, ` +
-            `or use a smaller preset.`
+            `will sit at native size, under \`fit\`. ${advice}`
         : `           !  ${longest}px on the long edge is under ${targetPx}; the ` +
-            `composition will upscale it. Shoot a larger region, or a bigger viewport.`,
+            `composition will upscale it. ${advice}`,
     );
+  }
   console.log(`png        -> public/shots/${spec.name}.png`);
 }
 

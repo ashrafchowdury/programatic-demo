@@ -14,6 +14,7 @@ import {
   type ShotMeta,
   type Split,
   type StillLook,
+  type Zoom,
 } from "./lib/still";
 import { isLightBackdrop, isLightGround } from "./lib/backdrop";
 import { DesignWidthContext, useDesignScale } from "./WindowFrame";
@@ -40,7 +41,8 @@ export type StillShotProps = {
   fit?: number;
   anchor?: Anchor;
   inset?: number;
-  zoom?: number;
+  zoom?: Zoom;
+  upscale?: number;
   /**
    * Render one piece of a still cut into several. The composition is the
    * PIECE's size; the layout is done across the whole. See splitCanvas.
@@ -113,6 +115,7 @@ const StillBody: React.FC<StillShotProps & { canvas: { width: number; height: nu
   anchor,
   inset,
   zoom,
+  upscale,
   canvas,
 }) => {
   const { width, height } = canvas;
@@ -123,7 +126,7 @@ const StillBody: React.FC<StillShotProps & { canvas: { width: number; height: nu
   const resolved = look ?? meta.look ?? "window";
 
   if (resolved === "cutout" && meta.body) {
-    const lay = cutoutLayout(meta, { width, height }, { fit, anchor, inset });
+    const lay = cutoutLayout(meta, { width, height }, { fit, anchor, inset, upscale });
     // Elevation. On a light ground: the element's own shadow if it painted
     // one, else a soft cast shadow so it does not sit like a sticker — both
     // drawn from the alpha, so they follow the exact shape. On a dark ground a

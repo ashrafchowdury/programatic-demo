@@ -58,12 +58,18 @@ export type ShotMeta = {
   fit?: number;
   anchor?: Anchor;
   inset?: number;
-  zoom?: number;
+  zoom?: Zoom;
   /**
    * Cutout only: cast a soft shadow under the element. Absent means "when the
    * element brought none of its own" — see hasOwnShadow.
    */
   shadow?: boolean;
+  /**
+   * Cutout only: how far past native the element may be stretched to reach
+   * `fit`, as a factor. 1 (the default) is the rule: never. Up to
+   * MAX_UPSCALE for a small element the viewport cannot shoot larger.
+   */
+  upscale?: number;
   /**
    * Cutout only: the element's border box in CSS px, relative to the PNG's
    * top-left. The PNG is the element's PAINTED extent — shadow included — and a
@@ -137,8 +143,29 @@ export const CUTOUT_FIT = 0.8;
  * Still never upscaled: the capture has to have the pixels, or it sits native.
  */
 export const MAX_CUTOUT_FIT = 2;
+/**
+ * Most a cutout may be stretched past native when asked. 1.5 is where a 4x
+ * screenshot of UI text still reads as a screenshot rather than as a blur —
+ * a bound, not a recommendation; the honest fix is a smaller viewport.
+ */
+export const MAX_UPSCALE = 1.5;
 /** How much larger than windowBox a bleed window is drawn. */
 export const BLEED_ZOOM = 1.3;
+/**
+ * A bleed's zoom: a factor over the fitted window, or "fill" — grow until the
+ * window covers the canvas on both axes. Fill is what a landscape screen needs
+ * in a portrait or story frame, where any fixed factor either leaves ground
+ * showing or overshoots wildly; it depends on the canvas, so it is resolved
+ * per preset at render.
+ */
+export type Zoom = number | "fill";
+
+export const isZoom = (v: unknown): v is Zoom =>
+  v === "fill" || (typeof v === "number" && v >= 1);
+
+/** The factor that makes a window of `base` cover `canvas` on both axes. */
+export const fillZoom = (base: Canvas, canvas: Canvas): number =>
+  Math.max(canvas.width / base.width, canvas.height / base.height);
 /** Fraction of the canvas edge kept clear on a bleed's anchored side(s). */
 export const BLEED_INSET = 0.06;
 
@@ -155,6 +182,21 @@ export const BLEED_INSET = 0.06;
  */
 export const SURFACE_BUDGET_PX = 1920 * 1080 * 4 * 4;
 export const MAX_SCALE = 8;
+
+/**
+ * The largest viewport of the same shape that could be shot at `scale`.
+ *
+ * The inverse of maxScaleFor, for the advice a capture gives when an element
+ * came up short: "shoot this on a viewport of about W×H". Layout is what a
+ * viewport changes, so the answer is a starting point, not a promise — a
+ * responsive app may reflow at the smaller size.
+ */
+export function viewportFor(scale: number, like: Canvas): Canvas {
+  const area = SURFACE_BUDGET_PX / (scale * scale);
+  const aspect = like.height / like.width;
+  const width = Math.floor(Math.sqrt(area / aspect) / 10) * 10;
+  return { width, height: Math.round(width * aspect) };
+}
 
 export function maxScaleFor(viewport: Canvas): number {
   const byArea = Math.sqrt(SURFACE_BUDGET_PX / (viewport.width * viewport.height));
@@ -286,12 +328,32 @@ export function windowBox(
 export function captureTargetPx(
   look: StillLook,
   windowFit: number,
-  opts: { fit?: number; zoom?: number; split?: number } = {},
+  opts: { fit?: number; zoom?: Zoom; split?: number; aspect?: number } = {},
 ): number {
   // A split lays out across `count` pieces, so the window can be that much wider.
   const pieces = opts.split ?? 1;
   if (look === "cutout") return maxWindowPx(opts.fit ?? CUTOUT_FIT) * pieces;
-  if (look === "bleed") return maxWindowPx(windowFit * (opts.zoom ?? BLEED_ZOOM)) * pieces;
+  if (look === "bleed") {
+    const zoom = opts.zoom ?? BLEED_ZOOM;
+    if (zoom !== "fill") return maxWindowPx(windowFit * zoom) * pieces;
+    // Fill depends on the canvas shape against the region's: take the most any
+    // preset would ask for. Without the region's aspect (before the first
+    // pass) fall back to the fixed default.
+    if (!opts.aspect) return maxWindowPx(windowFit * BLEED_ZOOM) * pieces;
+    return Math.round(
+      Math.max(
+        ...STILL_PRESET_IDS.map((id) => {
+          const canvas = {
+            width: STILL_PRESETS[id].width * pieces,
+            height: STILL_PRESETS[id].height,
+          };
+          const base = windowBox(opts.aspect!, canvas, windowFit);
+          const z = fillZoom(base, canvas);
+          return Math.max(base.width, base.height) * z;
+        }),
+      ),
+    );
+  }
   return maxWindowPx(windowFit) * pieces;
 }
 
@@ -356,7 +418,7 @@ const anchorAxes = (
  * pieces butt together.
  */
 export type Split = {
-  /** Number of pieces, 2 or more. */
+  /** Number of pieces. 1 is no cut — how a render says "whole" over a shot that splits. */
   count: number;
   /** Which piece this render is, 0-based. */
   piece: number;
@@ -380,8 +442,8 @@ export function splitCanvas(
 
 /** Reason a split is unusable, or null. */
 export function splitProblem(v: { split?: unknown; gutter?: unknown }): string | null {
-  if (v.split !== undefined && !(Number.isInteger(v.split) && (v.split as number) >= 2 && (v.split as number) <= MAX_SPLIT))
-    return `\`split\` must be a whole number from 2 to ${MAX_SPLIT}`;
+  if (v.split !== undefined && !(Number.isInteger(v.split) && (v.split as number) >= 1 && (v.split as number) <= MAX_SPLIT))
+    return `\`split\` must be a whole number from 1 to ${MAX_SPLIT}`;
   if (v.gutter !== undefined && !(typeof v.gutter === "number" && v.gutter >= 0))
     return "`gutter` must be a number >= 0";
   if (v.gutter !== undefined && v.split === undefined) return "`gutter` needs a `split`";
@@ -414,10 +476,12 @@ export type CutoutLayout = {
   img: Box;
   /** Where the element's border box lands, in canvas px. */
   body: Box;
-  /** Canvas px per PNG px. Never above 1. */
+  /** Canvas px per PNG px. Above 1 only by an explicit `upscale`. */
   scale: number;
-  /** True when the PNG is drawn pixel-for-pixel because `fit` would upscale it. */
+  /** True when the PNG is drawn at or under native size because `fit` would need more. */
   native: boolean;
+  /** True when the draw is stretched past native — an `upscale` was used. */
+  stretched: boolean;
   /**
    * True when the painted extent (shadow) runs past the canvas. Expected when
    * `fit` is over 1 — that is the point — a warning sign otherwise.
@@ -437,7 +501,7 @@ export type CutoutLayout = {
 export function cutoutLayout(
   meta: ShotMeta,
   canvas: Canvas,
-  opts: { fit?: number; anchor?: Anchor; inset?: number } = {},
+  opts: { fit?: number; anchor?: Anchor; inset?: number; upscale?: number } = {},
 ): CutoutLayout {
   const body = meta.body;
   if (!body) throw new Error(`shot "${meta.name}" is not a cutout (no body)`);
@@ -448,7 +512,8 @@ export function cutoutLayout(
   const png = shotPixels(meta);
   const bodyPx = { width: body.width * meta.scale, height: body.height * meta.scale };
   const want = windowBox(body.height / body.width, canvas, fit);
-  const scale = Math.min(1, want.width / bodyPx.width);
+  const ceiling = opts.upscale ?? meta.upscale ?? 1;
+  const scale = Math.min(ceiling, want.width / bodyPx.width);
 
   const placed = { width: bodyPx.width * scale, height: bodyPx.height * scale };
   const at = anchorBox(placed, canvas, anchor, inset);
@@ -468,7 +533,8 @@ export function cutoutLayout(
       ...placed,
     },
     scale,
-    native: scale === 1,
+    native: scale === 1 && want.width / bodyPx.width >= 1,
+    stretched: scale > 1,
     overflows:
       img.x < 0 ||
       img.y < 0 ||
@@ -486,12 +552,15 @@ export function bleedLayout(
   meta: ShotMeta,
   canvas: Canvas,
   windowFit: number,
-  opts: { zoom?: number; anchor?: Anchor; inset?: number } = {},
+  opts: { zoom?: Zoom; anchor?: Anchor; inset?: number } = {},
 ): Box {
-  const zoom = opts.zoom ?? meta.zoom ?? BLEED_ZOOM;
+  const asked = opts.zoom ?? meta.zoom ?? BLEED_ZOOM;
   const anchor = opts.anchor ?? meta.anchor ?? "top-left";
   const inset = opts.inset ?? meta.inset ?? BLEED_INSET;
   const base = windowBox(shotAspect(meta), canvas, windowFit);
+  // Fill covers the canvas from the anchored edge; the inset moves it in, so
+  // what runs off the far side is exactly the inset's worth.
+  const zoom = asked === "fill" ? fillZoom(base, canvas) : asked;
   const size = {
     width: Math.round(base.width * zoom),
     height: Math.round(base.height * zoom),
@@ -553,6 +622,7 @@ export function framingProblem(v: {
   inset?: unknown;
   zoom?: unknown;
   shadow?: unknown;
+  upscale?: unknown;
   ground?: unknown;
   body?: unknown;
 }): string | null {
@@ -564,10 +634,12 @@ export function framingProblem(v: {
     return `\`anchor\` must be one of ${ANCHORS.join(", ")}`;
   if (v.inset !== undefined && !(typeof v.inset === "number" && v.inset >= 0 && v.inset < 0.5))
     return "`inset` must be a number in [0, 0.5)";
-  if (v.zoom !== undefined && !(typeof v.zoom === "number" && v.zoom >= 1))
-    return "`zoom` must be a number >= 1";
+  if (v.zoom !== undefined && !isZoom(v.zoom))
+    return "`zoom` must be a number >= 1, or \"fill\"";
   if (v.shadow !== undefined && typeof v.shadow !== "boolean")
     return "`shadow` must be a boolean";
+  if (v.upscale !== undefined && !(typeof v.upscale === "number" && v.upscale >= 1 && v.upscale <= MAX_UPSCALE))
+    return `\`upscale\` must be a number from 1 to ${MAX_UPSCALE}`;
   if (
     v.ground !== undefined &&
     !(typeof v.ground === "string" && (v.ground === "transparent" || /^#[0-9a-f]{6}$/i.test(v.ground)))

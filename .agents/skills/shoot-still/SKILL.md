@@ -151,7 +151,9 @@ composition centres the element, not the shadow. It needs a `region` that is
 one element (a name or `css()`); a rect is refused.
 
 **`bleed` is a render decision** over an ordinary window capture, so any
-window shot can be reframed as a bleed — and back — without re-shooting:
+window shot can be reframed as a bleed — and back — without re-shooting. In
+a portrait or story frame a landscape screen floats at any fixed zoom; use
+`zoom: "fill"` there, which grows the window until it covers the frame:
 
 ```bash
 pnpm render:still <name> --look=bleed --anchor=bottom-right --zoom=1.5
@@ -168,7 +170,8 @@ Framing knobs, in the spec or as `--flag=` on `render:still` (the flag wins):
 | `shadow` | cutout | auto | cast a soft shadow; default only when the element painted none |
 | `anchor` | cutout, bleed | center / top-left | `top-left`, `top`, … `bottom-right`, `center` |
 | `inset` | cutout, bleed | 0 / 0.06 | fraction of the canvas edge kept clear on the anchored side(s) |
-| `zoom` | bleed | 1.3 | how much larger than the fitted window |
+| `zoom` | bleed | 1.3 | how much larger than the fitted window, or `fill` to cover the frame |
+| `upscale` | cutout | 1 | stretch a small element past native, up to 1.5 — opt-in only |
 
 **Crop into the subject, don't present it whole.** The reference stills run a
 composer off the right edge and a window off two sides; a component centred
@@ -185,9 +188,11 @@ continue straight across it — 0 for a swipe carousel, ~8 for a multi-image
 post. Every look works inside a split; the cut is exact because nothing is
 sliced — each piece is the same layout, translated.
 
-A cutout **never upscales**. The capture shoots at the scale `fit` asks for;
-if the element is still too small to fill it, it is drawn at native pixels and
-you are told. That is the honest outcome — a stretched screenshot of a popover
+A cutout **never upscales** unless asked. The capture shoots at the scale
+`fit` asks for; if the element is still too small to fill it, it is drawn at
+native pixels and the log names the viewport that would reach it (a smaller
+viewport allows a higher scale) and the `upscale` that would stretch it
+instead — `upscale: 1.5` is the most it will go, and it reads softer. That is the honest outcome — a stretched screenshot of a popover
 is exactly what this look exists to avoid. The scale ceiling is a *surface*
 budget, not a number: 1920×1080 stops at 4×, a tablet-shaped 820×1180 page
 reaches 5.8× — so a small popover on a small viewport still fills the frame.
@@ -245,7 +250,8 @@ same detail in any frame.
 - **It re-runs the whole step list** to raise the scale. Set `scale: 4` in the
   spec once a shot is settled and it only runs once.
 - **Padding does not apply to an explicit rect.** A `css()` or name region gets
-  `padding` (default 16px); a rect is taken literally, so bake the margin in.
+  `padding` (default 16px, or per side: `{ top: 0 }` keeps the element above
+  out of the crop); a rect is taken literally, so bake the margin in.
 - **A rect past the viewport is clamped**, with a warning. Watch the bottom edge
   — controls near the bottom of a 1080-tall viewport have little room below.
 - **A popover in the window frame reads as a card inside a card.** That is
