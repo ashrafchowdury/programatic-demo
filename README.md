@@ -15,6 +15,10 @@ studio frame. The result is an MP4 you can regenerate every release.
 
 ---
 
+> **Looking for a picture of what each option does?** [CATALOG.md](./CATALOG.md)
+> shows every look, preset, knob, reel style and backdrop as a real output with
+> the command under it.
+
 ## Three things this makes
 
 | | **demo** | **reel** | **still** |
@@ -439,15 +443,17 @@ slow half and it is already done.
 | --- | --- | --- | --- | --- |
 | `look` | `--look=` | — | `window` | `window`, `cutout` or `bleed`. The flag may switch window↔bleed only; a cutout is captured differently |
 | `region` | — | all | whole viewport | a visible name, `css("…")`, or `{ x, y, w, h }` |
-| `padding` | — | window, bleed | 16 | CSS px of breathing room around a resolved element. Not applied to a rect; irrelevant to a cutout, which measures its own extent |
+| `padding` | — | window, bleed | 16 | CSS px of breathing room around a resolved element — one number, or `{ top, right, bottom, left }` (a side left out takes the default). Not applied to a rect; irrelevant to a cutout, which measures its own extent |
 | `backdrop` | `--backdrop=` | all | `glaze` | one of the sixteen images below, or a file in `public/backdrops/` |
 | `ground` | `--ground=` | all | — | a flat `#rrggbb` instead of the backdrop image, or `transparent` for a PNG with alpha. Wins over `backdrop`. What cutouts and bleeds want |
 | `fit` | `--fit=` | cutout | 0.8 | fraction of the canvas the element's body may fill, on whichever axis binds. Over 1 (up to 2) crops *into* it |
 | `anchor` | `--anchor=` | cutout, bleed | `center` / `top-left` | `top-left`, `top`, `top-right`, `left`, `center`, `right`, `bottom-left`, `bottom`, `bottom-right` |
 | `inset` | `--inset=` | cutout, bleed | 0 / 0.06 | fraction of the canvas edge kept clear on the anchored side(s) |
-| `zoom` | `--zoom=` | bleed | 1.3 | how much larger than the fitted window |
-| `shadow` | `--shadow` | cutout | auto | cast a soft shadow under the element. Auto = only when the element painted none of its own |
-| `split` | `--split=` | all | — | cut the still into this many pieces side by side, each the preset's size, laid out as one picture (below) |
+| `zoom` | `--zoom=` | bleed | 1.3 | how much larger than the fitted window, or `fill` — grow until the window covers the frame on both axes (what a landscape screen needs in a portrait or story frame) |
+| `shadow` | `--shadow` / `--shadow=false` | cutout | auto | cast a soft shadow under the element. Auto = only when the element painted none of its own |
+| `upscale` | `--upscale=` | cutout | 1 | let a small element stretch past native by up to this factor (max 1.5) to reach `fit`. Off by default — a cutout never upscales unless asked; the capture names the viewport that would reach the size natively |
+| — | `--out=` | all | — | name the output file yourself, in `out/still/` |
+| `split` | `--split=` | all | — | cut the still into this many pieces side by side, each the preset's size, laid out as one picture (below). `--split=1` renders a splitting shot whole |
 | `gutter` | `--gutter=` | all | 0 | output px of the composition left out between pieces — the platform's gap |
 | `scale` | `--scale=` | all | measured | force the device scale factor and skip the measuring pass. Capped by the viewport's surface budget (below) |
 | `mobile` | — | all | off | present as a mobile client (tablet UA + mobile hints) for apps that serve a mobile layout on its own route |
@@ -461,8 +467,11 @@ pnpm render:still <name> [preset|--all]     # frame only    → out/still/<name>
 pnpm render:still <name> --look=bleed --anchor=bottom-right --zoom=1.5 --ground=#f3f3f3
 ```
 
-The output filename carries the look and the ground or backdrop, so rendering
-one capture several ways never overwrites itself.
+The output filename carries the look, the ground or backdrop, and every knob
+set on the command line (`-fit1.35-left-zoom1.6-gutter8-noshadow`), so
+rendering one capture several ways never overwrites itself; knobs from the
+spec are the shot's own look and leave the plain name. `--out=` names it
+yourself.
 
 Elevation is decided for you. On a **light** ground or backdrop a cutout keeps
 its own shadow, or gets a soft cast one if it painted none; a window gets the

@@ -4,6 +4,10 @@ Programmatic product demo videos. Playwright records a real app flow and logs
 every click; Remotion turns that log into a camera (zoom on click, easing,
 motion blur, vector cursor) over a studio backdrop.
 
+[CATALOG.md](./CATALOG.md) shows every output the pipeline can make — looks,
+presets, knobs, reel styles, backdrops — as pictures with the command under
+each. Read it to choose; read the skill to build.
+
 ## Browser
 
 Demos and stills are driven by Playwright's Chromium, launched by the scripts in
