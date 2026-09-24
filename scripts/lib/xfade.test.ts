@@ -183,7 +183,10 @@ describe("cuts inside a dissolving film (R16)", () => {
 
   it("is a plain concat for an all-cut film with a layer", () => {
     const f = buildJoinFilter([30, 30], FPS, [0], 1);
-    assert.equal(f, "[0:v][1:v]concat=n=2:v=1:a=0,settb=AVTB[r0];[r0][2:v]overlay=format=auto[v]");
+    assert.equal(
+      f,
+      "[0:v][1:v]concat=n=2:v=1:a=0,settb=AVTB[r0];[2:v]trim=end_frame=60,setpts=PTS-STARTPTS[l0];[r0][l0]overlay=format=auto:eof_action=pass[v]",
+    );
   });
 });
 
@@ -191,14 +194,24 @@ describe("overlay layers (R15)", () => {
   it("composites every layer in the same graph, last on top", () => {
     const f = buildJoinFilter([30, 30], FPS, [6], 2);
     const nodes = f.split(";");
-    assert.equal(nodes.length, 5);
+    assert.equal(nodes.length, 7);
     assert.match(nodes[2], /xfade/);
-    assert.equal(nodes[3], "[x1][2:v]overlay=format=auto[o0]");
-    assert.equal(nodes[4], "[o0][3:v]overlay=format=auto[v]");
+    // 30 + 30 - 6 = 54 frames: each layer is trimmed to the film.
+    assert.equal(nodes[3], "[2:v]trim=end_frame=54,setpts=PTS-STARTPTS[l0]");
+    assert.equal(nodes[4], "[x1][l0]overlay=format=auto:eof_action=pass[o0]");
+    assert.equal(nodes[5], "[3:v]trim=end_frame=54,setpts=PTS-STARTPTS[l1]");
+    assert.equal(nodes[6], "[o0][l1]overlay=format=auto:eof_action=pass[v]");
   });
 
   it("overlays a single segment without joining anything", () => {
-    assert.equal(buildJoinFilter([30], FPS, [], 1), "[0:v][1:v]overlay=format=auto[v]");
+    assert.equal(
+      buildJoinFilter([30], FPS, [], 1),
+      "[1:v]trim=end_frame=30,setpts=PTS-STARTPTS[l0];[0:v][l0]overlay=format=auto:eof_action=pass[v]",
+    );
+  });
+
+  it("trims a layer longer than the film, so the film keeps its length", () => {
+    assert.match(buildJoinFilter([30, 30], FPS, [0], 1), /trim=end_frame=60,/);
   });
 });
 

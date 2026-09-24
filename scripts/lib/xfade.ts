@@ -159,9 +159,18 @@ export function buildJoinFilter(
     label = out;
   }
 
+  // overlay runs to the LONGER input, so a layer one frame longer than the
+  // film stretched it by that frame (stage + chips: 701 predicted, 702 out).
+  // Trim each layer to the film's length; eof_action=pass shows the film
+  // through if a layer ends early.
+  const total = Math.round(acc * fps);
   for (let k = 0; k < layers; k++) {
+    const layer = `[l${k}]`;
     const out = `[o${k}]`;
-    parts.push(`${label}[${counts.length + k}:v]overlay=format=auto${out}`);
+    parts.push(
+      `[${counts.length + k}:v]trim=end_frame=${total},setpts=PTS-STARTPTS${layer}`,
+    );
+    parts.push(`${label}${layer}overlay=format=auto:eof_action=pass${out}`);
     label = out;
   }
 
