@@ -1,21 +1,29 @@
 import {
+  ACTION_WATCH_S,
   BASE_BEAT_S,
+  BASE_REST_S,
   CAMERA_LEAD_S,
   DESIGN_WIDTH,
   END_TAIL_S,
   HOLD_MIN_S,
+  MOVE_FLOOR_S,
+  SETTLE_BEFORE_PRESS_S,
   TYPE_TAIL_S,
   LEAD_FALLBACK_S,
   type ClickEvent,
   type ClickLog,
 } from "./click-log";
 import {
+  basePose,
   BASE_POSE,
   clamp,
+  groupToContentY,
   interpolatePose,
+  interpolateVia,
   MAX_PAN_PX,
   mix,
   moveDuration,
+  panLimit,
   poseToCss,
   posesNearlyEqual,
   poseTravelPx,
@@ -34,7 +42,15 @@ export type ZoomState = {
   translateY: number;
 };
 
-export type CameraKey = { t: number; pose: CameraPose };
+export type CameraKey = {
+  t: number;
+  pose: CameraPose;
+  /**
+   * Bend the move that ENDS at this key toward this pose (see interpolateVia).
+   * Absent on ordinary keys, whose move is a straight line.
+   */
+  via?: CameraPose;
+};
 
 export type ZoomOptions = {
   /**
@@ -209,6 +225,53 @@ export function stickify(
 }
 
 /**
+ * The window group a track is framed for. zoomAt passes what the composition
+ * draws; the defaults are the plain framed look with no chrome.
+ */
+export type FrameGeometry = {
+  /** Base float size of the window on the backdrop. Default WINDOW_FIT. */
+  fit?: number;
+  /** Chrome strip on top of the group, as a fraction of it. Default 0. */
+  chromeFrac?: number;
+};
+
+type Rect = { x: number; y: number; w: number; h: number };
+
+/**
+ * Most of the frame a `content` rect may leave blank before frameFor re-aims.
+ *
+ * gmail-automation's zooms were 60-70% blank page: zoom-about-subject keeps a
+ * small form near the top of a tall, sparse page where it sat, and the frame
+ * fills with the empty page below it. Framing knew where the click was, not
+ * where the product was. With the populated region logged (ClickEvent.content)
+ * the frame centres on target + content and tightens until at most this much is
+ * blank — or until the sharpness ceiling, whichever comes first.
+ */
+const BLANK_CAP = 0.4;
+
+const union = (a: Rect, b: Rect): Rect => {
+  const x = Math.min(a.x, b.x);
+  const y = Math.min(a.y, b.y);
+  return {
+    x,
+    y,
+    w: Math.max(a.x + a.w, b.x + b.w) - x,
+    h: Math.max(a.y + a.h, b.y + b.h) - y,
+  };
+};
+
+const clipTo = (r: Rect, W: number, H: number): Rect => {
+  const x = clamp(r.x, 0, W);
+  const y = clamp(r.y, 0, H);
+  return {
+    x,
+    y,
+    w: clamp(r.x + r.w, 0, W) - x,
+    h: clamp(r.y + r.h, 0, H) - y,
+  };
+};
+
+/**
  * Fit a click's control into the viewport, offset so the subject is not dead-centred.
  * Returns a content-space pose (not CSS origin).
  */
@@ -216,9 +279,12 @@ export function frameFor(
   c: ClickEvent,
   vp: { width: number; height: number },
   sMax: number,
+  geom: FrameGeometry = {},
 ): CameraPose {
   const W = vp.width;
   const H = vp.height;
+  const fit = geom.fit && geom.fit > 0 ? geom.fit : WINDOW_FIT;
+  const cf = clamp(geom.chromeFrac ?? 0, 0, 0.2);
   // PAD, MENU_ROOM and the thresholds below are design px at DESIGN_WIDTH. A log
   // shot under CAPTURE_SCALE carries rects in a 2560- or 3840-wide viewport, so
   // they have to be scaled or the padding silently shrinks by that factor. k = 1
@@ -246,21 +312,34 @@ export function frameFor(
   // Still clamped to sMax, so "tight" never upscales past the sharpness ceiling.
   const sFit = clamp(Math.min(sByW, sByH), S_MIN, sMax);
   // Lift a soft fit to a real punch when the control still fits at that scale.
-  // Sized against WINDOW_FIT because that is what the viewer sees; a style with
-  // a different float size gets a slightly conservative check, never a crop.
+  // Sized against the float size because that is what the viewer sees.
   const punchMin = Math.min(S_PUNCH_MIN, sMax);
   const fitsAtPunch =
-    extW * WINDOW_FIT * punchMin <= WIDE_FIT * W &&
-    extH * WINDOW_FIT * punchMin <= WIDE_FIT * H;
-  const S =
+    extW * fit * punchMin <= WIDE_FIT * W &&
+    extH * fit * punchMin <= WIDE_FIT * H;
+  let S =
     c.zoomScale != null
       ? clamp(c.zoomScale, S_MIN, sMax)
       : fitsAtPunch
         ? Math.max(sFit, punchMin)
         : sFit;
 
-  const contentCx = clamp(focusX / W, 0, 1);
-  const contentCy = clamp(focusY / H, 0, 1);
+  // Work in WINDOW-GROUP space (x as-is, y shifted under the chrome strip):
+  // that is the space poseToCss centres and clamps in, so a clamp applied here
+  // is exactly the one the render sees.
+  const toG = (yPx: number) => cf + (clamp(yPx / H, 0, 1) * (1 - cf));
+  const px = clamp(focusX / W, 0, 1);
+  const py = toG(focusY);
+
+  // Framing is held to panLimit on the EFFECTIVE scale (fit * S): once the
+  // window is bigger than the frame its edges stay out of shot. Clamping on the
+  // pose scale instead let a soft punch (effective 1.02-1.09) slide the window
+  // until its edge sat at the base margin — a window inflating from its corner.
+  // poseToCss used to fix that at render; here it is fixed in the keyframe, so
+  // the render clamp never has to act (see poseToCss).
+  const halfFor = (s: number) => 1 / (2 * fit * s);
+  const limFor = (s: number) => panLimit(fit * s);
+
   // Zoom ABOUT the subject: it keeps the screen position it had at base and
   // the picture grows around it, so the move points at the thing being clicked
   // by construction. A subject that lives off-centre stays off-centre; one near
@@ -276,9 +355,43 @@ export function frameFor(
   // WINDOW_FIT cancels out here: a base point sits at 0.5 + (p - 0.5) * fit on
   // screen and at 0.5 + (p - cx) * fit * S after the punch, so holding it still
   // needs cx = p - (p - 0.5) / S whatever fit is.
-  const half = 1 / (2 * S);
-  let cx = clamp(contentCx - (contentCx - 0.5) / S, half, 1 - half);
-  let cy = clamp(contentCy - (contentCy - 0.5) / S, half, 1 - half);
+  let gx = px - (px - 0.5) / S;
+  let gy = py - (py - 0.5) / S;
+
+  // Content-aware framing (D9). Only when the recorder logged the populated
+  // region; without it every line below is skipped and framing is as before.
+  if (c.content) {
+    const ext = { x: rect.x, y: rect.y, w: rect.w, h: rect.h + menuRoom };
+    const u = clipTo(union(ext, c.content), W, H);
+    if (u.w > 0 && u.h > 0) {
+      // Visible content px at S: W / (fit S) wide, H / ((1 - cf) fit S) tall.
+      const sFill = Math.min(
+        W / (fit * (u.w + 2 * PAD * k)),
+        (H / (1 - cf)) / (fit * (u.h + 2 * PAD * k)),
+      );
+      // Blank share if the union were wholly in shot: 1 - area(u) / area(view).
+      const sCap =
+        Math.sqrt(((1 - BLANK_CAP) * W * H) / (u.w * u.h * (1 - cf))) / fit;
+      // Tighten, never loosen: the target's own fit already chose S.
+      S = Math.max(S, Math.min(sCap, sFill, sMax));
+      // Aim at the union instead of the subject's base position.
+      gx = (u.x + u.w / 2) / W;
+      gy = toG(u.y + u.h / 2);
+      // …but the framed control itself stays in shot when it can.
+      const h = halfFor(S);
+      const tx0 = rect.x / W;
+      const tx1 = (rect.x + rect.w) / W;
+      const ty0 = toG(ext.y);
+      const ty1 = toG(ext.y + ext.h);
+      if (tx1 - tx0 <= 2 * h) gx = clamp(gx, tx1 - h, tx0 + h);
+      if (ty1 - ty0 <= 2 * h) gy = clamp(gy, ty1 - h, ty0 + h);
+    }
+  }
+
+  const half = halfFor(S);
+  const lim = limFor(S);
+  gx = clamp(gx, 0.5 - lim, 0.5 + lim);
+  gy = clamp(gy, 0.5 - lim, 0.5 + lim);
 
   // Whatever the offset wanted, the thing being clicked has to be on screen.
   //
@@ -297,15 +410,15 @@ export function frameFor(
   //
   // Margin is capped against `half` so this can never invert at high zoom.
   const clickX = clamp(c.x / W, 0, 1);
-  const clickY = clamp(c.y / H, 0, 1);
+  const clickY = toG(c.y);
   const margin = Math.min(CLICK_MARGIN, half * 0.4);
-  cx = clamp(cx, clickX - half + margin, clickX + half - margin);
-  cy = clamp(cy, clickY - half + margin, clickY + half - margin);
+  gx = clamp(gx, clickX - half + margin, clickX + half - margin);
+  gy = clamp(gy, clickY - half + margin, clickY + half - margin);
   // Content bounds win: panning past the edge would show stretched footage.
   // The fit guard above is what keeps these two from actually conflicting.
-  cx = clamp(cx, half, 1 - half);
-  cy = clamp(cy, half, 1 - half);
-  return { scale: S, cx, cy };
+  gx = clamp(gx, 0.5 - lim, 0.5 + lim);
+  gy = clamp(gy, 0.5 - lim, 0.5 + lim);
+  return { scale: S, cx: gx, cy: groupToContentY(gy, cf) };
 }
 
 /**
@@ -316,8 +429,9 @@ function clickInShot(
   c: ClickEvent,
   pose: CameraPose,
   vp: { width: number; height: number },
+  fit: number,
 ): boolean {
-  const eff = pose.scale * WINDOW_FIT;
+  const eff = pose.scale * fit;
   if (eff <= 1) return true;
   const half = 1 / (2 * eff);
   const margin = Math.min(CLICK_MARGIN, half * 0.4);
@@ -338,10 +452,11 @@ function settle(
   next: CameraPose,
   c: ClickEvent,
   vp: { width: number; height: number },
+  fit: number,
 ): CameraPose {
   if (cur.scale <= BASE_POSE.scale) return next;
   if (next.scale - cur.scale >= REPOSE_MIN_DS) return next;
-  return clickInShot(c, cur, vp) ? cur : next;
+  return clickInShot(c, cur, vp, fit) ? cur : next;
 }
 
 function departS(c: ClickEvent): number {
@@ -359,11 +474,15 @@ function normalizeKeys(keys: CameraKey[]): CameraKey[] {
     const prev = out[out.length - 1];
     if (k.t + 1e-4 < prev.t) continue;
     if (k.t - prev.t < 1e-4) {
-      out[out.length - 1] = k;
+      // Same instant: the segment that ENDS here is prev's, so keep its bend.
+      out[out.length - 1] = { ...k, via: k.via ?? prev.via };
       continue;
     }
     if (k.t - prev.t < 0.2 && posesNearlyEqual(prev.pose, k.pose)) {
-      out[out.length - 1] = { t: k.t, pose: k.pose };
+      // A micro-move: snap it to a hold rather than stretching the previous
+      // move over it. Stretching (the old behaviour) slid a move's landing up
+      // to 0.2s later — past the press it had been timed to settle before.
+      out.push({ t: k.t, pose: prev.pose });
       continue;
     }
     out.push(k);
@@ -371,142 +490,239 @@ function normalizeKeys(keys: CameraKey[]): CameraKey[] {
   return out;
 }
 
-export function buildCameraTrack(log: ClickLog, speed = 1): CameraKey[] {
+/** Mousedown of a click, on the log clock (focus beats have none: use tMs). */
+const pressS = (c: ClickEvent): number => (c.tDownMs ?? c.tMs) / 1000;
+
+/** When the action itself is over: the click, or the last keystroke. */
+const actionEndS = (c: ClickEvent): number =>
+  Math.max(c.tMs, c.typeEndMs ?? c.tMs) / 1000;
+
+export function buildCameraTrack(
+  log: ClickLog,
+  speed = 1,
+  geom: FrameGeometry = {},
+): CameraKey[] {
   const vp = log.viewport;
+  const fit = geom.fit && geom.fit > 0 ? geom.fit : WINDOW_FIT;
+  const base = basePose(geom.chromeFrac ?? 0);
   const groups = stickify(clusterize(log.clicks, vp), vp);
-  const keys: CameraKey[] = [{ t: 0, pose: BASE_POSE }];
+  const keys: CameraKey[] = [{ t: 0, pose: base }];
   if (groups.length === 0) {
     keys.push({
       t: Math.max((log.durationMs || 8000) / 1000, 0.5),
-      pose: BASE_POSE,
+      pose: base,
     });
     return keys;
   }
 
-  // Holds live on the click-log clock too, so they need the same speed scaling
-  // as moves or they land ~20% short on screen at the default 1.25x.
+  // Everything below is authored in SCREEN seconds and runs on the click-log
+  // clock, which the composition replays at `speed` — so each one is scaled up
+  // by it, or it lands ~20% short on screen at the default 1.25x.
   const holdMin = HOLD_MIN_S * speed;
   const typeTail = TYPE_TAIL_S * speed;
   const baseBeat = BASE_BEAT_S * speed;
+  const settleGap = SETTLE_BEFORE_PRESS_S * speed;
+  const moveFloor = MOVE_FLOOR_S * speed;
+  const watch = ACTION_WATCH_S * speed;
+  const baseRest = BASE_REST_S * speed;
 
+  /** The camera must not leave an action before this (see ACTION_WATCH_S). */
+  const watchUntil = (c: ClickEvent): number => actionEndS(c) + watch;
   /**
-   * When a click's action is actually finished, on the log clock.
-   *
-   * For a click that is its timestamp. For a typing beat it is the last
-   * keystroke — the camera must not trail away from text still being typed.
+   * When the camera would LIKE to leave: the full hold. For a typing beat that
+   * is the last keystroke plus a tail — the camera must not trail away from
+   * text still being typed.
    */
   const holdUntil = (c: ClickEvent): number =>
-    c.typeEndMs != null
-      ? Math.max(c.tMs / 1000 + holdMin, c.typeEndMs / 1000 + typeTail)
-      : c.tMs / 1000 + holdMin;
+    Math.max(
+      watchUntil(c),
+      c.tMs / 1000 + holdMin,
+      c.typeEndMs != null ? c.typeEndMs / 1000 + typeTail : 0,
+    );
 
-  let prevPose = BASE_POSE;
   const meta = groups.map((group, i) => ({
     group,
     poses: group.map((c) =>
       // The first cluster is softened (S_MAX_SOFT) so a film does not open on
       // its most aggressive push — but an explicit zoomScale is a deliberate
       // request, so it gets the full sharp ceiling even in first position.
-      frameFor(c, vp, i === 0 && c.zoomScale == null ? S_MAX_SOFT : S_MAX),
+      frameFor(
+        c,
+        vp,
+        i === 0 && c.zoomScale == null ? S_MAX_SOFT : S_MAX,
+        geom,
+      ),
     ),
     tIn: Math.max(0, departS(group[0]) - CAMERA_LEAD_S),
   }));
 
+  // The camera is at `pose`, and still from `free` on.
+  let pose = base;
+  let free = 0;
+  const move = (to: CameraPose, start: number, dur: number, via?: CameraPose) => {
+    keys.push({ t: start, pose });
+    keys.push(via ? { t: start + dur, pose: to, via } : { t: start + dur, pose: to });
+    pose = to;
+    free = start + dur;
+  };
+
+  /**
+   * Place a move that would like to start at `want` so it LANDS by `deadline`.
+   *
+   * The cursor glide is not scaled by speed and the camera's durations are, so
+   * nothing used to line the two up: 12 of 118 presses landed while the camera
+   * was still moving (skillsmp-search settled 482ms after its press, blurring
+   * the ripple). A move that would land late is shortened, down to MOVE_FLOOR_S
+   * on screen; if even that does not fit it starts earlier, borrowing from the
+   * hold before it — never before `earliest`.
+   */
+  const fitMove = (earliest: number, want: number, deadline: number, dur: number) => {
+    let start = Math.max(earliest, want);
+    if (start + dur <= deadline) return { start, dur };
+    const d = Math.min(dur, Math.max(moveFloor, deadline - start));
+    start = Math.max(earliest, Math.min(start, deadline - d));
+    return { start, dur: d };
+  };
+
+  /**
+   * Take the camera from where it is to `to`, landing SETTLE_BEFORE_PRESS_S
+   * before `press` — or, when that and the watch floor collide, by the press
+   * itself: the settle gap is the first thing given up.
+   *
+   * `leave` bounds when it may pull away from the previous action: `hard` is
+   * the floor (the action has finished and been watched), `soft` the full hold.
+   * `trail` asks for a return to base when there is room for one.
+   */
+  const reach = (
+    to: CameraPose,
+    want: number,
+    press: number,
+    leave: { hard: number; soft: number },
+    trail: boolean,
+  ) => {
+    const deadline = press - settleGap;
+    if (posesNearlyEqual(pose, to)) return;
+    if (pose.scale <= base.scale + 1e-3) {
+      const dur = moveDuration(pose, to, "in", vp, speed);
+      const m = fitMove(free, want, deadline, dur);
+      move(to, m.start, m.dur);
+      return;
+    }
+    const hard = Math.max(free, leave.hard);
+    const soft = Math.max(hard, leave.soft);
+    const far = poseTravelPx(pose, to, vp) > MAX_PAN_PX;
+    const outDur = moveDuration(pose, base, "out", vp, speed);
+    const inDur = moveDuration(base, to, "in", vp, speed);
+
+    if (far || (trail && want >= soft + outDur)) {
+      // Trail to base and punch back in — the reference clips never sweep the
+      // camera across the whole screen at magnification. Leave as late as the
+      // hold allows but in time to reach base as the cursor departs; never
+      // before the action has been watched. The in-move may then start after
+      // the cursor has gone (it is delayed rather than the hold cut).
+      const outStart = Math.max(hard, Math.min(soft, want - outDur));
+      const landed = outStart + outDur;
+      const m = fitMove(landed, want, deadline, inDur);
+      if (m.start + m.dur <= deadline + 1e-6) {
+        if (m.start - landed < baseRest) {
+          // No real rest at base: one move that carries its speed through a
+          // middle scale, instead of stopping dead at base and re-launching.
+          move(to, outStart, m.start + m.dur - outStart, base);
+        } else {
+          move(base, outStart, outDur);
+          move(to, m.start, m.dur);
+        }
+        return;
+      }
+      if (far) {
+        // No time for a trail and a punch: one combined out-and-in through a
+        // middle scale. It never reaches base, so it is a pan at magnification
+        // that eases the zoom off while it crosses — kinder than a straight
+        // screen-wide pan at full zoom. It takes whatever time there is
+        // between the watch and the press, within a pan's and a full trail's
+        // length.
+        const earliest = hard;
+        const dur = clamp(
+          deadline - earliest,
+          moveDuration(pose, to, "pan", vp, speed),
+          outDur + inDur,
+        );
+        const m2 = fitMove(earliest, Math.min(want, deadline - dur), deadline, dur);
+        move(to, m2.start, m2.dur, base);
+        return;
+      }
+    }
+    // Pan at magnification. A pan is not a zoom-out, so when the watch and the
+    // next press collide the watch gives way — but only as far as it takes to
+    // land by the press itself; the settle gap goes first.
+    const dur = moveDuration(pose, to, "pan", vp, speed);
+    const m = fitMove(
+      Math.max(free, Math.min(hard, press - moveFloor)),
+      want,
+      deadline,
+      dur,
+    );
+    move(to, m.start, m.dur);
+  };
+
   for (let i = 0; i < meta.length; i++) {
     const { group, poses, tIn } = meta[i];
-    const last = group[group.length - 1];
-    const inPose = settle(prevPose, poses[0], group[0], vp);
-    const startT = Math.max(tIn, keys[keys.length - 1].t);
-    const durIn = moveDuration(prevPose, inPose, "in", vp, speed);
-    keys.push({ t: startT, pose: prevPose });
-    keys.push({ t: startT + durIn, pose: inPose });
-
-    let curPose = inPose;
-    let curT = startT + durIn;
+    const prev = i > 0 ? meta[i - 1].group : null;
+    const prevLast = prev ? prev[prev.length - 1] : null;
+    reach(
+      settle(pose, poses[0], group[0], vp, fit),
+      tIn,
+      pressS(group[0]),
+      prevLast
+        ? { hard: watchUntil(prevLast), soft: holdUntil(prevLast) }
+        : { hard: 0, soft: 0 },
+      true,
+    );
     for (let j = 1; j < group.length; j++) {
-      const nextPose = settle(curPose, poses[j], group[j], vp);
-      if (nextPose === curPose) continue;
-      const tPan = Math.max(curT, departS(group[j]) - CAMERA_LEAD_S);
-      if (poseTravelPx(curPose, nextPose, vp) > MAX_PAN_PX) {
-        // Too far to pan at magnification. Pull back to base, then punch in —
-        // the reference clips never sweep the camera across the whole screen.
-        const durBack = moveDuration(curPose, BASE_POSE, "out", vp, speed);
-        const durNext = moveDuration(BASE_POSE, nextPose, "in", vp, speed);
-        // Leave just in time to reach base as the cursor departs, but not
-        // before the previous click has had its minimum hold, and never after
-        // the cursor has already gone.
-        const prevHoldEnd = holdUntil(group[j - 1]);
-        const backStart = clamp(
-          tPan - durBack,
-          Math.max(curT, prevHoldEnd),
-          Math.max(curT, tPan),
-        );
-        keys.push({ t: backStart, pose: curPose });
-        keys.push({ t: backStart + durBack, pose: BASE_POSE });
-        const inStart = Math.max(backStart + durBack, tPan);
-        keys.push({ t: inStart, pose: BASE_POSE });
-        keys.push({ t: inStart + durNext, pose: nextPose });
-        curT = inStart + durNext;
-      } else {
-        const durPan = moveDuration(curPose, nextPose, "pan", vp, speed);
-        keys.push({ t: tPan, pose: curPose });
-        keys.push({ t: tPan + durPan, pose: nextPose });
-        curT = tPan + durPan;
-      }
-      curPose = nextPose;
-    }
-
-    const holdEnd = Math.max(curT, holdUntil(last));
-    const durOut = moveDuration(curPose, BASE_POSE, "out", vp, speed);
-    const next = meta[i + 1];
-
-    if (!next) {
-      const clipEnd = Math.max(
-        curT,
-        (log.durationMs || last.tMs + END_TAIL_S * 1000) / 1000,
+      reach(
+        settle(pose, poses[j], group[j], vp, fit),
+        departS(group[j]) - CAMERA_LEAD_S,
+        pressS(group[j]),
+        { hard: watchUntil(group[j - 1]), soft: holdUntil(group[j - 1]) },
+        false,
       );
-      // Always land back at base: it is the one rule all four reference clips
-      // keep. Start the trail as late as the minimum hold allows, but early
-      // enough that it plus a beat at base fits before the cut. When the two
-      // conflict the trail wins — ending zoomed in reads far worse than a hold
-      // trimmed short.
-      const latest = clipEnd - durOut - baseBeat;
-      const trailStart = Math.max(curT, Math.min(holdEnd, latest));
-      if (trailStart + durOut <= clipEnd) {
-        keys.push({ t: trailStart, pose: curPose });
-        keys.push({ t: trailStart + durOut, pose: BASE_POSE });
-        keys.push({ t: clipEnd, pose: BASE_POSE });
-      } else {
-        // Recording is too short to get home. Raise END_TAIL_S and re-record.
-        keys.push({ t: clipEnd, pose: curPose });
-      }
-      prevPose = BASE_POSE;
-      continue;
-    }
-
-    // Same guardrail as the intra-cluster pan: if the next beat is too far to
-    // reach at magnification, go home first. Without this the "no room to
-    // trail" branches below pan straight across the screen — e.g. Save at the
-    // bottom right to a header at the top left, ~790px in under a second.
-    const farApart = poseTravelPx(curPose, next.poses[0], vp) > MAX_PAN_PX;
-    if (next.tIn >= holdEnd + durOut || farApart) {
-      // Leave as late as the hold allows, but early enough to land at base
-      // before the next cluster opens. When those conflict the trail wins: a
-      // clipped hold reads far better than a screen-wide sweep.
-      const trailStart = Math.max(curT, Math.min(holdEnd, next.tIn - durOut));
-      keys.push({ t: trailStart, pose: curPose });
-      keys.push({ t: trailStart + durOut, pose: BASE_POSE });
-      prevPose = BASE_POSE;
-    } else if (next.tIn > holdEnd) {
-      keys.push({ t: next.tIn, pose: curPose });
-      prevPose = curPose;
-    } else {
-      keys.push({ t: Math.max(curT, next.tIn), pose: curPose });
-      prevPose = curPose;
     }
   }
 
+  // Always land back at base: it is the one rule all four reference clips
+  // keep. The last beat gets its full hold — it is never cut to make the trail
+  // fit. When the recording is too short for hold + trail + a beat at base, the
+  // track runs past durationMs and the composition holds the last frame of the
+  // footage (see trackDurationMs) rather than ending zoomed in or clipping the
+  // payoff.
+  const lastGroup = meta[meta.length - 1].group;
+  const last = lastGroup[lastGroup.length - 1];
+  if (pose.scale > base.scale + 1e-3 || !posesNearlyEqual(pose, base)) {
+    const outStart = Math.max(free, holdUntil(last));
+    move(base, outStart, moveDuration(pose, base, "out", vp, speed));
+  }
+  const clipEnd = (log.durationMs || last.tMs + END_TAIL_S * 1000) / 1000;
+  keys.push({ t: Math.max(clipEnd, free + baseBeat), pose: base });
+
   return normalizeKeys(keys);
+}
+
+/**
+ * How long, on the click-log clock, the composition must run for the camera to
+ * finish: the recording, or longer when the last beat's hold + trail + base
+ * beat does not fit inside it. Past durationMs the footage should hold its last
+ * frame. The composition sizes itself from durationMs today; switch it to this
+ * (plus offsetMs, which zoomAt subtracts) to stop a short tail from ever
+ * cutting the closing trail.
+ */
+export function trackDurationMs(
+  log: ClickLog,
+  speed = 1,
+  geom: FrameGeometry = {},
+): number {
+  const keys = buildCameraTrack(log, speed, geom);
+  const end = keys[keys.length - 1].t * 1000;
+  return Math.max(log.durationMs || 0, Math.ceil(end));
 }
 
 export function sampleTrack(keys: CameraKey[], t: number): CameraPose {
@@ -520,7 +736,10 @@ export function sampleTrack(keys: CameraKey[], t: number): CameraPose {
   const b = keys[i + 1];
   const dur = b.t - a.t;
   if (dur < 1e-6) return b.pose;
-  return interpolatePose(a.pose, b.pose, (t - a.t) / dur);
+  const u = (t - a.t) / dur;
+  return b.via
+    ? interpolateVia(a.pose, b.via, b.pose, u)
+    : interpolatePose(a.pose, b.pose, u);
 }
 
 /**
@@ -565,7 +784,9 @@ export function holdSpanAt(
   while (i < keys.length - 1 && t > keys[i + 1].t) i++;
   const a = keys[i];
   const b = keys[i + 1];
-  return posesNearlyEqual(a.pose, b.pose) ? { startT: a.t, endT: b.t } : null;
+  return posesNearlyEqual(a.pose, b.pose) && !b.via
+    ? { startT: a.t, endT: b.t }
+    : null;
 }
 
 /**
@@ -629,18 +850,23 @@ export function driftPose(
  * The track is a pure function of (log, speed) but zoomAt runs per frame — and
  * once per sub-sample under CameraMotionBlur, so ~8x that. Cache it per log.
  */
-const trackCache = new WeakMap<ClickLog, Map<number, CameraKey[]>>();
+const trackCache = new WeakMap<ClickLog, Map<string, CameraKey[]>>();
 
-function cachedTrack(log: ClickLog, speed: number): CameraKey[] {
-  let bySpeed = trackCache.get(log);
-  if (!bySpeed) {
-    bySpeed = new Map();
-    trackCache.set(log, bySpeed);
+function cachedTrack(
+  log: ClickLog,
+  speed: number,
+  geom: Required<FrameGeometry>,
+): CameraKey[] {
+  let byKey = trackCache.get(log);
+  if (!byKey) {
+    byKey = new Map();
+    trackCache.set(log, byKey);
   }
-  let track = bySpeed.get(speed);
+  const key = `${speed}|${geom.fit}|${geom.chromeFrac}`;
+  let track = byKey.get(key);
   if (!track) {
-    track = buildCameraTrack(log, speed);
-    bySpeed.set(speed, track);
+    track = buildCameraTrack(log, speed, geom);
+    byKey.set(key, track);
   }
   return track;
 }
@@ -660,7 +886,13 @@ export function zoomAt(
   const fit = opts.fit && opts.fit > 0 ? opts.fit : 1;
   const offset = (log.offsetMs ?? 0) / 1000;
   const t = (frame / fps) * speed - offset;
-  const track = cachedTrack(log, speed);
+  // The track is framed for the window it will be drawn in: frameFor holds
+  // keyframes to the pan clamp at this fit and chrome, so poseToCss's clamp
+  // below never has to act. (No fit given: framed for WINDOW_FIT, as always.)
+  const track = cachedTrack(log, speed, {
+    fit: opts.fit && opts.fit > 0 ? opts.fit : WINDOW_FIT,
+    chromeFrac,
+  });
   const pose = driftPose(
     sampleTrack(track, t),
     track,

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { BASE_POSE, posesNearlyEqual } from "./camera";
+import { BASE_POSE, panLimit, posesNearlyEqual } from "./camera";
 import type { ClickLog } from "./click-log";
+import { WINDOW_FIT } from "./window";
 import {
   buildCameraTrack,
   clusterize,
@@ -9,6 +10,7 @@ import {
   frameFor,
   sampleTrack,
   stickify,
+  trackDurationMs,
   zoomAt,
 } from "./zoom";
 
@@ -203,16 +205,36 @@ describe("buildCameraTrack", () => {
       },
       1.25,
     );
-    const between = keys.filter((k) => k.t > 13.5 && k.t < 18.2);
+    // There is no room for a full trail plus a rest at base before the next
+    // press, so the camera makes ONE move that dips through a middle scale
+    // (see interpolateVia) — it must still pull most of the way back rather
+    // than cross at 1.6x, and it must not leave Save before it was watched.
+    let minScale = Infinity;
+    for (let t = 16.7; t < 21.47; t += 0.01) {
+      minScale = Math.min(minScale, sampleTrack(keys, t).scale);
+    }
     assert.ok(
-      between.some((k) => Math.abs(k.pose.scale - BASE_POSE.scale) < 1e-6),
-      "camera swept between clusters instead of pulling back to base",
+      minScale < 1.3,
+      `camera swept between clusters at ${minScale.toFixed(2)}x`,
+    );
+    const leave = keys.find((k, n) => n > 0 && k.t > 16.7 && !posesNearlyEqual(k.pose, keys[n - 1].pose));
+    assert.ok(leave);
+    const moveStart = keys[keys.indexOf(leave) - 1].t;
+    assert.ok(
+      moveStart >= 16.7 + 0.7 * 1.25 - 1e-6,
+      `left Save ${((moveStart - 16.7) / 1.25).toFixed(2)}s after the click`,
     );
   });
 
   it("scales move durations so they land right on screen at speed", () => {
-    const fast = buildCameraTrack(smokeLog, 1.25);
-    const real = buildCameraTrack(smokeLog, 1);
+    // Departs early enough that neither speed has to squeeze the move to land
+    // before the press (that squeeze is tested separately).
+    const roomy: ClickLog = {
+      ...smokeLog,
+      clicks: [{ ...smokeLog.clicks[0], tDepartMs: 800 }, ...smokeLog.clicks.slice(1)],
+    };
+    const fast = buildCameraTrack(roomy, 1.25);
+    const real = buildCameraTrack(roomy, 1);
     const firstMove = (keys: typeof fast) => {
       const i = keys.findIndex((k, n) => n > 0 && k.pose.scale > 1.05);
       return keys[i].t - keys[i - 1].t;
@@ -362,7 +384,8 @@ describe("frameFor keeps the click in shot", () => {
     x: number,
     y: number,
   ) => {
-    const half = 1 / (2 * pose.scale);
+    // What the viewer sees: the window is drawn at WINDOW_FIT * scale.
+    const half = 1 / (2 * WINDOW_FIT * pose.scale);
     const nx = x / VP2.width;
     const ny = y / VP2.height;
     return (
@@ -502,5 +525,212 @@ describe("hold drift", () => {
         );
       }
     }
+  });
+});
+
+describe("the camera and the action agree about time", () => {
+  const SPEED = 1.25;
+  const segmentsOf = (keys: ReturnType<typeof buildCameraTrack>) =>
+    keys
+      .slice(1)
+      .map((b, i) => ({ a: keys[i], b }))
+      .filter(({ a, b }) => b.via || !posesNearlyEqual(a.pose, b.pose));
+
+  it("lands a squeezed in-move before the press, not after it", () => {
+    // skillsmp-search's shape: the cursor glides for ~0.6s of recording time,
+    // shorter than the camera's own move at 1.25x. The move is shortened (to a
+    // floor) so the press lands on a still frame.
+    const log: ClickLog = {
+      name: "tight",
+      viewport: VP,
+      durationMs: 9000,
+      clicks: [
+        {
+          tMs: 2700,
+          tDownMs: 2600,
+          tDepartMs: 2000,
+          x: 1500,
+          y: 300,
+          rect: { x: 1440, y: 280, w: 120, h: 40 },
+          cluster: "a",
+        },
+      ],
+    };
+    const keys = buildCameraTrack(log, SPEED);
+    const move = segmentsOf(keys)[0];
+    assert.ok(
+      move.b.t <= 2.6 - 0.15 * SPEED + 1e-6,
+      `settled at ${move.b.t}, press at 2.6`,
+    );
+    const onScreen = (move.b.t - move.a.t) / SPEED;
+    assert.ok(onScreen >= 0.45 - 1e-6, `squeezed to ${onScreen}s on screen`);
+  });
+
+  it("starts early rather than below the floor when the glide is very short", () => {
+    const log: ClickLog = {
+      name: "tighter",
+      viewport: VP,
+      durationMs: 9000,
+      clicks: [
+        { tMs: 2500, tDownMs: 2450, tDepartMs: 2300, x: 1500, y: 300, cluster: "a" },
+      ],
+    };
+    const keys = buildCameraTrack(log, SPEED);
+    const move = segmentsOf(keys)[0];
+    assert.ok(move.a.t < 2.3, "should borrow from the establish before it");
+    assert.ok(move.b.t <= 2.45 - 0.15 * SPEED + 1e-6);
+  });
+
+  it("never zooms out of a typing beat before the last keystroke has been watched", () => {
+    // agent-instructions' defect: the next cluster's lead-in arrived before the
+    // hold expired and "the trail won", zooming out 590ms before the last key.
+    const log: ClickLog = {
+      name: "type-then-go",
+      viewport: VP,
+      durationMs: 16000,
+      clicks: [
+        {
+          tMs: 2000,
+          tDepartMs: 1200,
+          typeEndMs: 7000,
+          x: 400,
+          y: 200,
+          rect: { x: 300, y: 180, w: 300, h: 40 },
+          cluster: "write",
+        },
+        {
+          tMs: 8600,
+          tDepartMs: 7100,
+          x: 1700,
+          y: 950,
+          rect: { x: 1640, y: 930, w: 120, h: 40 },
+          cluster: "save",
+        },
+      ],
+    };
+    const keys = buildCameraTrack(log, SPEED);
+    const leave = segmentsOf(keys).find(({ a }) => a.t > 2.5);
+    assert.ok(leave);
+    assert.ok(
+      leave.a.t >= 7 + 0.7 * SPEED - 1e-6,
+      `left ${((leave.a.t - 7) / SPEED).toFixed(2)}s after the last keystroke`,
+    );
+    // …and Save still lands on a still frame (the settle gap is what gives).
+    const arrive = segmentsOf(keys).find(({ b }) => b.t > leave.a.t);
+    assert.ok(arrive && arrive.b.t <= 8.6, `landed ${arrive?.b.t}`);
+  });
+
+  it("holds the last beat in full and runs the track past a short recording", () => {
+    const log: ClickLog = {
+      ...smokeLog,
+      durationMs: 7500, // 0.65s after the last click: no room for hold + trail
+    };
+    const keys = buildCameraTrack(log, SPEED);
+    const last = keys[keys.length - 1];
+    assert.ok(posesNearlyEqual(last.pose, BASE_POSE), "must still end at base");
+    const outStart = segmentsOf(keys).pop()!.a.t;
+    assert.ok(outStart >= 6.854 + 1.3 * SPEED - 1e-6, "last hold was cut");
+    assert.ok(trackDurationMs(log, SPEED) > log.durationMs);
+    assert.equal(trackDurationMs(smokeLog, 1), smokeLog.durationMs);
+  });
+
+  it("carries speed through a back-to-back out-and-in instead of stopping at base", () => {
+    // Two far clusters with no time for a rest at base: one bent move.
+    const log: ClickLog = {
+      name: "hop",
+      viewport: VP,
+      durationMs: 14000,
+      clicks: [
+        { tMs: 2000, tDepartMs: 1200, x: 300, y: 200, cluster: "a" },
+        { tMs: 6000, tDepartMs: 4200, x: 1650, y: 900, cluster: "b" },
+      ],
+    };
+    const keys = buildCameraTrack(log, SPEED);
+    const bent = keys.find((k) => k.via);
+    assert.ok(bent, "expected a single out-and-in move");
+    const i = keys.indexOf(bent);
+    const mid = (keys[i - 1].t + bent.t) / 2;
+    const a = sampleTrack(keys, mid - 0.01);
+    const b = sampleTrack(keys, mid + 0.01);
+    assert.ok(Math.abs(b.cx - a.cx) > 1e-3, "camera stopped mid-move");
+    assert.ok(Math.min(a.scale, b.scale) > 1.05, "should not reach base");
+  });
+});
+
+describe("frameFor holds keyframes to the pan clamp", () => {
+  it("keeps the window's edges out of shot on a soft punch (the corner case)", () => {
+    // At fit 0.86 a punch at S ~1.2 is only 1.03x on screen. Clamped on the
+    // pose scale, a left-edge target slid the window until its left edge sat
+    // at the base margin with the right 13% cut off.
+    const wide = { x: 20, y: 400, w: 1500, h: 60 };
+    const pose = frameFor({ tMs: 0, x: 60, y: 430, rect: wide }, VP, 1.74);
+    const lim = panLimit(WINDOW_FIT * pose.scale);
+    assert.ok(Math.abs(pose.cx - 0.5) <= lim + 1e-9, JSON.stringify(pose));
+    assert.ok(Math.abs(pose.cy - 0.5) <= lim + 1e-9, JSON.stringify(pose));
+  });
+
+  it("clamps in window-group space when the group has chrome", () => {
+    const cf = 0.034;
+    const pose = frameFor({ tMs: 0, x: 1900, y: 1070 }, VP, 1.74, {
+      chromeFrac: cf,
+    });
+    const g = cf + pose.cy * (1 - cf);
+    assert.ok(Math.abs(g - 0.5) <= panLimit(WINDOW_FIT * pose.scale) + 1e-9);
+  });
+});
+
+describe("frameFor with a logged content region", () => {
+  // gmail-automation's shape: a wide field at the top of a short form on a
+  // tall, sparse page. The field alone fits at a soft punch, which leaves most
+  // of the frame as empty page below the form.
+  const click = {
+    tMs: 0,
+    x: 960,
+    y: 140,
+    rect: { x: 700, y: 120, w: 520, h: 48 },
+  };
+  const content = { x: 700, y: 90, w: 520, h: 420 };
+  /** Share of the visible frame that is outside `r`. */
+  const blank = (
+    pose: { scale: number; cx: number; cy: number },
+    r: typeof content,
+  ) => {
+    const s = WINDOW_FIT * pose.scale;
+    const w = VP.width / s;
+    const h = VP.height / s;
+    const x0 = pose.cx * VP.width - w / 2;
+    const y0 = pose.cy * VP.height - h / 2;
+    const ix = Math.max(0, Math.min(x0 + w, r.x + r.w) - Math.max(x0, r.x));
+    const iy = Math.max(0, Math.min(y0 + h, r.y + r.h) - Math.max(y0, r.y));
+    return 1 - (ix * iy) / (w * h);
+  };
+
+  it("is unchanged when no content is logged", () => {
+    assert.deepEqual(
+      frameFor({ ...click, content: undefined }, VP, 1.74),
+      frameFor(click, VP, 1.74),
+    );
+  });
+
+  it("tightens toward the product, within the sharpness ceiling", () => {
+    const before = frameFor(click, VP, 1.74);
+    const after = frameFor({ ...click, content }, VP, 1.74);
+    assert.ok(after.scale > before.scale && after.scale <= 1.74);
+    assert.ok(
+      blank(after, content) < blank(before, content),
+      `blank ${blank(before, content).toFixed(2)} -> ${blank(after, content).toFixed(2)}`,
+    );
+    // The clicked control is still wholly in shot.
+    const half = 1 / (2 * WINDOW_FIT * after.scale);
+    assert.ok(click.rect.x / VP.width >= after.cx - half);
+    assert.ok((click.rect.x + click.rect.w) / VP.width <= after.cx + half);
+    assert.ok(click.rect.y / VP.height >= after.cy - half);
+  });
+
+  it("stops at the blank cap instead of cropping into the content", () => {
+    // Content already dense enough: no extra zoom.
+    const big = { x: 100, y: 60, w: 1700, h: 960 };
+    const after = frameFor({ ...click, content: big }, VP, 1.74);
+    assert.equal(after.scale, frameFor(click, VP, 1.74).scale);
   });
 });

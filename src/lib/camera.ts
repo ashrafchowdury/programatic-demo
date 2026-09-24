@@ -4,10 +4,27 @@ import { DESIGN_WIDTH } from "./click-log";
 /**
  * Single camera interpolator.
  *
- * Measured from Screen Studio-style refs: cubic-bezier(0.2, 0.2, 0.15, 1) —
- * short ease-in, long decaying tail, velocity peak ~0.13 T, 0% overshoot.
+ * Measured from Screen Studio-style refs: long decaying tail, 0% overshoot,
+ * progress ~0.89 at 0.50 T. Those refs put 0.19 of the move in the first
+ * 0.10 T, which was matched with cubic-bezier(0.2, 0.2, 0.15, 1) — and that
+ * curve starts at slope 1.0, i.e. at full AVERAGE speed on the first frame.
+ * Replayed through every public/*.clicks.json at 1.25x, the first frame of a
+ * move ran at 26-100% of that move's peak speed (median 53%): one frame still,
+ * the next smeared into eight stacked motion-blur copies. That lurch is the
+ * "jerk" in the demos, and it is the one thing the reference fit got wrong.
+ *
+ * cubic-bezier(0.3, 0, 0.1, 1) keeps the tail and fixes the start:
+ *
+ *                     0.10T   0.50T   0.70T   98% at   peak speed   start slope
+ *   (0.2, 0.2, 0.15, 1)  0.183   0.863   0.959   0.78T    2.84x @0.13T   1.0
+ *   (0.3, 0, 0.1, 1)     0.052   0.838   0.953   0.80T    3.13x @0.21T   0
+ *
+ * The first frame of a 17-frame move now covers 8% of the peak frame's
+ * distance instead of 52%. The price is the early 0.10T sample (0.05 vs the
+ * reference's 0.19): a zero-slope start cannot also be that far along, and the
+ * start is the part that read as a fault.
  */
-export const CAMERA_BEZIER = Easing.bezier(0.2, 0.2, 0.15, 1);
+export const CAMERA_BEZIER = Easing.bezier(0.3, 0, 0.1, 1);
 
 /**
  * Entrance/exit interpolator for the full-bleed look's push envelope.
@@ -16,12 +33,13 @@ export const CAMERA_BEZIER = Easing.bezier(0.2, 0.2, 0.15, 1);
  * entrance there is a decaying exponential, ~0.78 of the remaining distance
  * retained per frame at 30fps (tau ~134ms). Fitting a cubic to the sampled
  * remaining-distance table gives cubic-bezier(0.15, 0.90, 0.75, 0.95) at
- * RMS 0.005; CAMERA_BEZIER above is the closest standard curve at RMS 0.066
- * but is measurably too slow off the mark — the reference covers 28% of the
- * distance in frame ONE.
+ * RMS 0.005; the camera's old cubic-bezier(0.2, 0.2, 0.15, 1) was the closest
+ * standard curve at RMS 0.066 but is measurably too slow off the mark — the
+ * reference covers 28% of the distance in frame ONE.
  *
  * Kept separate from CAMERA_BEZIER on purpose: that one drives the demo camera
- * and every existing reel's zoom track, and must not move.
+ * and every reel's zoom track, and starts from rest by design (see above) —
+ * the opposite of this entrance.
  */
 export const PUSH_BEZIER = Easing.bezier(0.15, 0.9, 0.75, 0.95);
 
@@ -32,7 +50,14 @@ export type CameraPose = {
   cy: number;
 };
 
-export const BASE_POSE: CameraPose = { scale: 1, cx: 0.5, cy: 0.48 };
+/**
+ * The whole window, centred. `cy` is 0.5 of the CONTENT, which is the centre of
+ * the window group only when there is no chrome strip; the track uses
+ * basePose(chromeFrac) so its base keys sit exactly on the group centre. (This
+ * was 0.48, an approximation of that for the default chrome — at render it was
+ * always clamped to the centre anyway, so nothing that was drawn changes.)
+ */
+export const BASE_POSE: CameraPose = { scale: 1, cx: 0.5, cy: 0.5 };
 
 export const clamp = (v: number, lo: number, hi: number): number =>
   Math.min(hi, Math.max(lo, v));
@@ -42,17 +67,93 @@ export function cameraEase(t01: number): number {
   return CAMERA_BEZIER(clamp(t01, 0, 1));
 }
 
-/** One progress value drives scale and center. Convert to CSS origin *after* this. */
+/** Content-space Y of window-group point `g` (the group adds a chrome strip on top). */
+export const groupToContentY = (g: number, chromeFrac: number): number =>
+  chromeFrac > 0 ? (g - chromeFrac) / (1 - chromeFrac) : g;
+
+/** BASE_POSE for a window group whose top `chromeFrac` is chrome. */
+export function basePose(chromeFrac = 0): CameraPose {
+  return { scale: 1, cx: 0.5, cy: groupToContentY(0.5, chromeFrac) };
+}
+
+/**
+ * THE pan clamp: how far the focal point may sit from the group centre, as a
+ * fraction of the group, at a given scale. |C - 0.5| <= 0.5 - 1 / (2 S).
+ *
+ * Called with the POSE scale it is the render-time safety in poseToCss: never
+ * show more backdrop past an edge than the base shot does (at fit 1: never show
+ * past the footage). Called with the EFFECTIVE scale (fit * S) it is the stricter
+ * framing rule frameFor holds keyframes to: once the window is bigger than the
+ * frame, keep its edges out of shot. See poseToCss for why it is the same curve
+ * and why keyframes inside it keep every in-between frame inside it too.
+ */
+export function panLimit(scale: number): number {
+  return scale > 1 ? 0.5 - 1 / (2 * scale) : 0;
+}
+
+/**
+ * The camera between two poses, `e` of the way along (e already eased).
+ *
+ * Scale moves in LOG space: equal ratios per unit of progress, so the frame
+ * edge moves at the speed the easing says rather than front-loading the zoom
+ * (linear S spends its largest ratio change first, on top of an easing that
+ * already does). The focal point is then derived FROM the current scale: it
+ * runs along the straight line between the endpoints in (C, 1/S), which is
+ * exactly the family of moves that hold one screen point still. For a punch
+ * from base that point is the subject frameFor zoomed about, so the clicked
+ * control stays pinned while the frame grows around it — linear mixing only
+ * pinned it at the endpoints and swung an edge subject ~90px out and back at
+ * S 1.74. For a pan (no scale change) the line degenerates to a plain mix.
+ *
+ * The same property keeps a move inside the pan clamp: the clamp's bound
+ * 0.5 - 1/(2S) is linear in 1/S, so if both endpoints satisfy it, every point
+ * on the line between them does. No move can wander into the render clamp.
+ */
+function poseAlong(a: CameraPose, b: CameraPose, e: number): CameraPose {
+  const scale = Math.exp(mix(Math.log(a.scale), Math.log(b.scale), e));
+  const ua = 1 / a.scale;
+  const ub = 1 / b.scale;
+  const w = Math.abs(ub - ua) > 1e-6 ? (1 / scale - ua) / (ub - ua) : e;
+  return { scale, cx: mix(a.cx, b.cx, w), cy: mix(a.cy, b.cy, w) };
+}
+
+/** One eased progress value drives scale and centre. Convert to CSS *after* this. */
 export function interpolatePose(
   a: CameraPose,
   b: CameraPose,
   t01: number,
 ): CameraPose {
-  const p = cameraEase(t01);
+  return poseAlong(a, b, cameraEase(t01));
+}
+
+/**
+ * One move from `a` to `b` bent toward `via`, eased once end to end.
+ *
+ * Used where the track would otherwise trail to base and punch straight back in
+ * with no rest between (a far pan inside a cluster, back-to-back clusters).
+ * Two moves there meant the camera decelerated to a dead stop at base and
+ * kicked off again — the velocity fell to zero and re-launched. This is a
+ * quadratic Bezier in (C, 1/S) with `via` as its control point: it starts and
+ * ends at rest, but carries its speed through the middle, dipping to a middle
+ * scale (for via = base between two 1.6x poses, ~1.23x) instead of stopping at
+ * the whole window. The curve lies in the convex hull of its three points, and
+ * the pan clamp is convex in (C, 1/S), so it stays inside the clamp too.
+ */
+export function interpolateVia(
+  a: CameraPose,
+  via: CameraPose,
+  b: CameraPose,
+  t01: number,
+): CameraPose {
+  const e = cameraEase(t01);
+  const k0 = (1 - e) * (1 - e);
+  const k1 = 2 * e * (1 - e);
+  const k2 = e * e;
+  const at = (x: number, y: number, z: number) => k0 * x + k1 * y + k2 * z;
   return {
-    scale: mix(a.scale, b.scale, p),
-    cx: mix(a.cx, b.cx, p),
-    cy: mix(a.cy, b.cy, p),
+    scale: 1 / at(1 / a.scale, 1 / via.scale, 1 / b.scale),
+    cx: at(a.cx, via.cx, b.cx),
+    cy: at(a.cy, via.cy, b.cy),
   };
 }
 
@@ -164,19 +265,28 @@ export function poseToCss(
   const S = pose.scale;
   const effective = fit * S;
   const mapped = contentToWindow(pose.cx, pose.cy, chromeFrac);
-  // Keep the framed region inside the content so a zoom never reveals past its
-  // edge. The bound is the EFFECTIVE scale, not the pose's: the window is drawn
-  // at fit * S, so the frame sees 1 / (fit * S) of it, and a clamp built on
-  // 1 / S lets the window slide until its edge lands at the base margin. That
-  // was measured on a form demo: at S 1.18-1.26 (effective 1.02-1.09) every
-  // beat kept the window's left edge pinned at the base margin with the right
-  // 13% cut off — a window inflating from its corner, not a camera punching in.
-  // Until the window is at least frame-sized (effective <= 1) there is nothing
-  // to pan, so it stays centred. Continuous through effective = 1: the range
-  // shrinks to a point as the scale reaches it.
-  const half = effective > 1 ? 1 / (2 * effective) : 0.5;
-  const Cx = clamp(mapped.cx, half, 1 - half);
-  const Cy = clamp(mapped.cy, half, 1 - half);
+  // A SAFETY, not a framing rule, and a no-op on every track buildCameraTrack
+  // makes. The bound is panLimit on the POSE scale: never show more backdrop past
+  // an edge than the base shot does (at fit 1, never reveal past the footage).
+  //
+  // The framing rule lives in frameFor. An earlier version clamped here on the
+  // EFFECTIVE scale (half = 1 / (2 fit S), centred until fit * S > 1). That fixed
+  // a real defect — at S 1.18-1.26 (effective 1.02-1.09) keyframes clamped on
+  // 1 / S let the window slide until its edge sat at the base margin with the
+  // far 13% cut off: a window inflating from its corner, not a camera punching
+  // in. But as a RENDER clamp it fought every move: it pinned translate to 0
+  // until fit * S passed 1 (pose scale 1.163 at 0.86), so the first third of
+  // every punch zoomed about the window centre and then swerved 50-63px in a
+  // frame, and pans whose keyframes sat outside it stopped dead against it
+  // mid-move (model-providers f444 -> f445, -31.6 -> -1.5 px/frame).
+  //
+  // frameFor now applies that same effective-scale rule to the KEYFRAMES, so a
+  // hold still keeps the window's edges out of shot (the corner case stays
+  // fixed), and the moves between keyframes are inside this looser bound by
+  // construction (see poseAlong), so it never engages.
+  const lim = panLimit(S);
+  const Cx = clamp(mapped.cx, 0.5 - lim, 0.5 + lim);
+  const Cy = clamp(mapped.cy, 0.5 - lim, 0.5 + lim);
   return {
     scale: effective,
     translateX: effective * (0.5 - Cx),

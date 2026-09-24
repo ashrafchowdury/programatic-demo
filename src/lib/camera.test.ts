@@ -4,47 +4,146 @@ import {
   BASE_POSE,
   cameraEase,
   interpolatePose,
+  interpolateVia,
   moveDuration,
+  panLimit,
   poseToCss,
 } from "./camera";
 
 describe("cameraEase", () => {
-  it("matches the measured Screen Studio-style curve within tolerance", () => {
-    // Doc 1 stacked 12 moves: progress ≈ 0.190 at 0.10 T, 0.890 at 0.50 T.
+  it("keeps the measured Screen Studio-style tail", () => {
+    // Doc 1 stacked 12 moves: progress ≈ 0.890 at 0.50 T, settling late and
+    // slowly. The reference's 0.190 at 0.10 T is NOT kept — see the next test.
     assert.ok(
-      Math.abs(cameraEase(0.1) - 0.19) < 0.05,
-      `0.10T = ${cameraEase(0.1)}`,
-    );
-    assert.ok(
-      Math.abs(cameraEase(0.5) - 0.89) < 0.05,
+      Math.abs(cameraEase(0.5) - 0.89) < 0.06,
       `0.50T = ${cameraEase(0.5)}`,
     );
+    assert.ok(cameraEase(0.7) > 0.94, `0.70T = ${cameraEase(0.7)}`);
     assert.ok(cameraEase(0) === 0);
     assert.ok(cameraEase(1) === 1);
   });
 
-  it("has a short ease-in (velocity does not peak at t=0)", () => {
-    const p01 = cameraEase(0.05);
-    const p10 = cameraEase(0.1);
-    const p15 = cameraEase(0.15);
-    const early = p10 - p01;
-    const next = p15 - p10;
-    assert.ok(
-      next > early * 0.4,
-      "should still be accelerating through the first 15%",
-    );
-    assert.ok(p01 < 0.12, "first 5% must not dump most of the distance");
+  it("starts from rest: slope ~0 at t = 0", () => {
+    // The old curve started at slope 1.0 — full average speed on frame one,
+    // which read as a lurch and smeared the first frame into stacked copies.
+    const slope0 = cameraEase(1e-4) / 1e-4;
+    assert.ok(slope0 < 0.02, `start slope ${slope0}`);
+    // And the first frame of a typical 17-frame move covers a small share of
+    // what the fastest frame does.
+    let peak = 0;
+    for (let i = 0; i < 17; i++) {
+      peak = Math.max(peak, cameraEase((i + 1) / 17) - cameraEase(i / 17));
+    }
+    const first = cameraEase(1 / 17) / peak;
+    assert.ok(first < 0.15, `first frame at ${(first * 100).toFixed(0)}% of peak`);
+  });
+
+  it("peaks early and decelerates for the rest of the move", () => {
+    let peakAt = 0;
+    let peak = 0;
+    for (let i = 0; i < 1000; i++) {
+      const v = cameraEase((i + 1) / 1000) - cameraEase(i / 1000);
+      if (v > peak) {
+        peak = v;
+        peakAt = i / 1000;
+      }
+    }
+    assert.ok(peakAt > 0.1 && peakAt < 0.3, `peak at ${peakAt}`);
+    // Ends at rest too.
+    const slope1 = (1 - cameraEase(1 - 1e-4)) / 1e-4;
+    assert.ok(slope1 < 0.02, `end slope ${slope1}`);
   });
 });
 
 describe("interpolatePose", () => {
-  it("drives scale and center with the same progress", () => {
-    const a = { scale: 1, cx: 0.2, cy: 0.3 };
-    const b = { scale: 2, cx: 0.8, cy: 0.9 };
+  // Screen position of content point p under pose (fit cancels; see frameFor).
+  const screenX = (pose: { scale: number; cx: number }, p: number) =>
+    (p - pose.cx) * pose.scale;
+
+  it("keeps the punched-at subject still for the whole move", () => {
+    // A punch from base about p = 0.85: frameFor puts cx at p - (p - 0.5) / S.
+    // Linear mixing only held p still at the endpoints and swung it out and
+    // back in between; the move must hold it at every frame.
+    const p = 0.85;
+    const a = { scale: 1, cx: 0.5, cy: 0.5 };
+    const b = { scale: 1.74, cx: p - (p - 0.5) / 1.74, cy: 0.5 };
+    const start = screenX(a, p);
+    for (let i = 0; i <= 20; i++) {
+      const pose = interpolatePose(a, b, i / 20);
+      assert.ok(
+        Math.abs(screenX(pose, p) - start) < 1e-9,
+        `subject drifted at ${i / 20}: ${screenX(pose, p) - start}`,
+      );
+    }
+  });
+
+  it("moves scale in log space", () => {
+    const a = { scale: 1, cx: 0.5, cy: 0.5 };
+    const b = { scale: 2, cx: 0.5, cy: 0.5 };
+    // Halfway in PROGRESS is the geometric mean in scale.
+    let t = 0.5;
+    for (let i = 0; i < 60; i++) {
+      // invert the easing so progress = 0.5 exactly
+      t += (0.5 - cameraEase(t)) * 0.5;
+    }
+    assert.ok(Math.abs(interpolatePose(a, b, t).scale - Math.SQRT2) < 1e-6);
+  });
+
+  it("mixes the focal point linearly on a pure pan", () => {
+    const a = { scale: 1.5, cx: 0.4, cy: 0.3 };
+    const b = { scale: 1.5, cx: 0.6, cy: 0.7 };
     const mid = interpolatePose(a, b, 0.5);
-    const p = (mid.scale - 1) / 1;
-    assert.ok(Math.abs((mid.cx - 0.2) / 0.6 - p) < 1e-9);
-    assert.ok(Math.abs((mid.cy - 0.3) / 0.6 - p) < 1e-9);
+    const p = cameraEase(0.5);
+    assert.ok(Math.abs(mid.scale - 1.5) < 1e-12);
+    assert.ok(Math.abs((mid.cx - 0.4) / 0.2 - p) < 1e-9);
+    assert.ok(Math.abs((mid.cy - 0.3) / 0.4 - p) < 1e-9);
+  });
+
+  it("never leaves the pan clamp between two poses inside it", () => {
+    // The bound is linear in 1/S and the path is a line in (C, 1/S), so the
+    // render-time clamp can never engage mid-move (the D2 swerve).
+    const a = { scale: 1, cx: 0.5, cy: 0.5 };
+    const b = { scale: 1.74, cx: 0.5 + panLimit(1.74), cy: 0.5 - panLimit(1.74) };
+    for (let i = 0; i <= 50; i++) {
+      const pose = interpolatePose(a, b, i / 50);
+      const lim = panLimit(pose.scale);
+      assert.ok(Math.abs(pose.cx - 0.5) <= lim + 1e-12, `cx out at ${i}`);
+      assert.ok(Math.abs(pose.cy - 0.5) <= lim + 1e-12, `cy out at ${i}`);
+    }
+  });
+});
+
+describe("interpolateVia", () => {
+  const a = { scale: 1.6, cx: 0.32, cy: 0.35 };
+  const b = { scale: 1.6, cx: 0.68, cy: 0.62 };
+
+  it("hits both ends and dips through a middle scale, never to base", () => {
+    assert.deepEqual(interpolateVia(a, BASE_POSE, b, 0), a);
+    const end = interpolateVia(a, BASE_POSE, b, 1);
+    assert.ok(Math.abs(end.scale - b.scale) < 1e-9 && Math.abs(end.cx - b.cx) < 1e-9);
+    let min = Infinity;
+    for (let i = 0; i <= 100; i++) {
+      min = Math.min(min, interpolateVia(a, BASE_POSE, b, i / 100).scale);
+    }
+    assert.ok(min > 1.1 && min < 1.35, `dipped to ${min}`);
+  });
+
+  it("carries its speed through the middle instead of stopping", () => {
+    // Two moves via base stop dead at base; one bent move does not.
+    const at = (t: number) => interpolateVia(a, BASE_POSE, b, t).cx;
+    const midSpeed = (at(0.26) - at(0.24)) / 0.02;
+    assert.ok(midSpeed > 0.3, `speed through the middle ${midSpeed}`);
+    // …and still starts from rest.
+    assert.ok(Math.abs(at(1e-4) - a.cx) / 1e-4 < 0.02);
+  });
+
+  it("stays inside the pan clamp", () => {
+    for (let i = 0; i <= 100; i++) {
+      const pose = interpolateVia(a, BASE_POSE, b, i / 100);
+      const lim = panLimit(pose.scale);
+      assert.ok(Math.abs(pose.cx - 0.5) <= lim + 1e-12, `cx out at ${i}`);
+      assert.ok(Math.abs(pose.cy - 0.5) <= lim + 1e-12, `cy out at ${i}`);
+    }
   });
 });
 

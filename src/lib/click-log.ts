@@ -30,6 +30,15 @@ export type ClickEvent = {
   /** The clicked element's bounding rect (viewport CSS px). When present the zoom
    *  frames the whole control; otherwise it falls back to a small box around x/y. */
   rect?: { x: number; y: number; w: number; h: number };
+  /**
+   * The populated region around the target — the form, list or panel the
+   * control belongs to — in the same viewport CSS px as `rect`. Optional: when
+   * present, frameFor centres the zoom on target + content and tightens until
+   * the frame is no more than BLANK_CAP empty page, so a small form on a tall,
+   * sparse page is not framed with 60-70% blank below it. When absent, framing
+   * follows the click alone, exactly as before.
+   */
+  content?: { x: number; y: number; w: number; h: number };
   /** Explicit zoom cluster id. Same id → shared punch / hold / trail. */
   cluster?: string;
   /** When false, this event does not contribute to zoom (still in the video). */
@@ -214,15 +223,42 @@ export const TYPE_TAIL_S = 0.4;
 /** Camera starts this many seconds before cursor departure. */
 export const CAMERA_LEAD_S = 0.035;
 /**
- * After `flow.run()` returns, keep recording this long before cutting.
+ * A camera move lands at least this long (screen seconds) before the press.
  *
- * Must cover the closing zoom-out (up to TRAIL_CEILING_S) plus BASE_BEAT_S at
- * base scale. Every reference clip ends at base — 4/4, the highest-confidence
- * finding in the analysis — so the recording has to contain enough footage for
- * the camera to get back there. At 1 s it did not, which is why the old track
- * builder skipped the closing trail and cut while still zoomed in.
+ * The press is what the viewer is watching for; a ripple drawn on a frame that
+ * is still gliding smears into the motion blur. Replayed over every public
+ * click log at 1.25x, 12 of 118 presses landed mid-move — one 482ms before the
+ * camera settled — because camera durations were scaled by playback speed and
+ * the recorded cursor glide was not. Five frames at 30fps reads as "arrived,
+ * then clicked" without a visible wait.
  */
-export const END_TAIL_S = 2.5;
+export const SETTLE_BEFORE_PRESS_S = 0.15;
+/**
+ * Shortest a move may be squeezed to (screen seconds) to meet that deadline.
+ * The reference moves run 750-1250ms; below ~450ms the zoom reads as a snap.
+ */
+export const MOVE_FLOOR_S = 0.45;
+/**
+ * The camera never zooms out of an action until this long (screen seconds)
+ * after it has finished — the click, or the last keystroke.
+ *
+ * The track used to let "the trail win": when a hold and the zoom-out did not
+ * both fit before the next beat, the zoom-out started early with no floor. 12
+ * of 115 actions were left in under 700ms or while still running;
+ * agent-instructions zoomed out 590ms BEFORE its last keystroke, and
+ * new-automation held 220ms and read as a bounce. Now the next beat gives way:
+ * its in-move is delayed, or the camera pans (or dips through a middle scale)
+ * instead of trailing to base. 0.7s is the audit's "watched" threshold; the
+ * full HOLD_MIN_S is still what the camera aims for when there is room.
+ */
+export const ACTION_WATCH_S = 0.7;
+/**
+ * A rest at base shorter than this (screen seconds) is not a rest: the trail
+ * out and the next punch in become one move that carries its speed through a
+ * middle scale, instead of stopping dead at base and kicking off again. Same
+ * length as the establish beat a real rest at base is meant to give.
+ */
+export const BASE_REST_S = 0.6;
 /** Stillness held at base scale after the closing trail, before the cut. */
 export const BASE_BEAT_S = 0.6;
 
@@ -271,6 +307,28 @@ export function resolvePlaybackRate(raw?: number | string): number {
 export const ESTABLISH_CUSHION_S = 1.0;
 /** Conservative zoom-out ceiling used to size CLUSTER_GAP. */
 export const TRAIL_CEILING_S = 1.45;
+/**
+ * After `flow.run()` returns, keep recording this long before cutting.
+ *
+ * Must cover the last beat's hold, the closing zoom-out (up to
+ * TRAIL_CEILING_S) and BASE_BEAT_S at base. Every reference clip ends at base —
+ * 4/4, the highest-confidence finding in the analysis — so the recording has to
+ * contain enough footage for the camera to get back there. At 1 s it did not,
+ * which is why the old track builder skipped the closing trail and cut while
+ * still zoomed in.
+ *
+ * Those three are SCREEN seconds; this is recording time, which the render
+ * replays at DEFAULT_PLAYBACK_RATE — so it is their sum times that rate:
+ * (1.3 + 1.45 + 0.6) * 1.25 = 4.2s. It was a flat 2.5s, sized on the wrong
+ * clock: the closing zoom-out alone can take 1.45 * 1.25 = 1.8s of recording
+ * time, and the hold before it 1.6s, so the last beat depended on the flow's
+ * own closing pause. When a recording is still too short, the render can hold
+ * its last frame instead (see trackDurationMs in zoom.ts).
+ */
+export const END_TAIL_S =
+  Math.round(
+    (HOLD_MIN_S + TRAIL_CEILING_S + BASE_BEAT_S) * DEFAULT_PLAYBACK_RATE * 10,
+  ) / 10;
 
 export const clusterGapMs = (): number =>
   Math.round((HOLD_MIN_S + TRAIL_CEILING_S) * 1000);
