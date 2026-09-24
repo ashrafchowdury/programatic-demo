@@ -22,7 +22,12 @@ import {
   type CropSpec,
   type ResolvedCrop,
 } from "./lib/crop";
-import { KeycapHUD } from "./KeycapHUD";
+import {
+  KeycapHUD,
+  KEYCAP_BOTTOM_FRAMED,
+  KEYCAP_SCALE_FRAMED,
+  KEYCAP_GROUND_FRAMED,
+} from "./KeycapHUD";
 import type { ReelLook } from "./lib/look";
 import { resolvePreset, type ReelStyle } from "./lib/style";
 
@@ -267,6 +272,7 @@ const WindowGroup: React.FC<DemoClipProps> = (props) => {
     ? round((log.trimBeforeMs / 1000) * fps)
     : undefined;
   const hostLabel = name.replace(/-/g, ".");
+  const timeS = (frame / fps) * speed - (log.offsetMs ?? 0) / 1000;
 
   return (
     <Stage>
@@ -286,12 +292,27 @@ const WindowGroup: React.FC<DemoClipProps> = (props) => {
           */}
           <Cursor
             log={log}
-            timeS={(frame / fps) * speed - (log.offsetMs ?? 0) / 1000}
+            timeS={timeS}
             cameraScale={z.scale}
             ripple={ripple ?? true}
           />
         </WindowFrame>
       </div>
+      {/*
+        Keyboard hint. Frame-fixed (a Stage sibling, not inside the camera group)
+        so its size stays stable and it never blurs — but KEYCAP_BOTTOM_FRAMED is
+        tuned to land it INSIDE the window's lower edge at the resting framing,
+        not down on the backdrop. No-ops until a flow records a chord.
+      */}
+      {log.keys?.length ? (
+        <KeycapHUD
+          keys={log.keys}
+          timeS={timeS}
+          bottom={KEYCAP_BOTTOM_FRAMED}
+          scale={KEYCAP_SCALE_FRAMED}
+          ground={KEYCAP_GROUND_FRAMED}
+        />
+      ) : null}
     </Stage>
   );
 };

@@ -165,8 +165,16 @@ export function poseToCss(
   const effective = fit * S;
   const mapped = contentToWindow(pose.cx, pose.cy, chromeFrac);
   // Keep the framed region inside the content so a zoom never reveals past its
-  // edge. At S = 1 this collapses to dead centre, which is the identity.
-  const half = 1 / (2 * S);
+  // edge. The bound is the EFFECTIVE scale, not the pose's: the window is drawn
+  // at fit * S, so the frame sees 1 / (fit * S) of it, and a clamp built on
+  // 1 / S lets the window slide until its edge lands at the base margin. That
+  // was measured on a form demo: at S 1.18-1.26 (effective 1.02-1.09) every
+  // beat kept the window's left edge pinned at the base margin with the right
+  // 13% cut off — a window inflating from its corner, not a camera punching in.
+  // Until the window is at least frame-sized (effective <= 1) there is nothing
+  // to pan, so it stays centred. Continuous through effective = 1: the range
+  // shrinks to a point as the scale reaches it.
+  const half = effective > 1 ? 1 / (2 * effective) : 0.5;
   const Cx = clamp(mapped.cx, half, 1 - half);
   const Cy = clamp(mapped.cy, half, 1 - half);
   return {

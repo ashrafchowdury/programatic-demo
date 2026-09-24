@@ -14,13 +14,13 @@
  */
 import { introProblem, type IntroStoryboard } from "./intro";
 import type { ReelChip } from "./chips";
-import { DEFAULT_LOOK, LOOKS, type ReelLook } from "./look";
+import { DEMO_LOOK, LOOKS, type ReelLook } from "./look";
 import { styleProblem, type ReelStyle } from "./style";
 import type { PushSpec } from "./push";
 import type { CropSpec } from "./crop";
 
 /** Re-exported so `look` can be authored and validated from one import. */
-export { DEFAULT_LOOK, LOOKS, type ReelLook };
+export { DEMO_LOOK, LOOKS, type ReelLook };
 
 export type ReelCard = { card: IntroStoryboard };
 /** Inclusive start, EXCLUSIVE end, in seconds of out/<name>.mp4. */

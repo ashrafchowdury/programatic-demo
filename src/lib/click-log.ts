@@ -243,6 +243,15 @@ export const CLICK_SQUASH_S = 0.12;
 /** Fade used when the arrow hands over to the app's own text caret. */
 export const CURSOR_FADE_S = 0.18;
 /**
+ * FALLBACK window for the hand cursor, used only when a click has no `rect` to
+ * hover-test against (older logs, focus beats). Normally the hand tracks real
+ * hover — pointer inside the clicked element's box — see cursorKind. These just
+ * bound a short window either side of mousedown (tDownMs) so a rect-less click
+ * still reads as a click: LEAD before the press, HOLD across it and the ripple.
+ */
+export const HAND_LEAD_S = 0.28;
+export const HAND_HOLD_S = 0.34;
+/**
  * Composition playback vs the recorded shoot. 1 = realtime, 1.25 / 1.5 / 2 = faster.
  * Override per render: `DEMO_SPEED=1.5 pnpm exec tsx scripts/render.ts skillsmp-search`
  */

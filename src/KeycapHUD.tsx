@@ -27,6 +27,24 @@ export const KEYCAP_GLYPH = 44;
 export const KEYCAP_GROUND = "#0a0a0a";
 export const KEYCAP_INK = "#ffffff";
 
+/**
+ * The framed look's keycap is a quiet aside, not the reference film's headline
+ * interaction — smaller, translucent, and tucked inside the window's lower edge
+ * so it reads as part of the platform UI, not a caption floating on the backdrop
+ * below it. These override the full-bleed constants above, which are measured
+ * against the reference and must stay opaque and full size.
+ *
+ * KEYCAP_BOTTOM_FRAMED is frame-relative (the pill is frame-fixed), tuned so the
+ * whole pill clears the window's bottom edge at the resting framing: the window
+ * floats ~350 design px above the frame bottom, so this sits above that with a
+ * margin. A demo framed much tighter or looser would want its own value.
+ */
+export const KEYCAP_BOTTOM_FRAMED = 378;
+/** Shrinks the whole pill in the framed look so it does not catch attention. */
+export const KEYCAP_SCALE_FRAMED = 0.68;
+/** Translucent ground for the framed look, vs the full-bleed solid black. */
+export const KEYCAP_GROUND_FRAMED = "rgba(10, 10, 10, 0.66)";
+
 /** How long a chord stays up once pressed, in seconds. */
 export const KEYCAP_HOLD_S = 1.1;
 /**
@@ -45,6 +63,16 @@ export type KeycapHUDProps = {
   /** Seconds into the shot, on the click log's clock. */
   timeS: number;
   holdS?: number;
+  /**
+   * Distance from the frame bottom in design px. Defaults to the full-bleed
+   * KEYCAP_BOTTOM; the framed look passes KEYCAP_BOTTOM_FRAMED to sit it at the
+   * bottom of the frame.
+   */
+  bottom?: number;
+  /** Multiplies every pill dimension. 1 = full-bleed size. */
+  scale?: number;
+  /** Pill background. Defaults to the full-bleed solid KEYCAP_GROUND. */
+  ground?: string;
 };
 
 /** The chord on screen at `timeS`, with its own progress, or null. */
@@ -75,6 +103,9 @@ export const KeycapHUD: React.FC<KeycapHUDProps> = ({
   keys,
   timeS,
   holdS = KEYCAP_HOLD_S,
+  bottom = KEYCAP_BOTTOM,
+  scale = 1,
+  ground = KEYCAP_GROUND,
 }) => {
   // Hook before the early return: React counts hooks per render, and a frame
   // with no chord on screen would otherwise call one fewer than a frame with.
@@ -95,7 +126,7 @@ export const KeycapHUD: React.FC<KeycapHUDProps> = ({
       style={{
         alignItems: "center",
         justifyContent: "flex-end",
-        paddingBottom: KEYCAP_BOTTOM * k,
+        paddingBottom: bottom * k,
         pointerEvents: "none",
       }}
     >
@@ -104,16 +135,16 @@ export const KeycapHUD: React.FC<KeycapHUDProps> = ({
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          minWidth: KEYCAP_MIN_W * k,
-          height: KEYCAP_H * k,
-          padding: `0 ${KEYCAP_PAD_X * k}px`,
-          borderRadius: KEYCAP_RADIUS * k,
-          backgroundColor: KEYCAP_GROUND,
+          minWidth: KEYCAP_MIN_W * k * scale,
+          height: KEYCAP_H * k * scale,
+          padding: `0 ${KEYCAP_PAD_X * k * scale}px`,
+          borderRadius: KEYCAP_RADIUS * k * scale,
+          backgroundColor: ground,
           color: KEYCAP_INK,
-          fontSize: KEYCAP_GLYPH * k,
+          fontSize: KEYCAP_GLYPH * k * scale,
           // Gap rather than letter-spacing: letter-spacing adds a trailing gap
           // after the last glyph and visibly decentres a two-glyph chord.
-          gap: 0.28 * KEYCAP_GLYPH * k,
+          gap: 0.28 * KEYCAP_GLYPH * k * scale,
           lineHeight: 1,
           opacity,
           transform: `translateY(${rise}px)`,

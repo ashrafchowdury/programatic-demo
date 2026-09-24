@@ -21,6 +21,7 @@ import {
   poseTravelPx,
   type CameraPose,
 } from "./camera";
+import { WINDOW_FIT } from "./window";
 
 export type { ClickEvent, ClickLog } from "./click-log";
 export { EMPTY_LOG } from "./click-log";
@@ -63,17 +64,44 @@ export type ZoomOptions = {
 const S_MIN = 1.18;
 const S_MAX = 1.74;
 const S_MAX_SOFT = 1.54;
+/**
+ * The least a punch may zoom when the target leaves it a choice.
+ *
+ * S_MIN is what the fit maths falls to on a wide control, and at WINDOW_FIT
+ * 0.86 it puts the app on screen at 1.015x — two percent bigger than base,
+ * which is not a zoom, it is the window twitching. Measured on a form whose
+ * fields span 676-744px: every beat landed at S 1.18-1.26, the picture barely
+ * changed, and the framing pan did all the visible moving. Below this
+ * floor a punch does not read as one; 1.45 shows the app at 1.25x, the low end
+ * of what the reference clips do on a punch.
+ *
+ * Applied only when the control still FITS at this scale (see WIDE_FIT). A
+ * target that needs S_MIN to be seen whole — a full-height drawer passed as
+ * `frame:` — keeps it, because cropping the thing the author framed is worse
+ * than a soft zoom.
+ */
+const S_PUNCH_MIN = 1.45;
+/** How much of the visible frame a lifted control may span before it is left at the fit scale. */
+const WIDE_FIT = 0.92;
+/**
+ * Re-pose threshold inside a cluster (and when a pose carries over into the
+ * next one): a click that is already in shot does not move the camera unless
+ * the next control wants a tighter frame by at least this much. Without it a
+ * form's three fields produced three poses at S 1.26 / 1.18 / 1.25 — each a
+ * 0.7-1.0s blurred glide that changed the picture by 7% and read as a camera
+ * that could not make up its mind. A cluster only tightens or pans to reach a
+ * click; it never pulls back mid-cluster for a click it can already see.
+ */
+const REPOSE_MIN_DS = 0.12;
 const PAD = 80;
 const MENU_ROOM = 110;
 const FRAME_FRAC = 0.55;
-/** Subject sits this fraction of viewport width off centre, toward its native side. */
-const FRAME_OFFSET = 0.26;
 /**
  * How far inside the frame edge a click is kept, as a fraction of the frame.
  *
- * FRAME_OFFSET deliberately pushes the subject off-centre, which is fine when
- * the framed region is small but can shove the CLICK ITSELF out of shot when the
- * region is large and the click sits near its edge.
+ * A subject keeps its screen position through a punch (see frameFor), which is
+ * fine when the framed region is small but can leave the CLICK ITSELF at the
+ * very edge when the region is large and the click sits near its edge.
  */
 const CLICK_MARGIN = 0.04;
 /**
@@ -216,26 +244,49 @@ export function frameFor(
   // An explicit zoomScale overrides the fit: a wide target (a menu across most
   // of the frame) fits at S_MIN, but the author may want to crop TIGHT on it.
   // Still clamped to sMax, so "tight" never upscales past the sharpness ceiling.
+  const sFit = clamp(Math.min(sByW, sByH), S_MIN, sMax);
+  // Lift a soft fit to a real punch when the control still fits at that scale.
+  // Sized against WINDOW_FIT because that is what the viewer sees; a style with
+  // a different float size gets a slightly conservative check, never a crop.
+  const punchMin = Math.min(S_PUNCH_MIN, sMax);
+  const fitsAtPunch =
+    extW * WINDOW_FIT * punchMin <= WIDE_FIT * W &&
+    extH * WINDOW_FIT * punchMin <= WIDE_FIT * H;
   const S =
     c.zoomScale != null
       ? clamp(c.zoomScale, S_MIN, sMax)
-      : clamp(Math.min(sByW, sByH), S_MIN, sMax);
+      : fitsAtPunch
+        ? Math.max(sFit, punchMin)
+        : sFit;
 
   const contentCx = clamp(focusX / W, 0, 1);
   const contentCy = clamp(focusY / H, 0, 1);
-  const sideX = contentCx >= 0.5 ? 1 : -1;
-  const sideY = contentCy >= 0.5 ? 1 : -1;
+  // Zoom ABOUT the subject: it keeps the screen position it had at base and
+  // the picture grows around it, so the move points at the thing being clicked
+  // by construction. A subject that lives off-centre stays off-centre; one near
+  // the middle stays near the middle.
+  //
+  // This replaced a fixed FRAME_OFFSET of 0.26 that parked every subject at
+  // 0.76 (or 0.24) of the frame, toward whichever half it sat in. For a field
+  // centred at 0.55 that shoved the camera 0.18 LEFT onto the edge clamp, and
+  // with the same push on Y the punch travelled diagonally to the window's
+  // top-left corner while the field sat at its top-right — the zoom visibly
+  // aimed away from the click.
+  //
+  // WINDOW_FIT cancels out here: a base point sits at 0.5 + (p - 0.5) * fit on
+  // screen and at 0.5 + (p - cx) * fit * S after the punch, so holding it still
+  // needs cx = p - (p - 0.5) / S whatever fit is.
   const half = 1 / (2 * S);
-  let cx = clamp(contentCx - (FRAME_OFFSET * sideX) / S, half, 1 - half);
-  let cy = clamp(contentCy - (FRAME_OFFSET * 0.65 * sideY) / S, half, 1 - half);
+  let cx = clamp(contentCx - (contentCx - 0.5) / S, half, 1 - half);
+  let cy = clamp(contentCy - (contentCy - 0.5) / S, half, 1 - half);
 
   // Whatever the offset wanted, the thing being clicked has to be on screen.
   //
   // This is the ONLY guard a too-large framed region needs. When `rect` is
   // bigger than the frame — a full-height drawer passed as `frame:` — the fit
-  // maths clamps to S_MIN and FRAME_OFFSET then crops from whichever side the
-  // subject leans toward, which is how a Create button at the bottom of a
-  // drawer ended up 102px BELOW the frame edge. Pulling the framing back so the
+  // maths clamps to S_MIN and the old fixed offset then cropped from whichever
+  // side the subject leaned toward, which is how a Create button at the bottom
+  // of a drawer ended up 102px BELOW the frame edge. Pulling the framing back so the
   // click stays visible fixes that while keeping the zoom.
   //
   // An earlier version bailed to BASE_POSE whenever the region did not fit.
@@ -255,6 +306,42 @@ export function frameFor(
   cx = clamp(cx, half, 1 - half);
   cy = clamp(cy, half, 1 - half);
   return { scale: S, cx, cy };
+}
+
+/**
+ * Is the click on screen at `pose`, inside the same margin frameFor keeps?
+ * Bounds use the EFFECTIVE scale, matching poseToCss's clamp.
+ */
+function clickInShot(
+  c: ClickEvent,
+  pose: CameraPose,
+  vp: { width: number; height: number },
+): boolean {
+  const eff = pose.scale * WINDOW_FIT;
+  if (eff <= 1) return true;
+  const half = 1 / (2 * eff);
+  const margin = Math.min(CLICK_MARGIN, half * 0.4);
+  const x = clamp(c.x / vp.width, 0, 1);
+  const y = clamp(c.y / vp.height, 0, 1);
+  return (
+    Math.abs(x - pose.cx) <= half - margin &&
+    Math.abs(y - pose.cy) <= half - margin
+  );
+}
+
+/**
+ * The pose to use for click `c` when the camera is already at `cur`: `next`
+ * if the move earns itself, otherwise `cur`. See REPOSE_MIN_DS.
+ */
+function settle(
+  cur: CameraPose,
+  next: CameraPose,
+  c: ClickEvent,
+  vp: { width: number; height: number },
+): CameraPose {
+  if (cur.scale <= BASE_POSE.scale) return next;
+  if (next.scale - cur.scale >= REPOSE_MIN_DS) return next;
+  return clickInShot(c, cur, vp) ? cur : next;
 }
 
 function departS(c: ClickEvent): number {
@@ -328,7 +415,7 @@ export function buildCameraTrack(log: ClickLog, speed = 1): CameraKey[] {
   for (let i = 0; i < meta.length; i++) {
     const { group, poses, tIn } = meta[i];
     const last = group[group.length - 1];
-    const inPose = poses[0];
+    const inPose = settle(prevPose, poses[0], group[0], vp);
     const startT = Math.max(tIn, keys[keys.length - 1].t);
     const durIn = moveDuration(prevPose, inPose, "in", vp, speed);
     keys.push({ t: startT, pose: prevPose });
@@ -337,7 +424,8 @@ export function buildCameraTrack(log: ClickLog, speed = 1): CameraKey[] {
     let curPose = inPose;
     let curT = startT + durIn;
     for (let j = 1; j < group.length; j++) {
-      const nextPose = poses[j];
+      const nextPose = settle(curPose, poses[j], group[j], vp);
+      if (nextPose === curPose) continue;
       const tPan = Math.max(curT, departS(group[j]) - CAMERA_LEAD_S);
       if (poseTravelPx(curPose, nextPose, vp) > MAX_PAN_PX) {
         // Too far to pan at magnification. Pull back to base, then punch in —

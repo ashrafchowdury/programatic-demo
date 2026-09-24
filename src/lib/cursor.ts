@@ -10,11 +10,16 @@ import {
   CLICK_SQUASH,
   CLICK_SQUASH_S,
   CURSOR_FADE_S,
+  HAND_LEAD_S,
+  HAND_HOLD_S,
   RIPPLE_S,
   type ClickEvent,
   type CursorSample,
 } from "./click-log";
 import { clamp, mix } from "./camera";
+
+/** Which glyph the pointer draws: the arrow, or the hand a click shows. */
+export type CursorKind = "arrow" | "pointer";
 
 export type CursorState = {
   /** Recorded path position, viewport CSS px. */
@@ -26,7 +31,45 @@ export type CursorState = {
   ripple: number | null;
   /** 0 while the app's own text caret has the screen. */
   opacity: number;
+  /** Arrow normally; a hand for the window around a click (see cursorKind). */
+  kind: CursorKind;
 };
+
+/**
+ * Arrow, except a hand while HOVERING a clickable element — the "cursor: pointer"
+ * a real button or link shows. It appears the instant the pointer enters the
+ * control and releases when it leaves, so it leads the click instead of trailing
+ * it, exactly like the OS cursor.
+ *
+ * Hover is the pointer sitting inside the clicked element's box, which rides in
+ * the log as `rect` (viewport CSS px, the cursor track's space). But a rect is
+ * only real WHILE that element is on screen: a menu item's box does not exist
+ * before the menu opens or after it closes, so the test is gated to each click's
+ * own interaction window — from when the pointer sets off toward it (tDepartMs)
+ * until just after the press. Without that gate the pointer lit up a hand every
+ * time it merely passed over the spot where a since-closed menu had been.
+ *
+ * A typing beat carries `typeEndMs` and is skipped — a text field shows a caret,
+ * not a hand, and the pointer is faded there anyway. A click with no rect (older
+ * logs, focus beats) has no box to test, so the window alone drives the hand.
+ */
+export function cursorKind(
+  clicks: ClickEvent[],
+  tS: number,
+  pos: { x: number; y: number },
+): CursorKind {
+  for (const c of clicks) {
+    if (c.tDownMs == null || c.typeEndMs != null) continue;
+    const from = (c.tDepartMs ?? c.tDownMs - HAND_LEAD_S * 1000) / 1000;
+    const to = c.tDownMs / 1000 + HAND_HOLD_S;
+    if (tS < from || tS > to) continue;
+    const r = c.rect;
+    if (!r) return "pointer";
+    if (pos.x >= r.x && pos.x <= r.x + r.w && pos.y >= r.y && pos.y <= r.y + r.h)
+      return "pointer";
+  }
+  return "arrow";
+}
 
 /**
  * Arrow opacity at `tS`. Fades out once typing starts and back in when it ends,
@@ -112,5 +155,6 @@ export function cursorAt(
     squash,
     ripple,
     opacity: cursorOpacity(clicks, tS),
+    kind: cursorKind(clicks, tS, here),
   };
 }

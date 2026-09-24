@@ -138,11 +138,20 @@ export function resolveHeadless(): boolean {
   return true;
 }
 
-/** Context options that make Chromium present as a mobile client. See ContextSpec.mobile. */
+/**
+ * Context options that make Chromium present as a mobile client. See
+ * ContextSpec.mobile.
+ *
+ * No `hasTouch`, on purpose. Touch emulation makes the page report
+ * `(hover: none)`, and an app then does the right thing for a touch screen —
+ * keeps every hover-only control permanently visible — which is exactly wrong
+ * in a photograph: measured, 14 row-action buttons showing at once that a
+ * pointer user never sees together. The UA and `isMobile` are what carry the
+ * mobile client hint; hover stays a pointer's.
+ */
 export const mobileEmulation = () => ({
   userAgent: devices["iPad Pro 11"].userAgent,
   isMobile: true,
-  hasTouch: true,
 });
 
 export async function openContext(

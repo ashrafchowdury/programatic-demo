@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { resolvePreset } from "./style";
 import {
-  DEFAULT_LOOK,
+  DEMO_LOOK,
   LOOKS,
   audioProblem,
   clipFrameCount,
@@ -301,9 +302,23 @@ describe("reel look", () => {
     segments: [{ clip: { fromS: 0, toS: 1 } }],
   };
 
-  it("defaults to absent, so every existing reel keeps the framed treatment", () => {
+  it("stays optional on a reel", () => {
     assert.equal(reelProblem(base, 300), null);
-    assert.equal(DEFAULT_LOOK, "framed");
+  });
+
+  // REGRESSION GUARD. This assertion used to read `DEFAULT_LOOK === "framed"`
+  // and was described as "every existing reel keeps the framed treatment" —
+  // which stopped being true the moment DEFAULT_STYLE moved to a full-bleed
+  // grammar, and the test went on passing because DEFAULT_LOOK was read by
+  // nothing. A demo clip silently lost its camera and its backdrop.
+  //
+  // What actually has to hold is downstream of the constant: whatever grammar a
+  // standalone clip renders in, it must be one that runs the camera the click
+  // log was recorded for. Assert the resolved preset, not the label.
+  it("renders a standalone demo clip in a grammar that runs the camera", () => {
+    const shot = resolvePreset({ look: DEMO_LOOK }).shot;
+    assert.equal(shot.framing, "window");
+    assert.equal(shot.zoom, true);
   });
 
   it("accepts both shipped looks", () => {

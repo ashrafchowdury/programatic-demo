@@ -65,8 +65,31 @@
 
 export type Size = { width: number; height: number };
 
-/** Scale a shoot uses when CAPTURE_SCALE is not set. Set after measurement. */
-export const DEFAULT_CAPTURE_SCALE = 1;
+/**
+ * Scale a shoot uses when CAPTURE_SCALE is not set.
+ *
+ * 2 after measurement. `Page.startScreencast` caps the source at the CSS
+ * viewport, so at scale 1 every camera zoom above 1 / WINDOW_FIT upscales and
+ * the app text softens exactly when the camera pushes in. Recording at 2 puts a
+ * 3840x2160 source behind the 1920 layout, which clears the 2560 render with
+ * room to spare — nothing is upscaled even at S_MAX. Measured end to end on the
+ * whole record -> convert -> render pipeline, same 2560x1440 output both times:
+ *   smoke (offline fixture)    1920 -> 3840 source   +49% edge energy at the zoom hold
+ *   agent-instructions (live)  1920 -> 3840 source   +36% mean over the typing hold
+ * The source genuinely carries the extra pixels; this is the same real detail as
+ * the +108% edge-energy measurement above, not the upscaling a bigger render gives.
+ *
+ * TWO FLOWS MUST STILL RECORD WITH CAPTURE_SCALE=1, for reasons documented in
+ * their own flow files — the root zoom breaks them and no env default can know
+ * that (there is no per-flow scale yet, so it has to be set on the command):
+ *   - agent-schedule: its cadence popover is positioned by a computed offset and
+ *     lands off-screen under the zoom (see note 3 above). Playwright then cannot
+ *     click it and the flow FAILS — loudly, but only on re-record.
+ *   - agent-tool: full-viewport stage framing, where HD capture trades against
+ *     the look the flow is tuned for (see flows/agent-tool.ts).
+ * Re-record those two with `CAPTURE_SCALE=1 pnpm record:live <name>`.
+ */
+export const DEFAULT_CAPTURE_SCALE = 2;
 
 /**
  * Parse the CAPTURE_SCALE env knob.

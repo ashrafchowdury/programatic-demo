@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { CURSOR_FADE_S, type CursorSample } from "./click-log";
-import { cursorAt, cursorOpacity, samplePath } from "./cursor";
+import {
+  CURSOR_FADE_S,
+  HAND_HOLD_S,
+  type ClickEvent,
+  type CursorSample,
+} from "./click-log";
+import { cursorAt, cursorKind, cursorOpacity, samplePath } from "./cursor";
 
 const track: CursorSample[] = [
   { t: 0, x: 100, y: 100 },
@@ -90,5 +95,49 @@ describe("cursorOpacity", () => {
   it("leaves plain clicks alone", () => {
     const clicks = [{ tMs: 500, x: 1, y: 1, tDownMs: 450 }];
     assert.equal(cursorOpacity(clicks, 0.5), 1);
+  });
+});
+
+describe("cursorKind", () => {
+  // The hand tracks real hover: pointer while inside a clickable element's box,
+  // arrow otherwise. The subtlety is the interaction WINDOW — a rect is only
+  // hoverable while its element is on screen (tDepartMs until just after the
+  // press), so a since-closed menu's stale box does not relight the hand as the
+  // pointer passes back over that spot.
+  const rect = { x: 100, y: 100, w: 120, h: 40 };
+  const inside = { x: 150, y: 120 };
+  const outside = { x: 600, y: 600 };
+  // Window: [tDepartMs/1000, tDownMs/1000 + HAND_HOLD_S] = [1.5, 2.0 + HOLD].
+  const click: ClickEvent = {
+    tMs: 2000,
+    tDepartMs: 1500,
+    tDownMs: 2000,
+    x: 150,
+    y: 120,
+    rect,
+  };
+
+  it("is a hand while hovering the control before the press", () => {
+    assert.equal(cursorKind([click], 1.7, inside), "pointer");
+  });
+
+  it("is an arrow when the pointer is off the control but still in-window", () => {
+    assert.equal(cursorKind([click], 1.7, outside), "arrow");
+  });
+
+  it("does not relight over a stale rect once the element is gone", () => {
+    const afterWindow = 2000 / 1000 + HAND_HOLD_S + 0.5;
+    assert.equal(cursorKind([click], afterWindow, inside), "arrow");
+  });
+
+  it("never shows a hand on a typing beat, even hovering its box", () => {
+    const type: ClickEvent = { ...click, typeEndMs: 5000 };
+    assert.equal(cursorKind([type], 1.7, inside), "arrow");
+  });
+
+  it("falls back to the window alone when a click carries no rect", () => {
+    const noRect: ClickEvent = { tMs: 2000, tDepartMs: 1500, tDownMs: 2000, x: 0, y: 0 };
+    assert.equal(cursorKind([noRect], 1.7, outside), "pointer");
+    assert.equal(cursorKind([noRect], 5.0, inside), "arrow");
   });
 });
