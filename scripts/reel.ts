@@ -27,6 +27,7 @@ import {
   type ClickLog,
 } from "../src/lib/click-log";
 import { cropUpscale, SHARPNESS_CEILING } from "../src/lib/crop";
+import { demoDurationInFrames, demoGeometry } from "../src/lib/demo-duration";
 import { chipProblem } from "../src/lib/chips";
 import { hudSteps } from "../src/lib/hud";
 import { resolvePreset, type StylePreset } from "../src/lib/style";
@@ -152,6 +153,8 @@ const SOURCES = {
     "src/lib/cursor.ts",
     "src/RecapCard.tsx",
     "src/DemoClip.tsx",
+    "src/ShutterBlur.tsx",
+    "src/lib/shutter.ts",
     "src/lib/backdrop.ts",
     "src/WindowFrame.tsx",
     "src/lib/window.ts",
@@ -166,8 +169,12 @@ const SOURCES = {
     "src/KeycapHUD.tsx",
     "src/WindowFrame.tsx",
     "src/lib/window.ts",
+    "src/ShutterBlur.tsx",
+    "src/lib/shutter.ts",
+    "src/lib/crop.ts",
     "src/Cursor.tsx",
     "src/lib/zoom.ts",
+    "src/lib/demo-duration.ts",
     "src/lib/camera.ts",
     "src/lib/cursor.ts",
     "src/lib/click-log.ts",
@@ -229,15 +236,17 @@ async function main() {
   const log = JSON.parse(
     fs.readFileSync(path.join(ROOT, "public", `${name}.clicks.json`), "utf8"),
   ) as ClickLog;
-  const expected = Math.max(
-    1,
-    Math.ceil((log.durationMs / 1000 / speed) * FPS),
-  );
+  // Sized exactly as src/Root.tsx sizes DemoClip: past the recording when the
+  // camera needs longer to land back at base. The demo is rendered without
+  // chrome (scripts/render.ts never passes it), so neither does this.
+  const expected = demoDurationInFrames(log, speed, demoGeometry(log), FPS);
   if (expected !== total)
     throw new Error(
       `${path.relative(ROOT, demo)} has ${total} frames, but DEMO_SPEED=${speed} ` +
         `would render ${expected}. The reel's clip ranges were timed against the ` +
-        `file on disk — re-render the demo at this speed, or unset DEMO_SPEED.`,
+        `file on disk, so re-render the demo first: \`pnpm render ${name}\` ` +
+        `(same DEMO_SPEED, or unset it). A demo rendered before the clip was ` +
+        `sized from its camera track (src/lib/demo-duration.ts) is stale too.`,
     );
 
   const problem = reelProblem(reel, total, FPS);

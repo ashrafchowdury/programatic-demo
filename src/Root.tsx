@@ -9,10 +9,14 @@ import { StillShot, type StillShotProps } from "./StillShot";
 import {
   DEFAULT_PLAYBACK_RATE,
   EMPTY_LOG,
-  OUTPUT_WIDTH,
   resolvePlaybackRate,
   type ClickLog,
 } from "./lib/click-log";
+import {
+  demoDurationInFrames,
+  demoGeometry,
+  demoSize,
+} from "./lib/demo-duration";
 import { compositionSize, introDurationInFrames } from "./lib/intro";
 import {
   DEFAULT_PRESET,
@@ -72,17 +76,21 @@ export const RemotionRoot: React.FC = () => {
           // Render at OUTPUT_WIDTH, keeping the recording's aspect. Decoupled from
           // the capture viewport on purpose — the source cannot get sharper, but
           // the vector layers over it can. Rounded to even so h264 accepts it.
-          const aspect = log.viewport.height / log.viewport.width;
-          const even = (n: number) => Math.round(n / 2) * 2;
+          const { width, height } = demoSize(log);
           const backdrop =
             props.backdrop ?? process.env.DEMO_BACKDROP ?? log.backdrop;
           return {
-            durationInFrames: Math.max(
-              1,
-              Math.ceil((log.durationMs / 1000 / speed) * FPS),
+            // Long enough for the camera to land back at base, which can be
+            // past the end of the recording — DemoClip holds the last frame of
+            // the footage for the difference. See src/lib/demo-duration.ts.
+            durationInFrames: demoDurationInFrames(
+              log,
+              speed,
+              demoGeometry(log, props.chrome === true),
+              FPS,
             ),
-            width: even(OUTPUT_WIDTH),
-            height: even(OUTPUT_WIDTH * aspect),
+            width,
+            height,
             props: { ...props, log, speed, backdrop },
           };
         }}
