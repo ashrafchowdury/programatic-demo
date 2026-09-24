@@ -61,8 +61,9 @@ Things that follow from this, and are not obvious:
   whatever `deviceScaleFactor` says; `page.screenshot()` reads the real
   compositor surface. Do not try to raise video resolution this way — measured
   three times, see `src/lib/click-log.ts`.
-- Title cards (`pnpm render:intro`, `pnpm stitch`) are the reel's raw material
-  and live in `out/reel/` with it.
+- A lone title card is a one-card reel: `pnpm intro <name>` renders
+  `intros/<name>` to `out/reel/<name>.intro.mp4` through the reel pipeline.
+  `render:intro` and `stitch` are retired — for card + demo, write a reel.
 
 Output paths come from `outPath(feature, ...)` in `scripts/lib/out.ts`. Use it
 rather than joining `"out"` by hand — the `Feature` union is what stops a script
@@ -73,8 +74,9 @@ writing into the wrong feature's territory.
 ```bash
 pnpm install && pnpm exec playwright install --with-deps chromium
 pnpm clip:smoke      # offline record -> convert -> render; run this first
-pnpm test            # unit tests (camera, zoom, selectors, batch)
-pnpm lint            # eslint + tsc --noEmit, covers src/ scripts/ flows/
+pnpm test            # node:test over src/lib/ and scripts/lib/ — camera, zoom,
+                     # cursor, styles, reel/audio, stills, capture, selectors
+pnpm lint            # eslint + tsc --noEmit over src/ scripts/ flows/ shots/
 ```
 
 Demo: `pnpm record:live <name>` → `pnpm convert <name>` → `pnpm render <name>`.
@@ -115,10 +117,21 @@ memory-bound resolution scaling, a camera guard that fixed nothing. Each survive
 because it sounded right and nobody re-measured. Cheap checks:
 
 ```bash
-pnpm analyze <name>                        # motion, frozen runs, sharpness
+pnpm analyze <name>                        # camera moves, jerk, settle, sharpness
 pnpm exec remotion still src/index.ts DemoClip out.png --frame=N \
   --props='{"name":"smoke"}'               # single frame, seconds not minutes
 ```
+
+`pnpm analyze` has two modes. On a **demo** it block-matches the camera's
+per-frame zoom and pan and reports onset jerk (speed on a move's first frames as
+a share of its peak), velocity jumps, settle-before-press (camera speed at every
+press in the click log), sharpness as mean edge width, and blank share (how much
+of a zoomed hold is empty page). On a **reel** (anything under `out/reel/`, or
+`--reel`) it first cuts the film at its boundaries, classes each segment card or
+footage, measures footage only, and sets the totals against the style's
+`targets`. `--json <file>` writes the numbers and `--compare a.json b.json`
+prints before → after deltas — use the pair to measure a change. The header
+of `scripts/analyze.ts` lists every flag.
 
 Never diff against `git HEAD` to measure a change — the working tree usually
 carries uncommitted work, so `HEAD` is not the baseline you think it is.
@@ -129,13 +142,18 @@ carries uncommitted work, so `HEAD` is not the baseline you think it is.
 | --- | --- |
 | `flows/` | one file per demo (the recorded flow + selectors) |
 | `reels/` | one file per reel (cards + clip ranges) |
-| `intros/` | single title cards, JSON or TS (`pnpm intro`/`stitch`) |
+| `intros/` | single title cards, JSON or TS (`pnpm intro`) |
 | `shots/` | one file per still (steps + the region to capture) |
 | `scripts/` | recorders, convert, render, analyze, reel, shoot-still |
-| `scripts/lib/` | cursor, flow DSL, selector ladder, session, batch, out paths |
-| `src/lib/` | click-log types, camera, zoom track, intro/reel types |
+| `scripts/lib/` | cursor, flow DSL, selector ladder, session, batch, out paths, `motion-metrics` (analyze's pure half) |
+| `src/lib/` | click-log types, camera, zoom track, `demo-duration`, intro/reel types, `style` (reel choreography styles), `look` (framed / fullbleed) |
 | `src/DemoClip.tsx` | demo composition: backdrop, window, motion blur |
+| `src/ShutterBlur.tsx` | the centred-shutter motion blur DemoClip draws through |
+| `src/Cursor.tsx` · `src/KeycapHUD.tsx` | the vector pointer; the keycap pill that replaces it in full-bleed footage |
 | `src/Intro.tsx` | title-card composition: cards, chip, logo lockup |
+| `src/RecapCard.tsx` | the reel's closing recap: lockup + feature list |
+| `src/HudOverlay.tsx` · `src/ChipOverlay.tsx` | reel overlays, rendered on transparent and composited over the whole film |
 | `src/StillShot.tsx` | still composition: one captured region, preset canvas |
 | `src/WindowFrame.tsx` | the floating window + rim light, shared by both |
 | `.agents/skills/` | how-to guides for agents |
+| `docs/reel/` | reference films taken apart (`<film>/`), reel design records (`design/`) |

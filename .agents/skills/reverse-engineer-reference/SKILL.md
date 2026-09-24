@@ -328,7 +328,7 @@ we already got right**, so it does not get "improved" by the next person.
   being written. Before recommending a change, re-read the constant you are
   about to recommend changing — a subagent's report of the source goes stale
   within minutes. Do not tell someone to redo finished work.
-- **Check for prior analysis before starting.** `docs/design/reels/` may already
+- **Check for prior analysis before starting.** `docs/reel/` may already
   hold a measurement record for your reference. Extend it and reconcile with it;
   do not silently produce a second set of numbers.
 - **When your number disagrees with an existing one, suspect yourself first.**
@@ -344,7 +344,7 @@ we already got right**, so it does not get "improved" by the next person.
 
 ## Worked example
 
-`docs/reel/` is a full application of this skill to two Cursor launch films —
+`docs/reel/cursor/` is a full application of this skill to two Cursor launch films —
 2243 frames, both grammars, compared against our own reel. Use it as the shape
 to copy, including how the confidence labels and the traps section read in
 practice.

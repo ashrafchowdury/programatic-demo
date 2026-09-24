@@ -1,7 +1,7 @@
 # Bringing the Replit choreography into this repo
 
 Plan for a new style, `stage`, implementing the grammar measured in
-[`replit.md`](./replit.md). Written against the code as it stands, and
+[`reference.md`](./reference.md). Written against the code as it stands, and
 fact-checked in §5 — several assumptions I started with turned out to be wrong.
 
 **Constraint that shapes everything: the default pipeline must not change.**
@@ -128,7 +128,7 @@ Replit MEASURED `r = 0.6451`/frame at 24 fps. Resampled: `0.6451^(24/30) =`
 
 **Decision: `frames: 11`.** Replit's settle MEASURES 0.372 s; 11 frames at
 30 fps is 0.367 s, a 1.4% miss on duration, against a 5% miss on the decay
-ratio. Duration is the visible one. Recorded in `note.md` as D5.
+ratio. Duration is the visible one. Recorded in [`decisions.md`](./decisions.md) as D5.
 
 ### 5.2 Does `WindowFrame` really shadow on a light ground? — **YES, and it was built for exactly this**
 

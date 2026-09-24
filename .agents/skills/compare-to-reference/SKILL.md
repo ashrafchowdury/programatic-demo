@@ -41,7 +41,7 @@ that number work in the reference.*
   point (41.9 % × 33.5 % against 41.4 % × 33.0 %). Reverted: a 33 %-tall lockup
   works in the reference because its mark is a black cube, and ours is not.
 
-The full write-up is [`docs/reel/07-gap-analysis.md`](../../../docs/reel/07-gap-analysis.md)
+The full write-up is [`docs/reel/cursor/07-gap-analysis.md`](../../../docs/reel/cursor/07-gap-analysis.md)
 §12. Read it before you rank anything.
 
 So: the table tells you **where** to look. Your eyes and the design intent tell
@@ -281,7 +281,7 @@ For a quick check: the table, the ranked list, and the "already right" section.
 Nothing else.
 
 For a full pass, the shape that worked is
-[`docs/reel/07-gap-analysis.md`](../../../docs/reel/07-gap-analysis.md):
+[`docs/reel/cursor/07-gap-analysis.md`](../../../docs/reel/cursor/07-gap-analysis.md):
 
 1. **Headline** — one sentence naming which axis is solved and which is not.
    ("The pacing is solved. The picture is not.")
@@ -298,6 +298,6 @@ lying somewhere.
 
 ## Worked example
 
-[`docs/reel/07-gap-analysis.md`](../../../docs/reel/07-gap-analysis.md) — the
+[`docs/reel/cursor/07-gap-analysis.md`](../../../docs/reel/cursor/07-gap-analysis.md) — the
 shipped reel against two Cursor launch films, through diagnosis, ranking,
 implementation and two reverts. §12 is the part to read twice.

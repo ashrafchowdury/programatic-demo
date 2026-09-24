@@ -167,7 +167,7 @@ only nominally controlled.
 | Footage background | product's own, untouched | ours | ✅ |
 | Backdrops | A: none. B: purple gradient | 16 baked JPEGs | ✅ ahead of the reference here |
 
-`docs/design/reels/fullbleed.md` lists "recap ground warmth" as an open
+`docs/reel/design/fullbleed.md` lists "recap ground warmth" as an open
 question. **Measured: `#16120D`.** The reference deliberately warms the recap
 ground relative to its sentence cards.
 

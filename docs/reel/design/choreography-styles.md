@@ -3,17 +3,27 @@
 Feature spec for selecting a reel's **choreography style** — a named preset that
 sets both the visual look and the motion grammar. Companion to
 [fullbleed.md](fullbleed.md) and [audio.md](audio.md); the measurements it rests
-on are in [`docs/reel/`](../../reel/).
+on are in [`docs/reel/cursor/`](../cursor/).
 
-**Nothing here is built.** Status: spec, open questions listed at the end.
+> **Superseded — historical spec.** This was written before styles existed and
+> no longer describes the code. Styles are built: `classic`, `proof` (the
+> default), `ledger` and `stage` live in `STYLES` in `src/lib/style.ts`, and
+> the `studio` and `narration` styles named below do not exist (`narration` was
+> merged into `ledger`), and `STYLE_PRESETS` has a different shape from the
+> table here. For what each style does and how to
+> pick one, read `src/lib/style.ts` and
+> [`.agents/skills/intro-reel/SKILL.md`](../../../.agents/skills/intro-reel/SKILL.md).
+> Kept for the reasoning behind the split.
+
+~~**Nothing here is built.**~~ Status when written: spec, open questions listed at the end.
 
 ---
 
 ## Why
 
-We reverse-engineered two Cursor launch films into `docs/reel/`. They are not one
+We reverse-engineered two Cursor launch films into `docs/reel/cursor/`. They are not one
 style with variation — they are **two grammars**.
-[`04-design-system.md`](../../reel/04-design-system.md) §2 already names them:
+[`04-design-system.md`](../cursor/04-design-system.md) §2 already names them:
 
 - **Grammar A — Proof.** Full-bleed footage between black cards, cut
   metronomically. Shots are static, so the *cards* carry the motion.
@@ -117,15 +127,15 @@ than aspirational — see [Verification](#verification).
 | `chip.creep` / `recover` | — | — | +5 %/10 f, −14 %/5 f | *(new)* |
 | `bookend.tumbleS` / `turns` | — | 0.85 / 1 | 0.85 / 1 | `intro.ts:~613` |
 | `recap.ground` | — | `#16120D` (measured) | ⧗ | currently `#08080a` |
-| `source` | **null** | Film A, 12 shots, 43.87 s | Film B, 17 shots, 30.90 s | `docs/reel/README.md` |
-| `targets` | **null** | 3.66 s · 15.0/min · 24.1 % · 110 f · slam | 1.82 s · 31.1/min · 36.8 % · 75 f · matched | `docs/reel/README.md` |
+| `source` | **null** | Film A, 12 shots, 43.87 s | Film B, 17 shots, 30.90 s | `docs/reel/cursor/README.md` |
+| `targets` | **null** | 3.66 s · 15.0/min · 24.1 % · 110 f · slam | 1.82 s · 31.1/min · 36.8 % · 75 f · matched | `docs/reel/cursor/README.md` |
 
-⧗ = fill from `docs/reel/` during implementation. Do not guess these.
+⧗ = fill from `docs/reel/cursor/` during implementation. Do not guess these.
 
 **`studio` keeps `source: null` and `targets: null` deliberately.** It predates
 both films and was tuned against our own backdrop. Recording "this one is not
 measured" in the data is what stops a later pass backfilling Film A's numbers into
-it — the exact category error [`06-comparison.md`](../../reel/06-comparison.md) §6
+it — the exact category error [`06-comparison.md`](../cursor/06-comparison.md) §6
 caught once, when a reference-derived rule (no click ripple) was applied to the
 framed look and silently restyled the back catalogue with no way to switch back.
 
@@ -248,7 +258,7 @@ real change in `introTiming`:
 **already exists**: `crop.ts`'s `{rect, fill, isolate}` route, with
 `COMPONENT_FILL 0.85` sitting mid-band of Film B's measured 79.9–89.9 %. It was
 built, measured and reverted for `proof`
-([`07-gap-analysis.md`](../../reel/07-gap-analysis.md) §12) because it floats the
+([`07-gap-analysis.md`](../cursor/07-gap-analysis.md) §12) because it floats the
 component on a mat and turned a full-bleed film into a slide deck. **That
 rejection was style-specific, and this is the style it was rejected in favour
 of.** Cost is capture, not code — `crop.ts` is explicit that isolation must not be
@@ -383,6 +393,6 @@ Requirements, so measurement is trustworthy:
 **Two to four films is the useful range.** Each is a real analysis pass; the value
 is covering different axes, not accumulating samples of the same grammar.
 
-Method for turning one into a preset: follow [`docs/reel/README.md`](../../reel/README.md),
+Method for turning one into a preset: follow [`docs/reel/cursor/README.md`](../cursor/README.md),
 producing a `docs/reel/<name>/` analysis, then fill a `STYLE_PRESETS` entry with
 its `source` and `targets`.

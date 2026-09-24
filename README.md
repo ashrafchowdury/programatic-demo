@@ -88,7 +88,7 @@ That records a local fixture, converts it, renders it, and writes
 `out/demo/smoke.mp4`. If it works, record → convert → render all work.
 
 ```bash
-pnpm test     # camera / track unit tests
+pnpm test     # unit tests: camera, zoom, cursor, styles, reel, stills, capture
 pnpm studio   # open Remotion Studio and scrub the zooms
 ```
 
@@ -122,6 +122,13 @@ window that loses focus blurs inputs, pauses animations and flips
 to watch a flow fail. `capture:session` is always headed — you cannot type a
 password into a window you cannot see.
 
+> **The recorders do not agree on this yet.** `record:live`, `record:batch` and
+> `still` are headless unless `HEADED=1` (or `HEADLESS=0`). The older
+> `pnpm record <name>` (`scripts/record-demo.ts`, used by `pnpm clip:*` and the
+> self-tour) is the opposite: **headed** unless `HEADLESS=1`, headless for
+> `smoke`, and always headed under `DEMO_TOUR=capture`. `HEADED` means nothing
+> to it and `HEADLESS=1` means nothing to the others.
+
 ### Several at once
 
 ```bash
@@ -131,7 +138,7 @@ pnpm record:batch a b --check      # resolve selectors only, no video
 
 `.session-profile/` can only be held by one browser at a time, which is why
 shoots used to be serial. The batch does the one step that needs the profile —
-proving the session is live and re-exporting `storageState.json` — **serially up
+proving the session is live and re-exporting `.sessions/<host>.json` — **serially up
 front**, then fans out into isolated contexts that share nothing.
 
 Two things to know before leaning on it:
@@ -249,14 +256,15 @@ Then, after the demo itself has been rendered:
 
 ```bash
 pnpm clip <name>     # record -> convert -> render   (unchanged)
-pnpm intro <name>    # render:intro -> stitch
+pnpm intro <name>    # the card alone, as a one-card reel
 ```
 
 | Command | Writes |
 | --- | --- |
-| `pnpm render:intro <name>` | `out/reel/<name>.intro.mp4` |
-| `pnpm stitch <name>` | `out/reel/<name>.full.mp4` — the card + the demo |
-| `pnpm intro <name>` | both of the above |
+| `pnpm intro <name>` | `out/reel/<name>.intro.mp4` — the card, cut by the reel pipeline |
+
+`render:intro` and `stitch` are retired. For the card followed by the demo, write
+a reel whose segments are the card and one clip covering the demo.
 
 Pacing comes from the word count, in
 [`src/lib/intro.ts`](src/lib/intro.ts): words start 90 ms apart and overlap, so
@@ -267,11 +275,12 @@ copy nobody reads.
 
 The card uses the same studio backdrop the demo floats its window on, so
 the cut lands on an unchanged frame: the text leaves, the window arrives. That
-is also why the two halves must agree on geometry exactly —
-[`pnpm stitch`](scripts/stitch.ts) joins them with `-c copy`, and it probes both
-files and refuses rather than producing an mp4 that plays and then falls apart.
+is also why a card and the clips beside it must agree on geometry exactly — the
+reel joins them with `-c copy` where it can, and
+[`scripts/lib/ffmpeg.ts`](scripts/lib/ffmpeg.ts) probes every segment and
+refuses rather than producing an mp4 that plays and then falls apart.
 
-**`pnpm analyze` works on a stitched or reel file too, now.** It used to be
+**`pnpm analyze` works on a reel file too, now.** It used to be
 useless there — a title card was a long frozen run by design and tripped the
 dead-air thresholds. Cards no longer freeze, and the reel passes all six checks
 (0.7% frozen against a 15% ceiling). `out/demo/<name>.mp4` is still never touched, so
@@ -653,15 +662,34 @@ a loud warning.
 
 ### Knobs
 
-Four env vars, all optional. Each one's reasoning and measurements live beside
-the constant it controls, not here:
+All optional. Each one's reasoning and measurements live beside the constant it
+controls, not here. `.env.example` lists them with a line each.
+
+**Rendering**
 
 | Var | Default | Does | Measured in |
 | --- | --- | --- | --- |
 | `DEMO_GL` | `angle` | Chromium's rasteriser, and the biggest lever here — `angle` is the real GPU, worth **roughly 10×** (a 23s demo renders in 2-3 min instead of 24). `swiftshader` is the no-GPU fallback — it works everywhere, but it is software too, so expect roughly the un-accelerated time | [`scripts/render.ts`](scripts/render.ts) |
 | `DEMO_SPEED` | `1.25` | Playback rate vs the shoot. `1` is realtime | [`src/lib/click-log.ts`](src/lib/click-log.ts) |
+| `DEMO_CONCURRENCY` | Remotion's own | Frames rendered in parallel. Leave it unset — 6 workers measured 33% *slower* than the default. `1` is useful for debugging a render | [`scripts/lib/remotion.ts`](scripts/lib/remotion.ts) |
+| `DEMO_BACKDROP` | `glaze` | Backdrop for every render that does not name one — demos, and stills whose shot sets none. A render's own `--backdrop=`/`ground` still wins | [`src/lib/backdrop.ts`](src/lib/backdrop.ts) |
 | `DEMO_PRESET` | `wide` | Default still preset, when none is given on the command line | [`src/lib/still.ts`](src/lib/still.ts) |
-| `DEMO_CONCURRENCY` | Remotion's own | Frames rendered in parallel. Leave it unset — 6 workers measured 33% *slower* than the default. `1` is useful for debugging a render | [`scripts/render.ts`](scripts/render.ts) |
+
+**Recording**
+
+| Var | Default | Does | Measured in |
+| --- | --- | --- | --- |
+| `APP_BASE_URL` | — | The app to sign in to (`capture:session`, required) and the start URL for any flow or shot that names none | [`.env.example`](.env.example) |
+| `DEMO_URL_<NAME>` | — | A flow's start URL, kept out of the repo because it embeds account ids | [`.env.example`](.env.example) |
+| `HEADED` / `HEADLESS` | see above | Show the browser. The recorders read these differently — see [Recording your own app](#recording-your-own-app) | [`scripts/lib/session.ts`](scripts/lib/session.ts) |
+| `CAPTURE_SCALE` | `2` (max 4) | Record at this multiple of the flow's viewport while the app lays out at its own size — sharper footage. A capture too narrow for full zoom is refused unless `DEMO_ALLOW_SOFT_CAPTURE=1` | [`scripts/lib/capture-scale.ts`](scripts/lib/capture-scale.ts) |
+| `DEMO_CAPTURE` | `cdp` | Capture path: lossless compositor frames on their own timestamps. `playwright` falls back to Playwright's 25fps 1 Mbps VP8 | [`scripts/lib/screencast.ts`](scripts/lib/screencast.ts) |
+| `DEMO_CAPTURE_FPS` | `60` | Frame rate of the CDP intermediate. `DEMO_KEEP_FRAMES=1` keeps its raw PNGs | [`scripts/lib/screencast.ts`](scripts/lib/screencast.ts) |
+| `DEMO_BAKED_CURSOR` | off | `1` draws the legacy in-page pointer into the footage instead of Remotion's vector cursor — for debugging what the browser actually did | [`scripts/lib/recorder.ts`](scripts/lib/recorder.ts) |
+| `DEMO_TOUR` | off | `capture` records your own clicks to `tours/<name>.json`; `replay` shoots them. `pnpm record` only; `DEMO_TOUR_URL` sets the start page | [`scripts/record-demo.ts`](scripts/record-demo.ts) |
+
+`REQUIRE_BROWSER=1` makes the browser-backed unit tests fail instead of skip
+when Chromium is missing — for CI.
 
 ## Layout
 
@@ -670,11 +698,18 @@ the constant it controls, not here:
 | `flows/` | One file per demo. Only the generic ones are committed — see below |
 | `scripts/` | Recorders, converter, renderer, analyzer |
 | `scripts/lib/` | Cursor, flow helpers, selector ladder, session, batch |
+| `scripts/lib/motion-metrics.ts` | The pure measurements behind `pnpm analyze` (camera motion, jerk, sharpness) |
 | `src/lib/click-log.ts` | Shared types + all camera timing constants |
 | `src/lib/camera.ts` | Pose interpolator + distance-aware durations |
 | `src/lib/zoom.ts` | Keyframe track + region framing |
+| `src/lib/demo-duration.ts` | How many frames a demo runs, sized from the camera track |
 | `src/DemoClip.tsx` | Studio frame, backdrop, shuttered motion blur |
+| `src/ShutterBlur.tsx` | The motion blur: a shutter centred on the frame (`src/lib/shutter.ts`) |
+| `src/Cursor.tsx` | The vector pointer, drawn from the click log's cursor track |
+| `src/KeycapHUD.tsx` | On-screen keycap pill, the pointer's stand-in in full-bleed footage |
 | `src/Intro.tsx` | Title-card composition (no motion blur) |
+| `src/RecapCard.tsx` | The recap card: the feature list and logo lockup that close a reel |
+| `src/HudOverlay.tsx` · `src/ChipOverlay.tsx` | Reel overlays on a transparent ground, composited over the whole film (`src/lib/hud.ts`, `src/lib/chips.ts`) |
 | `src/StillShot.tsx` | Still composition: a captured region on a preset canvas |
 | `src/WindowFrame.tsx` | The floating window and its rim light, shared by both |
 | `src/lib/still.ts` | Social presets + window-fit geometry |
@@ -683,6 +718,9 @@ the constant it controls, not here:
 | `intros/` | One title card per demo (`defineIntro`) — only the example is committed |
 | `reels/` | Narrative cuts: cards + clip ranges (`defineReel`) |
 | `src/lib/reel.ts` | Reel segment types + clip-range arithmetic |
+| `src/lib/style.ts` | Choreography styles — the named motion grammars a reel is cut in |
+| `src/lib/look.ts` | `framed` vs `fullbleed`: how a reel treats footage and cards |
+| `docs/reel/` | Reference films taken apart, and the design records behind each style |
 | `public/backdrops/` | The studio backdrops (committed design assets) |
 | `src/lib/backdrop.ts` | Backdrop names + light/dark elevation |
 | `.agents/skills/` | Agent-readable pipeline docs |

@@ -4,7 +4,7 @@
  * monid's film holds a running cost counter and a monospace step line across
  * every change of content, and that is what buys it 22 seconds without a cut:
  * the HUD carries the continuity that cutting would otherwise supply. See
- * docs/design/reels/choreography-references.md §3.
+ * docs/reel/design/choreography-references.md §3.
  *
  * WE DERIVE OURS FROM THE CLICK LOG rather than authoring it, for the same
  * reason the SFX are: the timing already exists, it cost nothing to record, and

@@ -380,7 +380,7 @@ also why the film reads as cluttered — every frame is a wall of small type wit
 nothing for the eye to land on.
 
 It is NOT fixable by shooting differently: §0 of
-[capture-ceiling.md](./capture-ceiling.md) shows text size and upscale are the
+[capture-ceiling.md](../notes/capture-ceiling.md) shows text size and upscale are the
 same ratio, so the only way to double the text is to double the source pixels
 per CSS pixel, which needs the app-side portal fix.
 
@@ -414,7 +414,7 @@ it has been pulled about as far as this app allows.
   single shot. The harness prints this warning itself.
 - **`sharpness` 0.95 vs 1.88** — whole-film, and diluted by six flat cream cards
   that carry almost no edge energy by design. Scored on the two clips alone the
-  same metric reads **3.56**, above the reference. See note.md D21.
+  same metric reads **3.56**, above the reference. See [decisions.md](./decisions.md) D21.
 - **`bookend difference` 0.7% vs 2.0%** — we end closer to where we started than
   the reference does. Being more consistent is not a defect.
 
@@ -502,6 +502,6 @@ the pill grows and squashes them on the way out, where clipping reveals the text
 at its true width so the type is correct on every frame.
 
 **This is the third time in this repo a measured reference number has had to be
-reverted on sight** — see `docs/reel/07-gap-analysis.md` §12 for the first two.
+reverted on sight** — see `docs/reel/cursor/07-gap-analysis.md` §12 for the first two.
 The pattern is identical each time: a number from the reference reproduced
 without the thing that made that number work in the reference.

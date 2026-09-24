@@ -12,8 +12,8 @@
  *
  *   out/demo/<name>.mp4          one recorded flow, camera from the click log
  *   out/reel/<name>.mp4          cards + clips cut into a launch film
- *   out/reel/<name>.intro.mp4    a title card alone (the reel's raw material)
- *   out/reel/<name>.full.mp4     one card concatenated onto one demo
+ *   out/reel/<name>.<style>.mp4  the same reel cut in another style (--style=)
+ *   out/reel/<name>.intro.mp4    a title card alone, as a one-card reel
  *   out/still/<name>-<preset>.png   one region of the app, framed, 4K
  *
  * Going through `outPath` rather than joining "out" by hand is what keeps that
@@ -23,12 +23,14 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-const ROOT = path.resolve(import.meta.dirname, "..", "..");
+/**
+ * The repo root. About twenty scripts still derive their own copy from
+ * `import.meta.dirname`; new code should import this one instead.
+ */
+export const ROOT = path.resolve(import.meta.dirname, "..", "..");
 
 /** The three things this repo makes. See AGENTS.md for what each one is for. */
 export type Feature = "demo" | "reel" | "still";
-
-export const FEATURES: readonly Feature[] = ["demo", "reel", "still"];
 
 /** Absolute path inside one feature's output directory. Creates the directory. */
 export function outPath(feature: Feature, ...parts: string[]): string {

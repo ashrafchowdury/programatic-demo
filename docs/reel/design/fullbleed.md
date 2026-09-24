@@ -105,7 +105,7 @@ card rather than fixed.
 - Line pitch **86 px** (exact, every multi-line card), weight 400–450.
   **Cap height 52 px** — superseded reading, see below.
 
-  > **Correction (docs/reel/03-composition.md).** This line originally read
+  > **Correction (docs/reel/cursor/03-composition.md).** This line originally read
   > "font-size ≈ 64 px, line-height ≈ 1.35". The *pitch* is right; the size was
   > not. Measuring flat capitals (N, I, R) rather than whole-line ink extent
   > gives a cap height of **52 px**, which at FONT_STACK's ~0.715 cap ratio is a

@@ -387,7 +387,7 @@ not separable.
 
 ## Discrepancy — resolved, and the metric was the bug
 
-`docs/design/reels/fullbleed.md` records Film A at **21 %** moving frames with a
+`docs/reel/design/fullbleed.md` records Film A at **21 %** moving frames with a
 longest frozen run of **111 f**. An earlier pass of this analysis, using the
 chain that `.agents/skills/intro-reel/SKILL.md` then prescribed
 (`tblend=all_mode=difference,signalstats`, YAVG > 0.2, full resolution),

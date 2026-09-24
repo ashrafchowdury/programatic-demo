@@ -125,7 +125,7 @@ MEASURED, 6×6 pixel averages.
 | Footage page background | `#F8F8FA` | the product's own, untouched |
 
 The recap ground being `#16120D` rather than `#0A0A0A` answers an open question
-left in `docs/design/reels/fullbleed.md` ("recap ground warmth"): **yes, the
+left in `docs/reel/design/fullbleed.md` ("recap ground warmth"): **yes, the
 recap card is warmer**, by roughly +12 R / +8 G / +3 B. It reads as a
 deliberate shift into a closing, softer register.
 
@@ -203,7 +203,7 @@ whole-app shot (shot 9) to establish that the components belong to a real
 product. INFERRED, but the isolated-component shots have no alternative
 explanation.
 
-This is the same conclusion `docs/design/reels/fullbleed-gap-analysis.md`
+This is the same conclusion `docs/reel/design/fullbleed-gap-analysis.md`
 reached as fix **F6 (component isolation)** — Film B is what F6 looks like when
 it is the whole design language rather than a fix.
 

@@ -4,7 +4,8 @@
  *
  * Writes (all gitignored):
  *   .session-profile/          — Chromium user data (used by record:live / record:batch)
- *   storageState.json          — portable cookies + origin storage snapshot
+ *   .sessions/<host>.json      — portable cookies + origin storage snapshot, one
+ *                                per host (see sessionKey in lib/session.ts)
  *   .session-profile/session-url.txt — last authenticated URL
  *
  * Usage: pnpm capture:session
@@ -12,13 +13,11 @@
 import "dotenv/config";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { stateFileFor } from "./lib/session";
+import { PROFILE, stateFileFor } from "./lib/session";
 import { chromium } from "playwright";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
-const PROFILE = path.join(ROOT, ".session-profile");
 const URL_FILE = path.join(PROFILE, "session-url.txt");
-const PLAYGROUND_URL_FILE = path.join(PROFILE, "playground-url.txt");
 
 /**
  * Where to open the browser for the login. Required — this tool is not tied to
@@ -197,13 +196,11 @@ async function main() {
   fs.mkdirSync(path.dirname(stateFile), { recursive: true });
   await context.storageState({ path: stateFile, indexedDB: true });
   fs.writeFileSync(URL_FILE, `${finalUrl}\n`);
-  // Recorders still read the older filename.
-  fs.writeFileSync(PLAYGROUND_URL_FILE, `${finalUrl}\n`);
 
   console.log(`\nAuthenticated URL: ${finalUrl}`);
   console.log(`Cookies saved:     ${cookies.length} total`);
   console.log(`Session-like:      ${cookieSummary(sessionCookies)}`);
-  console.log(`storageState  → ${path.relative(ROOT, stateFile)}`);
+  console.log(`session file  → ${path.relative(ROOT, stateFile)}`);
   console.log(`profile       → ${path.relative(ROOT, PROFILE)}/`);
   console.log(`session url   → ${path.relative(ROOT, URL_FILE)}`);
 

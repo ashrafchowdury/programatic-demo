@@ -352,7 +352,7 @@ Two claims were corrected on the way, both by re-measurement:
 
 ### Item 1 — isolate the component ❌ built, measured, REVERTED
 
-The mechanism exists ([src/lib/crop.ts](../../src/lib/crop.ts)): `crop` accepts
+The mechanism exists ([src/lib/crop.ts](../../../src/lib/crop.ts)): `crop` accepts
 `{ rect, fill }`, deriving magnification, pan and a clip-path so a named
 component box fills the frame alone. Cut that way, it won every number in §6:
 

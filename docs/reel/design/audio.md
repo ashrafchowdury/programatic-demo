@@ -23,7 +23,7 @@ Audio is **never baked into a video segment**. It is a single **post-concat mux*
   `acrossfade`/`loudnorm`/`signalstats`; documented in `analyze.ts`,
   `record.ts`, `shoot-demo-video/SKILL.md`). AGENTS.md already requires
   `brew install ffmpeg`.
-- takes the finished silent `out/<name>.reel.mp4` as video input (input 0),
+- takes the finished silent `out/reel/<name>.mp4` as video input (input 0),
 - builds one `-filter_complex` audio graph from `reel.audio[]`,
 - writes `-c:v copy -c:a aac` to a temp file, renamed over the final.
 
@@ -40,7 +40,7 @@ no `audio` key renders byte-for-byte as today.
 - Renders each segment (cards via `Intro`, clips via `DemoClip --frames`) to its
   own mp4 in `.diag/reel/<name>/`, then concatenates with the bundled ffmpeg:
   `ffmpeg -y -f concat -safe 0 -i concat.txt -c copy -movflags +faststart
-  out/<name>.reel.mp4`. Stream copy, no re-encode, **no audio**.
+  out/reel/<name>.mp4`. Stream copy, no re-encode, **no audio**.
 - Every render passes `--muted`; `convert.ts` uses `-an`. Segments are single
   video-stream H.264. `render.ts` comment: without `--muted` Remotion muxes an
   empty AAC track costing ~317 kb/s of nothing.
@@ -74,7 +74,9 @@ no `audio` key renders byte-for-byte as today.
   with `zoom !== false`, onset `tDepartMs ?? tMs`; typing → span `tMs..typeEndMs`.
 - Assets via `staticFile()` resolve under `public/` (subdirs OK). `.gitignore` is
   per-extension; `.mp3`/`.wav` are NOT ignored today → **decision: gitignore
-  `public/audio/` per-account** (like `reels/`, `flows/`).
+  `public/audio/` per-account** (like `reels/`, `flows/`). *Reversed since:*
+  `public/audio/` is committed so a fresh clone can score a reel — see
+  `public/audio/sfx/README.md`.
 
 ---
 
@@ -92,7 +94,7 @@ no `audio` key renders byte-for-byte as today.
 | F8 | Total-length handling (audio ≠ video length) | **Phase 1** |
 | F15 | Capability guard for system-ffmpeg audio filters | **Phase 1** infra |
 | F16 | `reelProblem` validation of `audio[]` | **Phase 1** infra |
-| F17 | `.gitignore public/audio/` (per-account) | **Phase 1** infra |
+| F17 | ~~`.gitignore public/audio/` (per-account)~~ — reversed, `public/audio/` is committed | **Phase 1** infra |
 | F9 | Loudness normalization (`loudnorm`) | Phase 2 |
 | F10 | Crossfade between sequential pieces (`acrossfade`) | Phase 2 |
 | F11 | Ducking — bed dips under lead (`sidechaincompress` + `role`) | Phase 2 |
@@ -139,7 +141,7 @@ No ffmpeg/Remotion imports (unit-testable, same discipline as `src/lib/reel.ts`)
 - No `reel.audio` → unchanged.
 - `reel.audio` present → concat to `<workDir>/<name>.silent.mp4` + `keep.add`;
   `requireFfmpegAudio()`; `videoDurS = joined/FPS`; build args via `buildAudioMux`;
-  `execFileSync("ffmpeg", args, {stdio:"inherit"})` → `out/<name>.reel.mp4`.
+  `execFileSync("ffmpeg", args, {stdio:"inherit"})` → `out/reel/<name>.mp4`.
 - Segment cache untouched (audio is above the segment layer). First cut: always
   re-mux (no audio cache).
 
@@ -157,7 +159,7 @@ Per piece `i` (input `i+1`; video is input 0), trim at input level:
           afade=t=out:st=<effDur-fadeOutS>:d=<fadeOutS>, [apad,]
           adelay=<startMs>:all=1 [a<i>]
 [a0][a1]… amix=inputs=N:normalize=0:dropout_transition=0[m]; [m] apad [aout]
-ffmpeg -y -i out/<name>.reel.mp4 <-ss/-to/-i per piece> -filter_complex "<graph>" \
+ffmpeg -y -i out/reel/<name>.mp4 <-ss/-to/-i per piece> -filter_complex "<graph>" \
   -map 0:v -map "[aout]" -c:v copy -c:a aac -b:a 192k -shortest -movflags +faststart <tmp>.mp4
 ```
 Gotchas: `amix normalize=0` (default halves levels) + `dropout_transition=0` (avoid
@@ -184,9 +186,10 @@ a temp path then rename (can't read+write the same file).
 > (the UI's response `POP_DELAY_MS` after any typed input — a menu opening). Three
 > place only via `SfxCue.atLabels` (case-insensitive label match on the beat):
 > `key` (Enter / a single key), `confirm` (payoff, e.g. "Allow all"), `error`.
-> The stock lives in `public/audio/sfx/` (gitignored, per-machine) with a
-> `manifest.json` + `README.md`; only `confirm.wav` is synthesized by
-> `scripts/gen-sfx.ts` — the rest are supplied samples.
+> The stock lives in `public/audio/sfx/` (committed) with a `manifest.json` +
+> `README.md`. Every file is synthesized by `scripts/gen-sfx.ts` — the supplied
+> samples were replaced, see that README for provenance. The music bed
+> `public/audio/intro.mp3` is not, and its licence is unverified.
 
 Every feature below extends the **same** Phase-1 spine (one post-concat mux on
 the system ffmpeg, built by `src/lib/reel-audio.ts`, run by `muxAudio` in
@@ -280,9 +283,8 @@ array **before** `buildAudioMux`. SFX are just more pieces — the whole Phase-1
 graph handles them.
 
 **Assets & gotchas.**
-- Bundled SFX under `public/audio/sfx/` (gitignored); ship a generator that makes
-  placeholder ticks/whooshes with ffmpeg (`sine`/`anoisesrc` bursts) so it runs
-  without hunting for files.
+- Bundled SFX under `public/audio/sfx/` (committed), generated by
+  `scripts/gen-sfx.ts` so it runs without hunting for files.
 - **Cold-open dedup:** a cold-open clip replays footage a later clip covers — the
   same click would fire twice. Skip beats inside `coldOpenIndex` (already in
   `reel.ts`), or dedup by reel-time.
@@ -341,7 +343,7 @@ dipping under a lead for F11, a seamless join for F10).
 ## Verification (Phase 1)
 1. `pnpm test` — unit tests for `resolvePiece` (trim/start/end/clamp) + `reelProblem` audio cases.
 2. `pnpm lint`.
-3. Silent-path regression: a reel with no `audio` produces a byte-identical `.reel.mp4` (shasum).
+3. Silent-path regression: a reel with no `audio` produces a byte-identical `out/reel/<name>.mp4` (shasum).
 4. Single bed (trim 12–25s, fades): `ffprobe` shows one AAC stream, duration equals the video's, audibly the slice fading in/out.
 5. Layered bed + lead: no mid-reel swell (proves `normalize=0`/`dropout_transition=0`), no truncated tail (proves `apad`/`-shortest`).
 6. Guard: a reel with `audio` on a filter-less ffmpeg fails fast with the `brew install ffmpeg` message.

@@ -148,7 +148,7 @@ every other shot.)
 
 ## 5. Two things to correct in existing docs
 
-- **`docs/design/reels/fullbleed.md` open question "recap ground warmth"** —
+- **`docs/reel/design/fullbleed.md` open question "recap ground warmth"** —
   answered: `#16120D`, measurably warmer than the `#0A0A0A` sentence cards.
 - **A measurement conflict — resolved in `fullbleed.md`'s favour.** That
   document's 21 % moving / 111 f still run was correct. The YAVG-based metric

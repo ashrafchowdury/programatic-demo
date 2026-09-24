@@ -6,7 +6,6 @@
  */
 
 import { Config } from "@remotion/cli/config";
-import { enableTailwind } from '@remotion/tailwind-v4';
 
 Config.setRspack(true);
 // Rasterise on the real GPU. This composition is dominated by
@@ -22,7 +21,6 @@ Config.setChromiumOpenGlRenderer(
 // PNG frames = lossless capture (crisper, no JPEG mush) for a less "dull" result.
 Config.setVideoImageFormat("png");
 Config.setOverwriteOutput(true);
-Config.overrideBundlerConfig(enableTailwind);
 // BT.709, tagged. Remotion 4's "default" matrixes RGB->YUV as BT.601 and writes
 // no tags, while browsers, QuickTime and every upload path read untagged HD as
 // BT.709. Measured on a flat #f0f05a pill (the Agenta mark), decoded the way a

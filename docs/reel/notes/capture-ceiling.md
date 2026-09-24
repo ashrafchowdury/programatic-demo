@@ -1,5 +1,8 @@
 # The capture ceiling — an app-side bug that halves every demo's resolution
 
+> **App-specific.** Kept as a worked example of a capture limit that no pipeline
+> change can fix. It names one app's bug; it is not guidance about this repo.
+
 **This is a report about the Agenta app, not about this repo.** Nothing in the
 recording pipeline can fix it, and it is the single biggest quality limit on
 every demo video we shoot.
@@ -94,7 +97,7 @@ Sharp *and* readable, which is currently impossible.
 
 It is also the reason `agent-schedule` could never frame its drawer the way the
 monid reference frames its components — see
-`docs/reels/chorography/replit.md` §8 and the note in `flows/agent-schedule.ts`.
+`docs/reel/replit/reference.md` §8 and the note in `flows/agent-schedule.ts`.
 
 ## Where the pipeline side already lives
 

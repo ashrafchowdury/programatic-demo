@@ -7,6 +7,9 @@ dist
 .DS_Store
 *.swp
 
+# Agent worktrees (Claude Code creates these per isolated session)
+.claude/worktrees/
+
 # Secrets — never commit
 .env
 .env.local

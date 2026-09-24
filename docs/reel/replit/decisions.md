@@ -1,5 +1,10 @@
 # Loop note — Replit choreography
 
+> Moved here from the repo-root `note.md`. It is the agent's decision log for
+> building the `stage` style from the Replit film; the measurements it cites are
+> in [reference.md](./reference.md) and the plan in [plan.md](./plan.md). IDs
+> D1–D41 are referenced from code comments and other docs — keep them stable.
+
 Running record of decisions I took on your behalf, and things you should check.
 Newest section last. Started 2026-08-21.
 
@@ -239,7 +244,7 @@ the ~50 dB visible threshold. `agent-schedule` (ledger) 565/725 identical, worst
 ## Round 2 — "the clips are poor quality"
 
 You picked three problems, and I treated them as three. Also: write the capture
-ceiling up as an app-side issue → `docs/reels/chorography/capture-ceiling.md`.
+ceiling up as an app-side issue → `docs/reel/notes/capture-ceiling.md`.
 
 ### D17 — The softness is a hard ceiling, and I can prove it
 
@@ -431,7 +436,7 @@ worse trade than 0.7s of overrun.
 
 ## Round 5 — frame-by-frame gap check
 
-Full paired comparison written up in `docs/reels/chorography/replit.md` §9.
+Full paired comparison written up in `docs/reel/replit/reference.md` §9.
 Short version:
 
 **Matched:** ground colour EXACTLY (dE76 = 0.0), longest still run (2.20s vs
@@ -539,7 +544,7 @@ implementation had them scale into place and it looked stuck on.
 
 ### D30 — Three measured findings that changed the chips
 
-Written up in `docs/reels/chorography/replit.md` §10.
+Written up in `docs/reel/replit/reference.md` §10.
 
 1. **They fly in from off-screen.** MEASURED on "Recon" (f626-f650): it travels
    ~385px inward while shrinking, entering from OUTSIDE the frame. All four
@@ -604,7 +609,7 @@ So the 10 points were real motion that the eye reads as clutter. That is the
 compare skill's ONE RULE in practice: measure to find the gap, do not measure to
 choose the fix. **This is the third time in this repo a measured reference
 number has had to be reverted on sight** — the first two are in
-`docs/reel/07-gap-analysis.md` §12, and the shape is identical every time: a
+`docs/reel/cursor/07-gap-analysis.md` §12, and the shape is identical every time: a
 number reproduced without the thing that made it work over there.
 
 ### D34 — What replaced it: the chip UNROLLS in place
@@ -628,7 +633,7 @@ The two chips over clip 1 are now staggered 0.17s rather than arriving together.
 Together made sense for the flight — one big gesture — but a wipe is small, and
 two at once reads as one event happening twice.
 
-The flight is fully written up in `replit.md` §10 including why it was rejected,
+The flight is fully written up in `reference.md` §10 including why it was rejected,
 so nobody re-derives it from the measurements and re-implements it.
 
 ### Still true

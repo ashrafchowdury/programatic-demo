@@ -1,2 +1,9 @@
+# pnpm 10+ reads build permissions from here, not from package.json's "pnpm"
+# field (that block used to say the opposite and was silently ignored).
+#
+# esbuild's postinstall only re-verifies the platform binary that
+# @esbuild/<platform> already ships as an optional dependency, so nothing here
+# needs it: with the build skipped, `tsx` (the only esbuild consumer that runs
+# our code) and `pnpm test` work. Keep it off rather than trusting a script.
 allowBuilds:
   esbuild: false

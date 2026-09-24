@@ -1,5 +1,5 @@
 import React from "react";
-import { AbsoluteFill, useCurrentFrame, useVideoConfig } from "remotion";
+import { AbsoluteFill } from "remotion";
 import { chordGlyphs, type KeyEvent } from "./lib/click-log";
 import { settle } from "./lib/push";
 import { useDesignScale } from "./WindowFrame";
@@ -177,11 +177,4 @@ export const KeycapHUD: React.FC<KeycapHUDProps> = ({
       </div>
     </AbsoluteFill>
   );
-};
-
-/** Seconds into the shot for a frame, matching DemoClip's cursor time base. */
-export const useKeycapTime = (speed: number, offsetMs = 0): number => {
-  const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
-  return (frame / fps) * speed - offsetMs / 1000;
 };

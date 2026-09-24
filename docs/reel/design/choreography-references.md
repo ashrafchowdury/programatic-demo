@@ -4,7 +4,7 @@ Measurement record for the third and fourth reference films, and what each one
 means for [choreography-styles.md](./choreography-styles.md). Method and
 confidence labels follow `.agents/skills/reverse-engineer-reference/`.
 
-Companion to [`docs/reel/`](../../reel/), which holds the two Cursor films. This
+Companion to [`docs/reel/cursor/`](../cursor/), which holds the two Cursor films. This
 doc does not restate those; it compares against them.
 
 > **Filename warning.** The file delivered as
@@ -241,7 +241,7 @@ for the two logo bookends (Chromium's image decode is non-deterministic at
 ### Phase B — add `narration` from Film B *(cheapest real style)*
 
 Already specced in [choreography-styles.md](./choreography-styles.md) and every
-number is in `docs/reel/`. Do this before either new film: it is the one style
+number is in `docs/reel/cursor/`. Do this before either new film: it is the one style
 whose measurements are complete, and it proves the room works end to end on a
 grammar we have fully analysed.
 
@@ -287,7 +287,7 @@ changing any level. Cheap, and it makes the spread visible.
 - **Uber's typography engine.** Curved baselines, outline draw-on, ghost stacks
   and per-glyph gradients are a component library, not a preset. If it is ever
   wanted it is its own project.
-- **Rewriting `docs/reel/`.** Those two analyses stand. This doc extends them.
+- **Rewriting `docs/reel/cursor/`.** Those two analyses stand. This doc extends them.
 
 ---
 
