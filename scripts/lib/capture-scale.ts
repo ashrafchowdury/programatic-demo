@@ -63,6 +63,10 @@
  * in the same viewport pixels, so no coordinate conversion is needed.
  */
 
+import { OUTPUT_WIDTH, type ClickLog } from "../../src/lib/click-log";
+import { WINDOW_FIT } from "../../src/lib/window";
+import { buildCameraTrack } from "../../src/lib/zoom";
+
 export type Size = { width: number; height: number };
 
 /**
@@ -87,7 +91,10 @@ export type Size = { width: number; height: number };
  *     click it and the flow FAILS — loudly, but only on re-record.
  *   - agent-tool: full-viewport stage framing, where HD capture trades against
  *     the look the flow is tuned for (see flows/agent-tool.ts).
- * Re-record those two with `CAPTURE_SCALE=1 pnpm record:live <name>`.
+ * Re-record those two with
+ *   `CAPTURE_SCALE=1 DEMO_ALLOW_SOFT_CAPTURE=1 pnpm record:live <name>`
+ * — the second variable is needed because a 1920 capture is below
+ * minCaptureWidth, which the recorders now refuse by default.
  */
 export const DEFAULT_CAPTURE_SCALE = 2;
 
@@ -103,6 +110,107 @@ export const DEFAULT_CAPTURE_SCALE = 2;
  * actually tells you whether a scale worked on a given target.
  */
 export const MAX_CAPTURE_SCALE = 4;
+
+/**
+ * The deepest camera scale the track builder will use, read off the builder
+ * itself rather than copied: a synthetic log of pin-sized clicks, far enough
+ * apart to be separate beats, lets every punch reach its ceiling. S_MAX lives
+ * private to src/lib/zoom.ts; deriving it here means a retune there moves the
+ * capture floor with it instead of silently leaving it behind.
+ */
+export function cameraScaleCeiling(): number {
+  const pin = (tMs: number, x: number) => ({
+    tMs,
+    x,
+    y: 540,
+    rect: { x: x - 4, y: 536, w: 8, h: 8 },
+  });
+  const log: ClickLog = {
+    name: "ceiling",
+    viewport: { width: 1920, height: 1080 },
+    durationMs: 40_000,
+    offsetMs: 0,
+    clicks: [pin(2_000, 900), pin(14_000, 300), pin(26_000, 1500)],
+  };
+  return Math.max(...buildCameraTrack(log).map((k) => k.pose.scale));
+}
+
+/**
+ * Narrowest source that is never upscaled on screen: the render draws the app
+ * at OUTPUT_WIDTH x WINDOW_FIT at base and camera-zooms up to the ceiling, so
+ * at S_MAX the app's width in output pixels is 2560 x 0.86 x 1.74 = 3831.
+ * Below that the camera magnifies pixels that do not exist, and every demo is
+ * as sharp as whatever viewport its flow happened to use — the audit found
+ * public/*.mp4 anywhere from 1280x720 to 3840x2160 for one 2560x1440 output.
+ *
+ * Measured, smoke fixture, SSIM (Y) against a geometry-matched truth — the same
+ * layout rasterised at twice the capture (DSF 2 screenshot), Lanczos-scaled to
+ * the size the viewer sees; the capture scaled the way the renderer does
+ * (bilinear):
+ *
+ *                        base (2202px wide)    S_MAX (3830px, 2560x1440 crop)
+ *   scale 1 (1920)       0.99811               0.99518
+ *   scale 2 (3840)       0.99946               0.99915
+ *
+ * i.e. 1-SSIM falls 3.5x at base and 5.7x at the zoom hold, and the difference
+ * is plain side by side. Compare against a truth of the SAME layout: the root
+ * zoom shifts sub-pixel geometry (smoke's shell overflows 1.044 under it), and
+ * scored against the 1x layout's truth scale 2 came out WORSE (0.98659 at
+ * S_MAX) purely on misregistration — the trap edge energy was blind to and
+ * SSIM is over-sensitive to.
+ */
+export function minCaptureWidth(
+  outputWidth = OUTPUT_WIDTH,
+  fit = WINDOW_FIT,
+  ceiling = cameraScaleCeiling(),
+): number {
+  return Math.ceil(outputWidth * fit * ceiling);
+}
+
+/**
+ * Escape hatch for a capture below minCaptureWidth. Set it for the flows that
+ * cannot take the root zoom (see DEFAULT_CAPTURE_SCALE) — they then record,
+ * soft, and say so.
+ */
+export const ALLOW_SOFT_CAPTURE_ENV = "DEMO_ALLOW_SOFT_CAPTURE";
+
+/**
+ * Why a physical capture size is too small for the render, or null when it is
+ * big enough. Pure: callers decide whether to throw or warn.
+ */
+export function captureSizeProblem(
+  physical: Size,
+  logical: Size,
+  scale: number,
+  minWidth = minCaptureWidth(),
+): string | null {
+  if (physical.width >= minWidth) return null;
+  const need = Math.ceil((minWidth / logical.width) * 100) / 100;
+  return (
+    `capture ${physical.width}x${physical.height} is narrower than the ` +
+    `${minWidth}px the render needs at full zoom (${OUTPUT_WIDTH} x ` +
+    `${WINDOW_FIT} x S_MAX), so the camera would upscale the app by ` +
+    `${(minWidth / physical.width).toFixed(2)}x. ` +
+    `Record at CAPTURE_SCALE>=${need} (now ${scale}), or set ` +
+    `${ALLOW_SOFT_CAPTURE_ENV}=1 if this flow cannot take the zoom.`
+  );
+}
+
+/**
+ * Enforce the capture floor: throws unless ALLOW_SOFT_CAPTURE_ENV is set, in
+ * which case it returns the warning for the caller to print. Null when fine.
+ */
+export function enforceCaptureSize(
+  physical: Size,
+  logical: Size,
+  scale: number,
+  env: string | undefined = process.env[ALLOW_SOFT_CAPTURE_ENV],
+): string | null {
+  const problem = captureSizeProblem(physical, logical, scale);
+  if (!problem) return null;
+  if (env === "1") return `⚠ SOFT CAPTURE — ${problem}`;
+  throw new Error(problem);
+}
 
 export function resolveCaptureScale(raw?: string): number {
   const n = raw != null && raw !== "" ? Number(raw) : DEFAULT_CAPTURE_SCALE;

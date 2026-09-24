@@ -1,6 +1,7 @@
 /**
  * Records ONE offline/generic flow with Playwright and writes:
- *   recordings/<name>.webm         — the raw screen recording (with fake cursor)
+ *   recordings/<name>.mkv          — the raw screen recording (CDP frames; .webm
+ *                                    under DEMO_CAPTURE=playwright)
  *   public/<name>.clicks.json      — click log the Remotion composition reads
  *
  * Used for smoke, google-search, and any flow that does not need the
@@ -26,16 +27,24 @@ import {
 } from "../src/lib/click-log";
 import {
   captureScaleInitScript,
+  enforceCaptureSize,
   OVERFLOW_PROBE,
   resolveCaptureScale,
   scaledViewport,
 } from "./lib/capture-scale";
 import type { ClickEvent, Flow } from "./lib/flow";
 import {
+  flashMarker,
+  openFootage,
+  startClock,
+  type Footage,
+} from "./lib/footage";
+import {
   buildContext,
   CURSOR_INIT_SCRIPT,
   useBakedCursor,
 } from "./lib/recorder";
+import { resolveCaptureMode } from "./lib/screencast";
 import {
   CAPTURE_DEVICE_SCALE_FACTOR,
   CAPTURE_VIEWPORT,
@@ -128,6 +137,11 @@ async function main() {
     tourMode === "capture" ? 1 : resolveCaptureScale(process.env.CAPTURE_SCALE);
   const captureViewport = scaledViewport(shootViewport, captureScale);
   const viewport = tourMode === "capture" ? CAPTURE_VIEWPORT : captureViewport;
+  const captureMode = resolveCaptureMode(process.env.DEMO_CAPTURE);
+  if (tourMode !== "capture") {
+    const soft = enforceCaptureSize(captureViewport, shootViewport, captureScale);
+    if (soft) console.warn(soft);
+  }
 
   fs.mkdirSync(RECORDINGS, { recursive: true });
   fs.mkdirSync(PUBLIC, { recursive: true });
@@ -150,8 +164,10 @@ async function main() {
       tourMode === "capture"
         ? CAPTURE_DEVICE_SCALE_FACTOR
         : DEVICE_SCALE_FACTOR,
+    // Only the Playwright fallback records through the context; the CDP path
+    // attaches its own screencast to the page (openFootage).
     recordVideo:
-      tourMode === "capture"
+      tourMode === "capture" || captureMode !== "playwright"
         ? undefined
         : { dir: RECORDINGS, size: captureViewport },
     userAgent:
@@ -159,15 +175,16 @@ async function main() {
     locale: "en-US",
   });
   // HD zoom+shim must run before any page script, so add it before navigation.
-  if (captureScale > 1) {
+  if (captureScale > 1)
     await context.addInitScript({
       content: captureScaleInitScript(captureScale, shootViewport),
     });
+  if (tourMode !== "capture")
     console.log(
       `capture    -> ${captureViewport.width}x${captureViewport.height} ` +
-        `(logical ${shootViewport.width}x${shootViewport.height} @ zoom ${captureScale})`,
+        `(logical ${shootViewport.width}x${shootViewport.height} @ zoom ${captureScale}, ${captureMode})`,
     );
-  }
+  const recStart = Date.now();
   if (tourMode !== "capture" && useBakedCursor())
     await context.addInitScript({ content: CURSOR_INIT_SCRIPT });
 
@@ -198,10 +215,23 @@ async function main() {
     return;
   }
 
+  // Same clapperboard as record:live (scripts/lib/footage.ts). This path used
+  // to start its clock at Date.now() with no marker, i.e. it assumed the video
+  // began the instant the clock did — the ~0.83s capture-start lag documented
+  // there went straight into every smoke and tour-replay shoot (audit D13).
+  const footage: Footage = await openFootage(page, {
+    mode: captureMode,
+    name,
+    dir: RECORDINGS,
+    size: captureViewport,
+  });
+  await flashMarker(page);
+
   const clicks: ClickEvent[] = [];
   const cursor: CursorSample[] = [];
-  const startedAt = Date.now();
-  const getElapsedMs = () => Date.now() - startedAt;
+  const clock = startClock();
+  const demoStart = Date.now();
+  const getElapsedMs = clock.now;
 
   const ctx = buildContext(page, baseURL, clicks, getElapsedMs, cursor);
 
@@ -232,16 +262,17 @@ async function main() {
     await page.waitForTimeout(END_TAIL_S * 1000);
   } finally {
     const rawDurationMs = getElapsedMs();
-    const video = page.video();
-    await context.close(); // flushes the video file
-    await browser.close();
-
-    if (video) {
-      const src = await video.path();
-      const dest = path.join(RECORDINGS, `${name}.webm`);
-      fs.renameSync(src, dest);
-      console.log(`recording  -> ${path.relative(ROOT, dest)}`);
-    }
+    const rec = await footage.finish({
+      close: async () => {
+        await context.close(); // flushes a Playwright video file
+        await browser.close();
+      },
+      clock,
+      durationMs: rawDurationMs,
+      clockTrimMs: demoStart - recStart,
+    });
+    console.log(`recording  -> ${path.relative(ROOT, rec.file)}`);
+    (rec.unsure ? console.warn : console.log)(`sync       -> ${rec.sync}`);
 
     const trimmed = applyFrontTrim(clicks, cursor, rawDurationMs);
     if (trimmed.trimBeforeMs > 0) {
@@ -250,12 +281,15 @@ async function main() {
       );
     }
 
+    // Video time of the kept first frame: the head up to the marker, plus the
+    // blank navigation dropped from the log's own start.
+    const trimBeforeMs = rec.trimBeforeMs + trimmed.trimBeforeMs;
     const log = {
       name,
       // PHYSICAL size — rects, cursor and video are all in this space under zoom.
       viewport: captureViewport,
       durationMs: trimmed.durationMs,
-      trimBeforeMs: trimmed.trimBeforeMs || undefined,
+      trimBeforeMs: trimBeforeMs || undefined,
       offsetMs: 0,
       // Omitted on the baked-cursor path so Remotion does not draw a second one.
       cursorTrack: useBakedCursor() ? undefined : trimmed.cursor,
