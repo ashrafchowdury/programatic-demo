@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Cutout edge-case fixture</title>
+    <!--
+      The shapes that broke cutouts, with no app behind them (see
+      shots/smoke-popover.ts):
+        .menu    a rounded popover that does NOT clip (no overflow:hidden), whose
+                 header and footer have a border and no fill of their own
+        .tint    a card painted in a translucent oklch() colour
+        .personal a row a shot hides with `hide:`
+        nextjs-portal  a stand-in for the Next.js dev indicator, which the
+                 clean-capture sheet removes
+    -->
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+        background: #e9ebef;
+        color: #0f172a;
+      }
+      .stage { display: flex; gap: 32px; align-items: flex-start; padding: 120px 160px; }
+      .menu {
+        width: 320px;
+        background: #fff;
+        border-radius: 18px;
+        box-shadow: 0 12px 32px rgba(15, 23, 42, 0.14);
+      }
+      .menu header {
+        padding: 14px 16px;
+        border-bottom: 1px solid #e2e8f0;
+        color: #94a3b8;
+      }
+      .menu footer {
+        padding: 14px 16px;
+        border-top: 1px solid #e2e8f0;
+        color: #94a3b8;
+      }
+      .menu ul { list-style: none; margin: 0; padding: 6px; }
+      .menu li { padding: 10px 12px; border-radius: 10px; }
+      .menu li.on { background: rgba(15, 23, 42, 0.05); }
+      .tint {
+        width: 260px;
+        padding: 20px;
+        border-radius: 16px;
+        background: oklch(0.62 0.19 255 / 0.25);
+        border: 1px solid oklch(0.62 0.19 255 / 0.4);
+        color: oklch(0.35 0.12 255);
+      }
+      nextjs-portal {
+        position: fixed; left: 20px; bottom: 20px;
+        width: 36px; height: 36px; border-radius: 50%;
+        background: #000; color: #fff; display: grid; place-items: center;
+        font-weight: 700;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      <div class="menu" role="menu">
+        <header>Search filters…</header>
+        <ul>
+          <li>Group by</li>
+          <li class="on">Type</li>
+          <li class="personal">Owner: Jane Q. Example</li>
+          <li>Status</li>
+        </ul>
+        <footer>Reset to defaults</footer>
+      </div>
+      <div class="tint">Translucent oklch card</div>
+    </div>
+    <nextjs-portal>N</nextjs-portal>
+  </body>
+</html>

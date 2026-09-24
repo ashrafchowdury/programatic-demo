@@ -74,4 +74,5 @@ shots/*
 !shots/smoke.ts
 !shots/smoke-cutout.ts
 !shots/smoke-bleed.ts
+!shots/smoke-popover.ts
 public/shots/

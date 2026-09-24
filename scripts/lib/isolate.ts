@@ -56,6 +56,13 @@
  * tint resolves in order. A box with NO fill but a visible border or shadow is
  * a surface too — the page showed through it and read as its fill — so it gets
  * the ground colour outright. Gradients and backdrop-filter are left alone.
+ *
+ * Only what the PAGE showed through is replaced. When something inside the
+ * kept subtree already paints an opaque fill behind a box — a bordered header
+ * inside a white menu — that fill survives isolation and the box is left as it
+ * was. Filling it anyway paints a square over a parent that rounds its corners
+ * without clipping (no overflow:hidden), and the corners poke out.
+ * shots/smoke-popover.ts is the offline check for that and for oklch() fills.
  */
 
 export type IsolateResult = {
@@ -86,9 +93,24 @@ export const isolateInPage = new Function(
   const show = roots.flatMap((r) => [r, ...Array.from(r.querySelectorAll("*"))]).filter(visible);
 
   // Flatten translucent fills over what was behind them, while it is still there.
+  // Computed colours keep their authored space: oklch(), oklab(), color(),
+  // hsl() come back as written, not as rgb(). The rgb() form is read directly;
+  // anything else is painted into a 1x1 canvas and read back as sRGB bytes,
+  // which is Chromium's own conversion (gamut-clipped, alpha to 1/255).
+  const probe = document.createElement("canvas").getContext("2d", { willReadFrequently: true });
+  probe.canvas.width = probe.canvas.height = 1;
   const parse = (c) => {
-    const m = /^rgba?\\((\\d+),\\s*(\\d+),\\s*(\\d+)(?:,\\s*([\\d.]+))?\\)$/.exec(c || "");
-    return m ? [+m[1], +m[2], +m[3], m[4] === undefined ? 1 : +m[4]] : null;
+    if (!c) return null;
+    const m = /^rgba?\\(([\\d.]+),\\s*([\\d.]+),\\s*([\\d.]+)(?:,\\s*([\\d.]+))?\\)$/.exec(c);
+    if (m) return [+m[1], +m[2], +m[3], m[4] === undefined ? 1 : +m[4]];
+    // An invalid colour leaves fillStyle unchanged; a sentinel tells the two apart.
+    probe.fillStyle = "#010203";
+    probe.fillStyle = c;
+    if (probe.fillStyle === "#010203" && !/^#010203$/i.test(c)) return null;
+    probe.clearRect(0, 0, 1, 1);
+    probe.fillRect(0, 0, 1, 1);
+    const d = probe.getImageData(0, 0, 1, 1).data;
+    return [d[0], d[1], d[2], d[3] / 255];
   };
   const over = (top, under) => {
     const a = top[3];
@@ -110,11 +132,33 @@ export const isolateInPage = new Function(
     }
     return false;
   };
+  // Does something INSIDE what is kept already paint an opaque fill behind n?
+  // Then the colour that showed through n was never the page's, it survives
+  // isolation, and n needs no fill of its own. Walk up to the kept root that
+  // holds n and no further. Without this a bordered header in a rounded menu
+  // that does not clip (no overflow:hidden) got a square opaque fill, and its
+  // corners poked past the menu's rounded ones.
+  const kept = new Set(show);
+  const isRoot = new Set(roots);
+  const covered = (n) => {
+    if (isRoot.has(n)) return false;
+    for (let a = n.parentElement; a; a = a.parentElement) {
+      if (kept.has(a)) {
+        const c = parse(getComputedStyle(a).backgroundColor);
+        if (c && c[3] === 1) return true;
+      }
+      if (isRoot.has(a)) return false;
+    }
+    return false;
+  };
+  // Parents before children (document order), so an ancestor flattened here
+  // already reads opaque when its descendants ask.
   for (const n of show) {
     const cs = getComputedStyle(n);
     const c = parse(cs.backgroundColor);
     if (!c || c[3] === 1) continue;
     if (c[3] === 0 && !isSurface(cs)) continue;
+    if (covered(n)) continue;
     const [r, g, b] = c[3] === 0 ? ground(n) : over(c, ground(n));
     n.style.setProperty("background-color", "rgb(" + r + "," + g + "," + b + ")", "important");
   }

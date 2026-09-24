@@ -151,9 +151,87 @@ export type ShotSpec = {
   split?: number;
   /** Output px of the composition left out between pieces: the platform's gap. */
   gutter?: number;
+  /**
+   * Inject the clean-capture sheet (CLEAN_CAPTURE_CSS) before measuring:
+   * framework dev overlays, scrollbars and the text caret removed. Default true.
+   * Set false only to photograph the dev chrome on purpose.
+   */
+  clean?: boolean;
+  /**
+   * CSS selectors removed before measuring, on top of the clean sheet — a row
+   * with a real person's name, an email in the account menu. `display: none`,
+   * so a list closes up around the gap rather than showing a hole. Applies
+   * even with `clean: false`.
+   */
+  hide?: readonly string[];
 };
 
 export const defineShot = (spec: ShotSpec): ShotSpec => spec;
+
+/**
+ * Chrome that is never the product, removed from every still before it is
+ * measured: dev servers paint their own UI over the app, and it lands in the
+ * picture. The Next.js dev indicator (the round "N") sat over the workspace
+ * avatar in agents-page. Each rule names a dev-only element, so a production
+ * build is untouched.
+ *
+ *   nextjs-portal ...       Next.js dev indicator, error overlay, build toasts
+ *   vite-error-overlay      Vite's error overlay
+ *   #webpack-dev-server-client-overlay  webpack-dev-server's
+ *   vercel-live-feedback    the Vercel preview toolbar
+ *
+ * Scrollbars are hidden too: headless Chromium draws none, headed does, so a
+ * still depended on HEADED. The caret goes because a blinking cursor is caught
+ * on or off at random.
+ */
+export const DEV_CHROME = [
+  "nextjs-portal",
+  "[data-nextjs-toast]",
+  "[data-nextjs-dev-tools-button]",
+  "[data-nextjs-dialog-overlay]",
+  "[data-next-badge-root]",
+  "#__next-build-watcher",
+  "#__next-prerender-indicator",
+  "vite-error-overlay",
+  "#webpack-dev-server-client-overlay",
+  "vercel-live-feedback",
+] as const;
+
+// One rule per selector: a selector the browser cannot parse drops the WHOLE
+// rule it sits in, so a list would let one typo in `hide` un-hide the rest.
+const removeRule = (sel: string) => `${sel}{display:none!important}`;
+
+export const CLEAN_CAPTURE_CSS = [
+  ...DEV_CHROME.map(removeRule),
+  "*{scrollbar-width:none!important;caret-color:transparent!important}",
+  "*::-webkit-scrollbar{display:none!important}",
+].join("\n");
+
+/** The sheet a shot injects before measuring, or null when it asks for none. */
+export function captureCss(spec: Pick<ShotSpec, "clean" | "hide">): string | null {
+  const rules: string[] = [];
+  if (spec.clean !== false) rules.push(CLEAN_CAPTURE_CSS);
+  for (const sel of spec.hide ?? []) rules.push(removeRule(sel));
+  return rules.length ? rules.join("\n") : null;
+}
+
+/**
+ * How far two passes' regions landed apart, in CSS px: the largest difference
+ * on any edge. Layout is supposed to be identical at every scale factor, so
+ * anything past a rounding pixel means the second run reached a different
+ * state — an animation mid-flight, data that loaded differently.
+ */
+export function rectDrift(a: ShotRect, b: ShotRect): number {
+  return Math.max(
+    Math.abs(a.x - b.x),
+    Math.abs(a.y - b.y),
+    Math.abs(a.x + a.w - (b.x + b.w)),
+    Math.abs(a.y + a.h - (b.y + b.h)),
+  );
+}
+
+/** Past this, rectDrift is a different layout rather than outward rounding. */
+export const RECT_DRIFT_PX = 2;
 
 /** Default breathing room around a resolved element, in CSS px. */
 export const SHOT_PADDING = 16;
@@ -219,6 +297,12 @@ export function shotProblem(value: unknown): string | null {
     } else {
       return "`region` must be a name, css(...), or {x,y,w,h}";
     }
+  }
+  if (shot.clean !== undefined && typeof shot.clean !== "boolean")
+    return "`clean` must be a boolean";
+  if (shot.hide !== undefined) {
+    if (!Array.isArray(shot.hide) || shot.hide.some((h) => typeof h !== "string" || h.trim() === ""))
+      return "`hide` must be a list of CSS selector strings";
   }
   const framing = framingProblem(shot) ?? splitProblem(shot);
   if (framing) return framing;

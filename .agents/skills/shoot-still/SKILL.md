@@ -104,6 +104,30 @@ That drives the steps, then writes `.diag/shots/<name>.probe.png` — the full
 viewport under a 100px coordinate grid — plus a listing of what was on screen.
 Read the numbers off the image.
 
+## Keeping dev chrome and personal data out
+
+Every still is shot on a **clean capture**: before the region is measured, a
+sheet removes framework dev overlays (the Next.js dev indicator and its
+toasts/error overlay, Vite's and webpack's overlays, the Vercel toolbar),
+scrollbars, and the text caret. The list is `DEV_CHROME` in
+`scripts/lib/shot.ts`; it names dev-only elements, so a production build is
+untouched.
+
+Real data is on you. A row with a person's full name, an email in the account
+menu — name it in `hide` and it is removed (`display: none`, so a list closes
+up rather than showing a hole) before measuring:
+
+```ts
+export default defineShot({
+  // ...
+  hide: ['[data-row="owner"]', "header .account-email"],
+});
+```
+
+A `hide` selector that matches nothing is warned about — a renamed class
+should not silently let a name back in. `clean: false` turns off the default
+sheet (to photograph the dev chrome on purpose); `hide` still applies.
+
 ## Choosing the look
 
 A still has one of three named looks. Say which one you want; `window` is what
@@ -248,7 +272,9 @@ same detail in any frame.
   1920×1080, more on a smaller viewport). Past that you get a warning, not a
   silent upscale. Shoot a larger region, or a smaller viewport.
 - **It re-runs the whole step list** to raise the scale. Set `scale: 4` in the
-  spec once a shot is settled and it only runs once.
+  spec once a shot is settled and it only runs once. If the second run finds
+  the region more than 2px from where the first did, it warns: the app reached
+  a different state (an animation, late data), and the PNG is from the second.
 - **Padding does not apply to an explicit rect.** A `css()` or name region gets
   `padding` (default 16px, or per side: `{ top: 0 }` keeps the element above
   out of the crop); a rect is taken literally, so bake the margin in.
@@ -272,7 +298,10 @@ same detail in any frame.
   cutout composites each such fill over the colour that was behind it and sets
   it opaque — the card comes out as you see it in the app, not as glass.
   `backdrop-filter` and gradients are left alone and will read differently. An
-  ancestor's `opacity` is kept on purpose — it is what the user sees.
+  ancestor's `opacity` is kept on purpose — it is what the user sees. Any CSS
+  colour is read (`oklch()`, `color()`, `hsl()` …), and a box whose fill shows
+  a kept parent's fill, not the page's, is left alone, so a bordered header
+  cannot square off a rounded menu. `pnpm shot smoke-popover` checks both.
 - **The composition adds a shadow only when the element brought none.** Read
   off the capture: painted extent vs border box. `shadow: true`/`false` forces it.
 - **Rows without a surface float.** A list whose rows are text on the page has

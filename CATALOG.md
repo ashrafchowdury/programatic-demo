@@ -146,6 +146,8 @@ Not visible in a picture, but part of every shot:
 | `scale` | force the device scale factor; otherwise measured, up to the viewport's surface budget (4× at 1920×1080, 5.8× at 820×1180) |
 | `mobile` | present as a mobile client for apps that route a mobile layout by client hint |
 | `keep` | extra elements isolated with a cutout's region |
+| `hide` | CSS selectors removed before measuring — a row with a real name, an email |
+| `clean` | `false` keeps framework dev overlays, scrollbars and the caret, which are removed by default |
 | `--out=` | name the output file; otherwise every render-time flag goes in the name |
 
 ---

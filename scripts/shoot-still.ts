@@ -37,8 +37,11 @@ import { runSteps } from "./lib/flow";
 import { alphaBoundsInPage, isolateInPage } from "./lib/isolate";
 import { dumpVisible, findByName } from "./lib/selectors";
 import {
+  captureCss,
   isShotRect,
   paddingSides,
+  RECT_DRIFT_PX,
+  rectDrift,
   shotProblem,
   type ShotRect,
   type ShotSpec,
@@ -364,6 +367,20 @@ async function runPass(
     // metrics, and the crop is off by the difference.
     await page.evaluate(() => document.fonts.ready).catch(() => {});
 
+    // Dev overlays, scrollbars, the caret, and whatever the shot hides — gone
+    // BEFORE measuring, since hiding a scrollbar or a row can move the region.
+    // After the steps, so a toast the steps raised goes too.
+    const sheet = captureCss(spec);
+    if (sheet) {
+      for (const sel of spec.hide ?? []) {
+        const n = await page.locator(sel).count().catch(() => -1);
+        if (n === 0) console.warn(`           !  hide ${sel} matched nothing on screen`);
+        if (n < 0) console.warn(`           !  hide ${sel} is not a valid selector`);
+      }
+      await page.addStyleTag({ content: sheet });
+      await page.waitForTimeout(100);
+    }
+
     const { rect: raw, via, locator } = await resolveRegion(page, spec);
     const { rect, clipped } = clampRect(raw, spec.viewport);
 
@@ -388,6 +405,9 @@ async function runPass(
     await page.screenshot({
       path: path.join(SHOTS, `${spec.name}.png`),
       clip: { x: rect.x, y: rect.y, width: rect.w, height: rect.h },
+      // A cutout already shoots this way. Finishes CSS animations and
+      // transitions instead of catching them mid-frame.
+      animations: "disabled",
     });
     return { rect, via, clipped };
   } finally {
@@ -437,7 +457,18 @@ async function main() {
           `edge, short of ${targetPx}; re-shooting at ${needed}`,
       );
       scale = needed;
+      const first = pass;
       pass = await runPass(spec, scale, false);
+      // The re-run is trusted to reproduce the first. Check: the sizing above
+      // was computed from pass one, and the PNG comes from pass two.
+      const drift = rectDrift(first.rect, pass.rect);
+      if (drift > RECT_DRIFT_PX)
+        console.warn(
+          `           !  the second pass found the region ${drift}px from where the first did ` +
+            `(${first.rect.w}x${first.rect.h} at ${first.rect.x},${first.rect.y} -> ` +
+            `${pass.rect.w}x${pass.rect.h} at ${pass.rect.x},${pass.rect.y}) — the app reached a ` +
+            `different state. Wait for it in \`ready\`, or set \`scale\` to skip the re-run`,
+        );
     }
   }
 

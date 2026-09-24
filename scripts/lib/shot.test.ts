@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { css } from "./flow";
-import { paddingSides, shotProblem, type ShotSpec } from "./shot";
+import {
+  captureCss,
+  CLEAN_CAPTURE_CSS,
+  paddingSides,
+  rectDrift,
+  shotProblem,
+  type ShotSpec,
+} from "./shot";
 
 const spec = (over: Partial<ShotSpec> = {}): ShotSpec => ({
   name: "x",
@@ -65,5 +72,45 @@ describe("paddingSides", () => {
     assert.equal(shotProblem(spec({ padding: { top: 0, bottom: 40 } })), null);
     assert.match(shotProblem(spec({ padding: { top: -1 } }))!, /padding\.top/);
     assert.match(shotProblem(spec({ padding: "x" as never }))!, /`padding`/);
+  });
+});
+
+describe("captureCss", () => {
+  it("removes dev chrome, scrollbars and the caret by default", () => {
+    const sheet = captureCss({})!;
+    assert.equal(sheet, CLEAN_CAPTURE_CSS);
+    assert.match(sheet, /^nextjs-portal\{display:none!important\}$/m);
+    assert.match(sheet, /\[data-nextjs-toast\]\{display:none/);
+    assert.match(sheet, /scrollbar-width:none/);
+    assert.match(sheet, /caret-color:transparent/);
+  });
+
+  it("gives every selector its own rule, so one bad selector drops only itself", () => {
+    const sheet = captureCss({ clean: false, hide: [".a", "tr:has(td)"] })!;
+    assert.equal(sheet, ".a{display:none!important}\ntr:has(td){display:none!important}");
+    assert.ok(!CLEAN_CAPTURE_CSS.split("\n").some((r) => r.split("{")[0].includes(",")));
+  });
+
+  it("adds hide on top of the clean sheet, and is null with neither", () => {
+    assert.ok(captureCss({ hide: [".row"] })!.startsWith(CLEAN_CAPTURE_CSS));
+    assert.equal(captureCss({ clean: false }), null);
+    assert.equal(captureCss({ clean: false, hide: [] }), null);
+  });
+
+  it("is validated in the spec", () => {
+    assert.equal(shotProblem(spec({ clean: false, hide: [".row"] })), null);
+    assert.match(shotProblem(spec({ clean: "no" as never }))!, /`clean`/);
+    assert.match(shotProblem(spec({ hide: ".row" as never }))!, /`hide`/);
+    assert.match(shotProblem(spec({ hide: [" "] }))!, /`hide`/);
+  });
+});
+
+describe("rectDrift", () => {
+  it("is the largest edge difference, so a shift and a resize both count", () => {
+    const a = { x: 10, y: 10, w: 100, h: 50 };
+    assert.equal(rectDrift(a, a), 0);
+    assert.equal(rectDrift(a, { x: 11, y: 10, w: 100, h: 50 }), 1);
+    assert.equal(rectDrift(a, { x: 10, y: 10, w: 100, h: 58 }), 8);
+    assert.equal(rectDrift(a, { x: 7, y: 10, w: 103, h: 50 }), 3);
   });
 });
