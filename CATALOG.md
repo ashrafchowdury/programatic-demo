@@ -242,6 +242,22 @@ decelerating, hold, accelerate away, cut mid-move. The mark opens it.
 
 `reels/agent-schedule-stage.ts`, `reels/agent-tool.ts`
 
+### Aspect — 16:9, 1:1, 9:16 from one spec
+
+Any style, cut square or vertical. The footage becomes a crop that moves with
+the clicks (the pointer stays in shot, and the crop is still at every press);
+cards rewrap at the same type size; a windowed style's window takes the
+frame's shape. Keeps the 1440 short side: 1440x1440, 1440x2560.
+
+| 9:16, proof | 9:16, stage | 1:1, proof |
+| --- | --- | --- |
+| <img src="docs/catalog/reel-aspect-proof-9x16.jpg" width="200"> | <img src="docs/catalog/reel-aspect-stage-9x16.jpg" width="200"> | <img src="docs/catalog/reel-aspect-proof-1x1.jpg" width="300"> |
+
+`pnpm reel <name> --aspect=9:16` → `out/reel/<name>.9x16.mp4`, or `aspect:
+"9:16"` in `reels/<name>.ts`. `--check` prints each clip's source→output
+scale and flags anything past the 1.74 sharpness ceiling — a 1x (1920) capture
+is, at 9:16.
+
 ### Card copy
 
 Emphasis lives in the headline string, per word, no code:

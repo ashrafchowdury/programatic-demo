@@ -1,7 +1,7 @@
 import React from "react";
-import { useVideoConfig } from "remotion";
-import { CURSOR_SCALE_EXP, DESIGN_WIDTH, type ClickLog } from "./lib/click-log";
+import { CURSOR_SCALE_EXP, type ClickLog } from "./lib/click-log";
 import { cursorAt } from "./lib/cursor";
+import { useDesignScale } from "./WindowFrame";
 
 /** Arrow tip inside the 24x32 viewBox — the point that sits on (x, y). */
 const HOT_X = 1;
@@ -102,7 +102,10 @@ export const Cursor: React.FC<{
   ripple?: boolean;
 }> = ({ log, timeS, cameraScale, ripple = true }) => {
   // Before the early returns — hooks cannot be conditional.
-  const k = useVideoConfig().width / DESIGN_WIDTH;
+  // The design width, not the frame's: identical at 16:9, and at another
+  // aspect (src/lib/aspect.ts) the pointer keeps its 16:9 size rather than
+  // shrinking with a 1440-wide frame.
+  const k = useDesignScale();
 
   const track = log.cursorTrack;
   if (!track || track.length === 0) return null;

@@ -544,3 +544,69 @@ describe("segmentJoins / pacing (--check)", () => {
     assert.equal(p.clipShare, 0.5);
   });
 });
+
+describe("aspect + opening pose (R6, R10)", () => {
+  it("accepts the three aspects and refuses anything else", () => {
+    for (const aspect of ["16:9", "1:1", "9:16"] as const)
+      assert.equal(reelProblem({ ...REEL, aspect }), null);
+    assert.match(
+      reelProblem({ ...REEL, aspect: "4:5" as never }) ?? "",
+      /aspect must be one of 16:9, 1:1, 9:16/,
+    );
+  });
+
+  it("resolves `open.at` from a beat to its control's centre", () => {
+    const log = {
+      ...LOG,
+      clicks: [
+        ...LOG.clicks,
+        { label: "Create", tMs: 15000, x: 1850, y: 1040, rect: { x: 1804, y: 1014, w: 124, h: 72 } },
+      ],
+    } as ClickLog;
+    const r = resolveReel(
+      {
+        name: "x",
+        segments: [{ clip: { fromS: 1, toS: 2, open: { scale: 1.74, at: "Create" } } }],
+      },
+      log,
+      1,
+    );
+    assert.ok("reel" in r);
+    const seg = r.reel.segments[0];
+    assert.ok(isClip(seg));
+    assert.equal(seg.clip.open?.scale, 1.74);
+    assert.ok(Math.abs(seg.clip.open!.at.x - 1866 / 1920) < 1e-9);
+    assert.ok(Math.abs(seg.clip.open!.at.y - 1050 / 1080) < 1e-9);
+    // And the resolved reel passes the shape check.
+    assert.equal(reelProblem(r.reel), null);
+  });
+
+  it("names the beat an opening cannot find, and a bad scale", () => {
+    const miss = resolveReel(
+      { name: "x", segments: [{ clip: { fromS: 1, toS: 2, open: { scale: 1.5, at: "Nope" } } }] },
+      LOG,
+      1,
+    );
+    assert.ok("problem" in miss);
+    assert.match(miss.problem, /open\.at: no beat is labelled "Nope"/);
+    const bad = resolveReel(
+      { name: "x", segments: [{ clip: { fromS: 1, toS: 2, open: { scale: 0.5 } } }] },
+      LOG,
+      1,
+    );
+    assert.ok("problem" in bad);
+    assert.match(bad.problem, /open\.scale/);
+  });
+
+  it("centres an opening with no `at`", () => {
+    const r = resolveReel(
+      { name: "x", segments: [{ clip: { fromS: 1, toS: 2, open: { scale: 1.3 } } }] },
+      LOG,
+      1,
+    );
+    assert.ok("reel" in r);
+    const seg = r.reel.segments[0];
+    assert.ok(isClip(seg));
+    assert.deepEqual(seg.clip.open?.at, { x: 0.5, y: 0.5 });
+  });
+});

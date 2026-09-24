@@ -4,19 +4,30 @@
  *   pnpm reel <name>                 reels/<name>.ts -> out/reel/<name>.mp4
  *   pnpm reel <name> --style=stage   the same cut in another grammar
  *                                    -> out/reel/<name>.stage.mp4
+ *   pnpm reel <name> --aspect=9:16   the same cut, vertical: a moving crop of
+ *                                    the footage that follows the clicks
+ *                                    -> out/reel/<name>.9x16.mp4 (also 1:1)
  *   pnpm reel <name> --check         resolve beats, print every segment's range,
- *                                    length, the cut rate against the style's
- *                                    targets and the SFX hits; render nothing
+ *                                    length, first-frame scale, the cut rate
+ *                                    against the style's targets and the SFX
+ *                                    hits; render nothing
  *
  * The work is in scripts/lib/reel-cut.ts; this file only reads the command
  * line and loads the storyboard.
  *
- * Usage: pnpm reel <name> [--style=<style>] [--check]   (default: agent-skill)
+ * Usage: pnpm reel <name> [--style=<style>] [--aspect=<16:9|1:1|9:16>] [--check]
+ *        (default: agent-skill)
+ *
+ * Output name: out/reel/<name>[.<style>][.<aspect>].mp4 — the style part only
+ * for a --style override, the aspect part for anything but 16:9, whether it
+ * came from --aspect or the reel's own `aspect`. Each output has its own
+ * segment cache under .diag/reel/, so cutting one aspect never evicts another.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Reel } from "../src/lib/reel";
+import { ASPECTS, aspectSlug, isAspect, isNativeAspect } from "../src/lib/aspect";
 import { isStyle, STYLES } from "../src/lib/style";
 import { cutReel } from "./lib/reel-cut";
 
@@ -34,8 +45,15 @@ async function main() {
   const rawStyle = args.find((a) => a.startsWith("--style="))?.split("=")[1];
   if (rawStyle != null && !isStyle(rawStyle))
     throw new Error(`Unknown --style=${rawStyle}. Known: ${STYLES.join(", ")}`);
+  const rawAspect = args.find((a) => a.startsWith("--aspect="))?.split("=")[1];
+  if (rawAspect != null && !isAspect(rawAspect))
+    throw new Error(`Unknown --aspect=${rawAspect}. Known: ${ASPECTS.join(", ")}`);
   const unknown = args.filter(
-    (a) => a.startsWith("--") && a !== "--check" && !a.startsWith("--style="),
+    (a) =>
+      a.startsWith("--") &&
+      a !== "--check" &&
+      !a.startsWith("--style=") &&
+      !a.startsWith("--aspect="),
   );
   if (unknown.length) throw new Error(`Unknown flag(s): ${unknown.join(" ")}`);
 
@@ -45,11 +63,21 @@ async function main() {
   if (reel.name !== name)
     throw new Error(`reels/${name}.ts has name "${reel.name}" — it must match the file name.`);
 
+  // A style override writes beside the reel's own cut, never over it; so does
+  // every aspect but 16:9, whichever way it was asked for.
+  const aspect = rawAspect ?? (isAspect(reel.aspect) ? reel.aspect : undefined);
+  const outBase = [
+    name,
+    rawStyle,
+    aspect && !isNativeAspect(aspect) ? aspectSlug(aspect) : undefined,
+  ]
+    .filter(Boolean)
+    .join(".");
   cutReel(reel, {
     source: `reels/${name}.ts`,
-    // A style override writes beside the reel's own cut, never over it.
-    outBase: rawStyle ? `${name}.${rawStyle}` : name,
+    outBase,
     style: rawStyle,
+    aspect: rawAspect,
     check: args.includes("--check"),
   });
 }

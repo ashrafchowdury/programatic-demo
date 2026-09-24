@@ -1,7 +1,7 @@
 /**
  * Cuts a reel: title cards interleaved with ranges of an already-rendered demo.
  *
- *   reels/<name>.ts  ->  out/reel/<name>.mp4     (or <name>.<style>.mp4)
+ *   reels/<name>.ts  ->  out/reel/<name>[.<style>][.<aspect>].mp4
  *
  * Four stages, each its own function below:
  *
@@ -29,10 +29,19 @@ import {
   resolvePlaybackRate,
   type ClickLog,
 } from "../../src/lib/click-log";
-import { cropUpscale, SHARPNESS_CEILING } from "../../src/lib/crop";
-import { demoDurationInFrames, demoGeometry } from "../../src/lib/demo-duration";
+import {
+  aspectMagnification,
+  aspectSize,
+  aspectUpscale,
+  isNativeAspect,
+  type Aspect,
+} from "../../src/lib/aspect";
+import { cropUpscale, resolveCrop, SHARPNESS_CEILING } from "../../src/lib/crop";
+import { demoDurationInFrames, demoGeometry, demoSize } from "../../src/lib/demo-duration";
 import { compositionSize } from "../../src/lib/intro";
 import type { PushSpec } from "../../src/lib/push";
+import { WINDOW_FIT } from "../../src/lib/window";
+import { zoomAt } from "../../src/lib/zoom";
 import {
   clipFrames,
   coldOpenIndex,
@@ -96,6 +105,11 @@ export type CutOptions = {
   style?: ReelStyle;
   /** Resolve and report, render nothing. */
   check?: boolean;
+  /**
+   * Cut at this aspect instead of the reel's own (`aspect`, else 16:9). The
+   * caller names the output; see scripts/reel.ts.
+   */
+  aspect?: Aspect;
 };
 
 type Prepared = {
@@ -110,6 +124,8 @@ type Prepared = {
   joins: number[];
   /** Fields each clip sets that its framing ignores, by segment index. */
   ignored: Map<number, string[]>;
+  /** A non-native aspect to crop to, or undefined for the footage's own. */
+  aspect: Aspect | undefined;
 };
 
 const s2 = (x: number): string => x.toFixed(2);
@@ -119,7 +135,8 @@ function prepare(authored: Reel, opts: CutOptions): Prepared {
   const src = opts.source;
   // A style override also drops the legacy `look`: naming a grammar is an
   // instruction, and `classic` + `fullbleed` would otherwise be rejected.
-  const base: Reel = opts.style ? { ...authored, style: opts.style, look: undefined } : authored;
+  const styled: Reel = opts.style ? { ...authored, style: opts.style, look: undefined } : authored;
+  const base: Reel = opts.aspect ? { ...styled, aspect: opts.aspect } : styled;
   const demo = reelDemo(base);
 
   const logPath = path.join(ROOT, "public", `${demo}.clicks.json`);
@@ -212,7 +229,51 @@ function prepare(authored: Reel, opts: CutOptions): Prepared {
   const chipBad = chipsProblem(reel, dissolvedFrameCount(counts, joins) / FPS);
   if (chipBad && preset.annotation) throw new Error(`${src}: ${chipBad}`);
 
-  return { reel, demo, preset, style, log, speed, counts, joins, ignored };
+  const aspect = isNativeAspect(reel.aspect) ? undefined : reel.aspect;
+  return { reel, demo, preset, style, log, speed, counts, joins, ignored, aspect };
+}
+
+/**
+ * What a clip's FIRST FRAME is framed at, in the units its framing uses — the
+ * zoom camera's pose scale on a windowed style, the crop's k on a full-bleed
+ * one — with and without its authored `open`. `--check` prints both, so a clip
+ * that the spec says opens tight and the footage opens wide is visible in
+ * seconds, not in a render (audit R10).
+ */
+function openingScale(p: Prepared, i: number): { natural: number; opens: number } {
+  const seg = p.reel.segments[i];
+  if (!isClip(seg)) throw new Error("not a clip");
+  const { first } = clipFrames(seg.clip, FPS);
+  const shot = p.preset.shot;
+  let natural: number;
+  if (shot.framing === "window") {
+    const fit = shot.windowFit ?? WINDOW_FIT;
+    natural = shot.zoom
+      ? zoomAt(first, FPS, p.log, { speed: p.speed, fit, drift: seg.clip.drift }).scale / fit
+      : 1;
+  } else {
+    natural = p.ignored.get(i)?.includes("crop") ? 1 : (resolveCrop(seg.clip.crop)?.k ?? 1);
+  }
+  const open = seg.clip.open;
+  return { natural, opens: open ? Math.max(open.scale, natural) : natural };
+}
+
+/** Source px per output px for clip `i` at rest — the number SHARPNESS_CEILING caps. */
+function clipUpscale(p: Prepared, i: number): number {
+  const seg = p.reel.segments[i];
+  if (!isClip(seg)) return 1;
+  const windowed = p.preset.shot.framing === "window";
+  const k = windowed || p.ignored.get(i)?.includes("crop") ? undefined : seg.clip.crop;
+  if (!p.aspect) return cropUpscale(k, p.log.viewport.width, OUTPUT_WIDTH);
+  const base = demoSize(p.log);
+  const fit = windowed ? (p.preset.shot.windowFit ?? WINDOW_FIT) : 1;
+  return aspectUpscale(
+    p.log.viewport.width,
+    base,
+    aspectSize(base, p.aspect),
+    resolveCrop(k)?.k ?? 1,
+    fit,
+  );
 }
 
 /** `--check`: every number the cut will have, without cutting it. */
@@ -222,8 +283,17 @@ function report(p: Prepared, authored: Reel, opts: CutOptions): void {
   const cold = coldOpenIndex(reel.segments);
   console.log(
     `\nreel       -> ${opts.outBase} · demo ${p.demo} · style ${p.style} · ` +
-      `speed ${speed}× · ${FPS} fps`,
+      `${p.aspect ?? "16:9"} · speed ${speed}× · ${FPS} fps`,
   );
+  if (p.aspect) {
+    const base = demoSize(log);
+    const size = aspectSize(base, p.aspect);
+    console.log(
+      `aspect     -> ${size.width}x${size.height}, a moving crop of the ` +
+        `${log.viewport.width}x${log.viewport.height} footage at ` +
+        `${aspectMagnification(base, size).toFixed(2)}x the 16:9 picture`,
+    );
+  }
   console.log(`  #  kind   reel s          len    demo s        what`);
   reel.segments.forEach((seg, i) => {
     const at = `${s2(bounds.startS[i])}-${s2(bounds.startS[i] + bounds.durS[i])}`;
@@ -247,7 +317,15 @@ function report(p: Prepared, authored: Reel, opts: CutOptions): void {
               .filter(Boolean)
               .join(", ")}]`
           : "";
+      const o = openingScale(p, i);
+      const up = clipUpscale(p, i);
       const tags = [
+        // The first frame's framing, stated when the spec asks for one and
+        // always when it is tighter than rest.
+        seg.clip.open
+          ? `opens ${o.opens.toFixed(2)}x${Math.abs(o.natural - o.opens) > 0.05 ? ` (footage alone ${o.natural.toFixed(2)}x)` : ""}`
+          : `opens ${o.natural.toFixed(2)}x`,
+        up > SHARPNESS_CEILING ? `${up.toFixed(2)}x src->out, OVER ${SHARPNESS_CEILING}` : "",
         i === cold ? "cold open" : "",
         seg.clip.freeze ? "freeze" : "",
         p.ignored.has(i) ? `ignores ${p.ignored.get(i)!.join("/")}` : "",
@@ -259,6 +337,20 @@ function report(p: Prepared, authored: Reel, opts: CutOptions): void {
       `  ${String(i + 1).padStart(2)} ${isCard(seg) ? "card" : "clip"}  ` +
         `${(join + at).padEnd(15)} ${len.padStart(6)}  ${demoRange.padEnd(12)}  ${what}`,
     );
+  });
+
+  // A card that punches into a control, cut to a clip that opens wide, is a
+  // match cut that does not match. Say so; `open` is the fix.
+  reel.segments.forEach((seg, i) => {
+    const prev = reel.segments[i - 1];
+    if (!isClip(seg) || !prev || !isCard(prev) || !prev.card.chip) return;
+    const o = openingScale(p, i);
+    if (o.opens < 1.3)
+      console.warn(
+        `  ⚠️  segment ${i} punches into "${prev.card.chip.label}", but clip ${i + 1} ` +
+          `opens at ${o.opens.toFixed(2)}x. State \`open: { scale, at: "<beat>" }\` ` +
+          `on the clip so the cut matches.`,
+      );
   });
 
   const pace = pacing(reel.segments, counts, joins, FPS);
@@ -311,7 +403,7 @@ function clipProps(p: Prepared, i: number): Record<string, unknown> {
   const skip = new Set(p.ignored.get(i) ?? []);
   const has = <K extends keyof typeof seg.clip>(k: K) =>
     seg.clip[k] !== undefined && !skip.has(k);
-  const { drift, crop, push, pageBg, cursor, ripple, freeze } = seg.clip;
+  const { drift, crop, push, pageBg, cursor, ripple, freeze, open } = seg.clip;
   // A grammar whose motion lives on the SHOTS supplies the clip's default
   // arrival. Without this, switching a reel to such a style removes the card
   // motion and adds nothing — measured on the harness reel, 24% moving under
@@ -334,11 +426,17 @@ function clipProps(p: Prepared, i: number): Record<string, unknown> {
     // said it should not.
     ...(has("cursor") ? { cursor } : {}),
     ...(has("ripple") ? { ripple } : {}),
+    // Absent at 16:9, so a native clip's props — and its cache key — are what
+    // they were before aspects existed.
+    ...(p.aspect ? { aspect: p.aspect } : {}),
+    ...(open ? { open } : {}),
   };
   if (preset.shot.framing === "window") {
     // A framed clip that names no style renders with exactly the props
-    // scripts/render.ts uses; the range only matters to a push.
-    return { ...common, ...(shotPush ? { range: { first, last } } : {}) };
+    // scripts/render.ts uses; the range only matters to a push, an opening and
+    // a moving crop, which all measure from the shot's first frame.
+    const needsRange = shotPush || open || p.aspect;
+    return { ...common, ...(needsRange ? { range: { first, last } } : {}) };
   }
   return {
     ...common,
@@ -355,7 +453,7 @@ function clipProps(p: Prepared, i: number): Record<string, unknown> {
 function renderSegments(p: Prepared, workDir: string, keep: Set<string>): string[] {
   const { reel, preset, log } = p;
   const footage = reel.segments.some(isClip) ? footageDigest(p.demo) : null;
-  const size = compositionSize(log);
+  const size = aspectSize(compositionSize(log), p.aspect);
 
   return reel.segments.map((seg, i) => {
     const index = String(i + 1).padStart(2, "0");
@@ -365,7 +463,10 @@ function renderSegments(p: Prepared, workDir: string, keep: Set<string>): string
     const job = isCard(seg)
       ? {
           id: "Intro",
-          props: { intro: reelCard(reel, seg.card) },
+          props: {
+            intro: reelCard(reel, seg.card),
+            ...(p.aspect ? { aspect: p.aspect } : {}),
+          },
           frames: undefined,
           key: { size },
         }
@@ -385,12 +486,13 @@ function renderSegments(p: Prepared, workDir: string, keep: Set<string>): string
       return file;
     }
     console.log(`\n=== ${index} ${kind} ===`);
-    if (isClip(seg) && preset.shot.framing !== "window" && seg.clip.crop) {
+    if (isClip(seg) && (p.aspect || (preset.shot.framing !== "window" && seg.clip.crop))) {
       // Report the framing's cost in source pixels before spending minutes on
       // it. A `rect` framing derives its magnification from the component, so
-      // it can silently ask for more resolution than the shoot has. See
-      // SHARPNESS_CEILING in src/lib/crop.ts.
-      const up = cropUpscale(seg.clip.crop, log.viewport.width, OUTPUT_WIDTH);
+      // it can silently ask for more resolution than the shoot has, and so
+      // does a vertical crop of a 1x capture. See SHARPNESS_CEILING in
+      // src/lib/crop.ts and the table in src/lib/aspect.ts.
+      const up = clipUpscale(p, i);
       const how = up > SHARPNESS_CEILING ? "OVER the ceiling" : "ok";
       console.log(
         `    framing  -> ${up.toFixed(2)}x source->output (${how}, ceiling ${SHARPNESS_CEILING})`,
@@ -446,9 +548,14 @@ export function cutReel(authored: Reel, opts: CutOptions): string | null {
   // be rendered before the finishing pass that produces the film.
   const expectedF = dissolvedFrameCount(counts, joins);
   const runtimeS = expectedF / FPS;
+  // The overlays take the film's size, and at another aspect the 16:9 size too,
+  // which their type is laid out against. Nothing at 16:9, so native layer
+  // cache keys are unchanged.
+  const native = compositionSize(log);
+  const frame = p.aspect ? { size: aspectSize(native, p.aspect), native } : undefined;
   const layers = [
-    hudLayer(reel, preset, counts, FPS, log, speed, joins, runtimeS, workDir, keep),
-    chipsLayer(reel, preset, runtimeS, workDir, keep),
+    hudLayer(reel, preset, counts, FPS, log, speed, joins, runtimeS, workDir, keep, frame),
+    chipsLayer(reel, preset, runtimeS, workDir, keep, frame),
   ].filter((l): l is NonNullable<typeof l> => l != null);
 
   const out = outPath("reel", `${opts.outBase}.mp4`);

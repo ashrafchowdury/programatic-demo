@@ -18,6 +18,7 @@ import {
   demoSize,
 } from "./lib/demo-duration";
 import { compositionSize, introDurationInFrames } from "./lib/intro";
+import { aspectSize } from "./lib/aspect";
 import {
   DEFAULT_PRESET,
   fallbackShotMeta,
@@ -76,7 +77,10 @@ export const RemotionRoot: React.FC = () => {
           // Render at OUTPUT_WIDTH, keeping the recording's aspect. Decoupled from
           // the capture viewport on purpose — the source cannot get sharper, but
           // the vector layers over it can. Rounded to even so h264 accepts it.
-          const { width, height } = demoSize(log);
+          // A reel cut at another aspect keeps the short side and crops (see
+          // src/lib/aspect.ts); the LENGTH below never depends on it, so a clip
+          // range means the same frames at every aspect.
+          const { width, height } = aspectSize(demoSize(log), props.aspect);
           const backdrop =
             props.backdrop ?? process.env.DEMO_BACKDROP ?? log.backdrop;
           return {
@@ -134,6 +138,9 @@ export const RemotionRoot: React.FC = () => {
           props: HudOverlayProps;
         }) => ({
           durationInFrames: Math.max(1, Math.round(props.totalS * FPS)),
+          // The film's size, from the caller: it was pinned at 2560x1440 here,
+          // which no longer holds once a reel can be square or vertical.
+          ...(props.size ?? {}),
         })}
       />
       {/*
@@ -174,6 +181,7 @@ export const RemotionRoot: React.FC = () => {
           props: ChipOverlayProps;
         }) => ({
           durationInFrames: Math.max(1, Math.round(props.totalS * FPS)),
+          ...(props.size ?? {}),
         })}
       />
       <Composition
@@ -198,7 +206,7 @@ export const RemotionRoot: React.FC = () => {
           }
           return {
             durationInFrames: introDurationInFrames(props.intro, FPS),
-            ...compositionSize(log),
+            ...aspectSize(compositionSize(log), props.aspect),
           };
         }}
       />

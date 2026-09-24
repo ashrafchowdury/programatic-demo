@@ -202,6 +202,49 @@ luminance contrast on a light ground. Ours measures nine levels against the
 reference's 227, which costs the mark's tumble most of its read. A mono/dark
 variant for light grounds is the fix.
 
+### Match cuts — state the opening pose
+
+A card that punches into a control (`chip`) wants the clip after it to open
+tight on the real control. Do not trust the footage to supply that: a clip's
+first frame is whatever its style's framing does at `fromS`, and a camera-less
+style opens wide. State it:
+
+```ts
+{ clip: { fromS: 18.05, toS: 20.8, open: { scale: 1.74, at: "Create" } } }
+```
+
+`scale` is in the framing's own units (zoom-camera pose scale windowed, crop
+`k` full-bleed); `at` is a beat label (its control's centre) or `{ x, y }` in
+footage fractions. The first frame is framed there and eases into the style's
+own framing over the camera's move time (`settleS` to override). An opening only
+pushes in. `--check` prints every clip's first-frame scale — `opens 1.74x
+(footage alone 1.00x)` — and warns when a chip card cuts to a clip opening
+under 1.3x.
+
+### Aspect — square and vertical
+
+`--aspect=9:16` (or `1:1`, or `aspect:` on the reel) cuts the same spec for a
+feed → `out/reel/<name>[.<style>].9x16.mp4`, with its own segment cache. The
+short side stays 1440 (1440x2560, 1440x1440). What changes:
+
+- **Footage is a moving crop.** The 16:9 picture (your `crop` included) is
+  scaled to cover the frame and slid so the control the pointer is heading for
+  sits in the middle, smoothed, with the pointer held inside it. Measured over
+  every log in `public/`: the pointer is in shot at every press and the crop is
+  still (≤6px/frame) when it lands; long cross-page hops pan fast (up to
+  ~160px/frame). Nothing to author.
+- **Windowed styles** keep the window at `windowFit` of the frame on both axes
+  — a tall panel at 9:16 with the crop inside. `classic`'s zoom camera lends
+  only magnification beyond what the aspect already gives (9:16 is 1.78x the
+  16:9 picture, so the camera follows rather than punches; at 1:1 it punches
+  as usual). No shutter blur on that path.
+- **Cards** keep their 16:9 pixel sizes and rewrap to the narrower column; a
+  chip sentence too wide for the frame stacks into three rows around the chip.
+  Overlay chips are pulled inside the frame.
+- **Sharpness.** 9:16 shows the source at 1.19x from a 3840 capture — fine —
+  and 2.37x from a 1920 one, past the ceiling. `--check` flags each clip
+  (`2.04x src->out, OVER 1.74`). Shoot `CAPTURE_SCALE=2` for vertical cuts.
+
 - **Keep the pointer unless the feature really is keyboard-driven.** The
   reference has no cursor because *its* feature is keyboard-first; a mouse-driven
   flow rendered with the pointer hidden reads as the UI reacting to nothing. Set
@@ -276,10 +319,12 @@ pnpm render <flow>            # → out/demo/<flow>.mp4
 pnpm reel <name>              # cut cards+clips → out/reel/<name>.mp4
 pnpm reel <name> --check      # resolve + report, render nothing (seconds)
 pnpm reel <name> --style=X    # same cut in another grammar → out/reel/<name>.X.mp4
+pnpm reel <name> --aspect=9:16  # vertical (or 1:1) → out/reel/<name>.9x16.mp4
 pnpm intro <name>             # one title card → out/reel/<name>.intro.mp4
 ```
 
 `--check` prints every segment's reel and demo range, its length and moves,
+each clip's first-frame scale (and source→output scale when over the ceiling),
 then runtime, mean shot and cut rate against the style's `targets`, clip/card
 share and every SFX hit. Run it before every render. Under `--style=`, clip
 fields the new framing ignores are warnings, not errors.
@@ -287,7 +332,8 @@ fields the new framing ignores are warnings, not errors.
 Reel-level: `style` ("classic" | "proof" | "ledger" | "stage"; default
 `proof`), `demo` (the demo the clips come from; default the reel's `name` — so
 one demo can be cut into several reels without copying footage), `audio`,
-`sfx`, `duck`, `loudnessLUFS`, `hud`, `chips`. `look` ("framed" | "fullbleed")
+`sfx`, `duck`, `loudnessLUFS`, `hud`, `chips`, `aspect` ("16:9" | "1:1" |
+"9:16"). Per clip, beyond the range: `open` (see Match cuts). `look` ("framed" | "fullbleed")
 is legacy — read only when `style` is absent.
 
 Clip ranges: plain seconds (`fromS`/`toS`, demo time) or BEAT ANCHORS into the

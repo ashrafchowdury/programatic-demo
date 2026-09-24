@@ -7,11 +7,12 @@ import {
   useCurrentFrame,
   useVideoConfig,
 } from "remotion";
-import { CameraMotionBlur } from "@remotion/motion-blur";
 import { Backdrop } from "./Backdrop";
 import { Cursor } from "./Cursor";
+import { ShutterBlur } from "./ShutterBlur";
 import { cameraEase, poseToCss } from "./lib/camera";
 import { DESIGN_WIDTH } from "./lib/click-log";
+import { cornerTravelPx, groupsFor, shutterFraction, type GroupPose } from "./lib/shutter";
 import {
   cardPointerLog,
   CHIP_AT,
@@ -40,14 +41,31 @@ import {
   type WordStyle,
 } from "./lib/intro";
 import { pushEnvelope, pushToCss } from "./lib/push";
+import { isNativeAspect, type Aspect } from "./lib/aspect";
+import { OUTPUT_WIDTH } from "./lib/click-log";
 import { RecapCard } from "./RecapCard";
+import { DesignWidthContext } from "./WindowFrame";
 
 export type IntroProps = {
   intro: IntroStoryboard;
+  /**
+   * Output aspect of the reel this card is cut into. Absent = 16:9. The
+   * composition takes its size from it (src/Root.tsx); the card lays out
+   * against the 16:9 width, so type is the same pixel size in every aspect and
+   * the lines rewrap to the narrower column. See src/lib/aspect.ts.
+   */
+  aspect?: Aspect;
 };
 
-/** Same convention as DemoClip: every px below is written at DESIGN_WIDTH. */
-const useDesignScale = (): number => useVideoConfig().width / DESIGN_WIDTH;
+/**
+ * Same convention as DemoClip: every px below is written at DESIGN_WIDTH — of
+ * the 16:9 frame, which DesignWidthContext names at any other aspect.
+ */
+const useDesignScale = (): number => {
+  const override = React.useContext(DesignWidthContext);
+  const { width } = useVideoConfig();
+  return (override ?? width) / DESIGN_WIDTH;
+};
 
 /** Left inset of the text column. */
 const MARGIN_X = 168;
@@ -319,7 +337,7 @@ const LogoLockup: React.FC<{
  * The control set into a chip card's sentence.
  *
  * HARD-EDGED ELEVATION ONLY — flat fill and a 1px rim, never a blurred shadow.
- * The punch runs inside CameraMotionBlur, and the rule at DemoClip.tsx:100-138
+ * The punch runs inside ShutterBlur, and the banding rule in WindowFrame.tsx
  * is absolute: N composited copies of a soft gradient each round to 8 bits and
  * stairstep it. A `box-shadow: 0 2px 8px` here would band on exactly the frames
  * the whole move exists for.
@@ -376,8 +394,23 @@ const ChipSentence: React.FC<{
   tS: number;
   words: { word: string; index: number; startS: number; endS: number }[];
 }> = ({ intro, chip, look, k, tS, words }) => {
+  // Hooks before the early return.
+  const reflowing = React.useContext(DesignWidthContext) != null;
+  const { width } = useVideoConfig();
   const parts = headlineParts(intro.headline);
   if (!parts) return null;
+  // At another aspect the row can be wider than the frame: `1fr auto 1fr`
+  // needs each side as wide as the WIDER one, and "Hit [Create]. It's live."
+  // at 117px measures ~1800px against a 1440 frame's 992px column. Then the
+  // sentence stacks (below). Estimated, not measured, for the reason the grid
+  // exists: see above. Native keeps its row whatever the copy.
+  const em = CHIP_HEADLINE_SIZE * k * 0.52;
+  const sideW = (toks: StyledToken[], extra = "") =>
+    (toks.map((t) => t.text).join(" ").length + extra.length) * em;
+  const rowW =
+    2 * Math.max(sideW(parts.before), sideW(parts.after, parts.tail ?? "")) +
+    (chip.label.length * 0.86 * em + 40 * k);
+  const stack = reflowing && rowW > width - 2 * MARGIN_X * k;
 
   const cueFor = (index: number) => {
     const cue = words[index];
@@ -417,6 +450,45 @@ const ChipSentence: React.FC<{
     color: look.headline,
     whiteSpace: "nowrap",
   };
+
+  if (stack) {
+    // The same sentence as three ROWS — "Hit" / [Create]. / "It's live." —
+    // on `1fr auto 1fr`, which centres the chip vertically by the argument
+    // that centres it horizontally in the row form. The punctuation straight
+    // after the control hangs off its right edge, out of flow, so it cannot
+    // pull the chip off CHIP_AT.
+    return (
+      <AbsoluteFill
+        style={{
+          display: "grid",
+          gridTemplateRows: "1fr auto 1fr",
+          justifyItems: "center",
+          padding: `0 ${MARGIN_X * k}px`,
+        }}
+      >
+        <div
+          style={{ ...type, whiteSpace: "normal", textAlign: "center", alignSelf: "end", paddingBottom: "0.2em" }}
+        >
+          {parts.before.map((tok, i) => unit(tok, i, `b${i}`, i))}
+        </div>
+        <div style={{ position: "relative", visibility: chipP > 0 ? "visible" : "hidden" }}>
+          <Chip label={chip.label} look={look} k={k} />
+          {parts.tail ? (
+            <span
+              style={{ ...type, position: "absolute", left: "100%", top: "50%", transform: "translateY(-50%)" }}
+            >
+              {parts.tail}
+            </span>
+          ) : null}
+        </div>
+        <div
+          style={{ ...type, whiteSpace: "normal", textAlign: "center", alignSelf: "start", paddingTop: "0.2em" }}
+        >
+          {parts.after.map((tok, i) => unit(tok, chipIndex + 1 + i, `a${i}`, i))}
+        </div>
+      </AbsoluteFill>
+    );
+  }
 
   return (
     <AbsoluteFill
@@ -464,20 +536,28 @@ const ChipSentence: React.FC<{
  * map frame -> time as (frame/fps)*speed with t=0 at the first demo frame, so
  * prepending frames inside that composition would desync both.
  *
- * CameraMotionBlur is mounted ONLY for a chip card. An 8x push in 0.42s strobes
+ * ShutterBlur is mounted ONLY for a chip card. An 8x push in 0.42s strobes
  * without a shutter, but the blur is the dominant cost of a render and every
  * other card has no fast move to blur — so plain cards keep their zero-blur
  * path and render in seconds.
  */
-export const Intro: React.FC<IntroProps> = ({ intro }) => {
+export const Intro: React.FC<IntroProps> = ({ intro, aspect }) => {
   // Registered here, at the one entrance both card kinds pass through, so no
   // card can render before the face it names is usable. Idempotent.
   loadFonts();
   // A recap card shares nothing with a sentence card but its palette — it is
   // left-aligned, top-anchored, and reveals whole labels rather than words — so
   // it gets its own component rather than a branch through this one.
-  if (intro.items?.length) return <RecapCard intro={intro} />;
-  return <SentenceCard intro={intro} />;
+  const card = intro.items?.length ? (
+    <RecapCard intro={intro} />
+  ) : (
+    <SentenceCard intro={intro} />
+  );
+  // Native renders exactly as before: no provider, the frame's own width.
+  if (isNativeAspect(aspect)) return card;
+  return (
+    <DesignWidthContext.Provider value={OUTPUT_WIDTH}>{card}</DesignWidthContext.Provider>
+  );
 };
 
 const SentenceCard: React.FC<IntroProps> = ({ intro }) => {
@@ -652,19 +732,16 @@ const SentenceCard: React.FC<IntroProps> = ({ intro }) => {
         </AbsoluteFill>
       )}
       {intro.chip && t.chip ? (
-        <CameraMotionBlur shutterAngle={180} samples={4}>
-          <ChipPunch
-            intro={intro}
-            style={style}
-            chip={intro.chip}
-            timing={t.chip}
-            look={look}
-            k={k}
-            tS={tS}
-            words={t.words}
-            vp={{ width, height }}
-          />
-        </CameraMotionBlur>
+        <ShutteredChipPunch
+          intro={intro}
+          style={style}
+          chip={intro.chip}
+          timing={t.chip}
+          look={look}
+          k={k}
+          words={t.words}
+          vp={{ width, height }}
+        />
       ) : (
         body
       )}
@@ -682,23 +759,77 @@ const SentenceCard: React.FC<IntroProps> = ({ intro }) => {
  * clamp releases continuously, so an off-centre chip pans smoothly onto the
  * frame centre instead of snapping there.
  */
-const ChipPunch: React.FC<{
+type ChipPunchProps = {
   intro: IntroStoryboard;
   style: CardRender;
   chip: IntroChip;
   timing: ChipTiming;
   look: IntroLook;
   k: number;
-  tS: number;
   words: { word: string; index: number; startS: number; endS: number }[];
   vp: { width: number; height: number };
-}> = ({ intro, style, chip, timing, look, k, tS, words, vp }) => {
+};
+
+/** The punch camera at card time `tS`, as poseToCss's scale + translate. */
+function chipCss(style: CardRender, timing: ChipTiming, tS: number) {
   const u = progressAt(
     { startS: timing.punchStartS, endS: timing.punchEndS },
     tS,
   );
   const scale = 1 + (style.punchScale - 1) * punchEase(u);
-  const css = poseToCss({ scale, cx: CHIP_AT.x, cy: CHIP_AT.y }, 0, 1);
+  return poseToCss({ scale, cx: CHIP_AT.x, cy: CHIP_AT.y }, 0, 1);
+}
+
+/**
+ * The punch under a centred shutter — the same one the demo's window uses, so
+ * a sample lands symmetrically about the frame instead of CameraMotionBlur's
+ * +0.50…+0.94 (src/lib/shutter.ts).
+ *
+ * The sample count is decided out here, from how far the layer's fastest corner
+ * travels while the shutter is open. The layer is `scale(s) translate(t)`, so a
+ * corner sits at size·(½ + s·t ± s/2) — cornerTravelPx's form with the
+ * translate pre-multiplied by the scale.
+ */
+const ShutteredChipPunch: React.FC<ChipPunchProps> = (props) => {
+  const frame = useCurrentFrame();
+  const { fps, width, height } = useVideoConfig();
+  const at = (f: number): GroupPose => {
+    const css = chipCss(props.style, props.timing, Math.max(0, f) / fps);
+    return {
+      scale: css.scale,
+      translateX: css.scale * css.translateX,
+      translateY: css.scale * css.translateY,
+    };
+  };
+  const half = shutterFraction() / 2;
+  const travel = cornerTravelPx(at(frame - half), at(frame + half), width, height);
+  return (
+    <ShutterBlur groups={groupsFor(travel)}>
+      <ChipPunch {...props} />
+    </ShutterBlur>
+  );
+};
+
+/**
+ * Reads its own clock rather than taking `tS` as a prop: ShutterBlur moves the
+ * frame each sample sees with <Freeze>, and a time computed by the parent would
+ * be the same for every sample. That is how the CameraMotionBlur this replaced
+ * drew four identical copies — the punch was never blurred at all.
+ */
+const ChipPunch: React.FC<ChipPunchProps> = ({
+  intro,
+  style,
+  chip,
+  timing,
+  look,
+  k,
+  words,
+  vp,
+}) => {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const tS = frame / fps;
+  const css = chipCss(style, timing, tS);
   return (
     // This card is rendered outside the wrapper that sets the face, so it has
     // to name it itself.
@@ -719,7 +850,7 @@ const ChipPunch: React.FC<{
         <Cursor
           log={cardPointerLog(chip, timing, vp)}
           timeS={tS}
-          cameraScale={scale}
+          cameraScale={css.scale}
         />
       </AbsoluteFill>
     </AbsoluteFill>

@@ -47,6 +47,12 @@ function cachedLayer(
 
 export type OverlayLayer = { file: string; label: string };
 
+/** The film's size and its 16:9 size, when they differ (a non-native aspect). */
+export type OverlayFrame = {
+  size: { width: number; height: number };
+  native: { width: number; height: number };
+};
+
 /**
  * The step HUD layer, or null when the style draws none or the log yields no
  * steps — a film with nothing to narrate composites nothing.
@@ -62,6 +68,7 @@ export function hudLayer(
   runtimeS: number,
   workDir: string,
   keep: Set<string>,
+  frame?: OverlayFrame,
 ): OverlayLayer | null {
   if (preset.hud.kind !== "steps") return null;
   const steps = hudSteps(
@@ -78,7 +85,12 @@ export function hudLayer(
     console.log("hud        -> no labelled beats in any clip; skipped");
     return null;
   }
-  const props = { steps, ink: preset.palette.plain.ink, totalS: runtimeS };
+  const props = {
+    steps,
+    ink: preset.palette.plain.ink,
+    totalS: runtimeS,
+    ...(frame ? { size: frame.size, designWidth: frame.native.width } : {}),
+  };
   const { file, cached } = cachedLayer("hud", "HudOverlay", props, workDir, keep);
   console.log(`hud        -> ${steps.length} step(s)${cached ? " (cached)" : ""}`);
   return { file, label: "hud" };
@@ -105,6 +117,7 @@ export function chipsLayer(
   runtimeS: number,
   workDir: string,
   keep: Set<string>,
+  frame?: OverlayFrame,
 ): OverlayLayer | null {
   const chips = reel.chips ?? [];
   const style = preset.annotation;
@@ -113,7 +126,12 @@ export function chipsLayer(
   // of the film renders nothing at all, which is a silent way to lose one.
   const problem = chipsProblem(reel, runtimeS);
   if (problem) throw new Error(problem);
-  const props = { chips, style, totalS: runtimeS };
+  const props = {
+    chips,
+    style,
+    totalS: runtimeS,
+    ...(frame ? { size: frame.size, designHeight: frame.native.height } : {}),
+  };
   const { file, cached } = cachedLayer("chips", "ChipOverlay", props, workDir, keep);
   console.log(`chips      -> ${chips.length}${cached ? " (cached)" : ""}`);
   return { file, label: "chips" };

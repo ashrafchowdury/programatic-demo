@@ -33,6 +33,8 @@ import {
 } from "./style";
 import type { PushSpec } from "./push";
 import type { CropSpec } from "./crop";
+import { isAspect, ASPECTS, type Aspect } from "./aspect";
+import { beatPoint, openProblem, type ClipOpen, type ResolvedOpen } from "./open";
 
 /** Re-exported so `look` can be authored and validated from one import. */
 export { DEMO_LOOK, LOOKS, type ReelLook };
@@ -135,10 +137,18 @@ export type ClipFields = {
    * it, and that is checked.
    */
   freeze?: boolean;
+  /**
+   * The first frame's framing: `{ scale, at }`, eased into the style's own.
+   * State it wherever a cut is meant to MATCH — a card that punches into a
+   * control, cut to the clip that presses it. See src/lib/open.ts.
+   */
+  open?: ClipOpen;
 };
 
 /** A clip whose range is resolved to seconds — what everything downstream reads. */
-export type ReelClip = { clip: ClipRange & ClipFields };
+export type ReelClip = {
+  clip: ClipRange & Omit<ClipFields, "open"> & { open?: ResolvedOpen };
+};
 /** A clip as authored in reels/<name>.ts. See ClipAnchors. */
 export type ReelClipInput = { clip: ClipAnchors & ClipFields };
 
@@ -318,6 +328,12 @@ export type Reel = {
    * src/lib/style.ts, and docs/reel/design/choreography-styles.md.
    */
   style?: ReelStyle;
+  /**
+   * Output aspect: "16:9" (absent), "1:1" or "9:16". Every other aspect is a
+   * moving crop of the 16:9 footage that follows the clicks; cards reflow. The
+   * CLI's `--aspect=` overrides it. See src/lib/aspect.ts.
+   */
+  aspect?: Aspect;
 };
 
 /** A reel after resolveReel: every clip range is plain seconds. */
@@ -407,6 +423,8 @@ export function reelProblem(
   if (badStyle) return badStyle;
   if (reel.demo !== undefined && (typeof reel.demo !== "string" || reel.demo === ""))
     return "`demo` must be a non-empty string (the demo's name)";
+  if (reel.aspect !== undefined && !isAspect(reel.aspect))
+    return `aspect must be one of ${ASPECTS.join(", ")}`;
 
   const style = resolveStyle({ style: reel.style, look: reel.look });
   const shot = STYLE_PRESETS[style].shot;
@@ -430,6 +448,12 @@ export function reelProblem(
       !(typeof drift === "number" && drift >= 0 && drift <= 1)
     )
       return `${at} (clip) drift must be a number between 0 and 1`;
+    if (segment.clip.open !== undefined) {
+      const bad = openProblem(segment.clip.open);
+      if (bad) return `${at} (clip) ${bad}`;
+      if (typeof segment.clip.open.at === "string")
+        return `${at} (clip) \`open.at\` "${segment.clip.open.at}" was not resolved to a point — run resolveReel first`;
+    }
     if (opts.framing !== false) {
       const ignored = ignoredClipFields(segment.clip, shot);
       if (ignored.length) return `${at} (clip) ${framingMessage(ignored, style, shot)}`;
@@ -683,6 +707,16 @@ export function findBeat(
   log: ClickLog,
   speed: number,
 ): { s: number } | { problem: string } {
+  const hit = findBeatEvent(anchor, log, speed);
+  return "problem" in hit ? hit : { s: beatDemoS(hit.beat, log, speed) };
+}
+
+/** findBeat, returning the click-log beat itself rather than its second. */
+export function findBeatEvent(
+  anchor: string,
+  log: ClickLog,
+  speed: number,
+): { beat: ClickLog["clicks"][number] } | { problem: string } {
   const m = /^(.*?)#(\d+)$/.exec(anchor);
   const want = (m ? m[1] : anchor).trim().toLowerCase();
   const nth = m ? Number(m[2]) : null;
@@ -704,7 +738,7 @@ export function findBeat(
       return {
         problem: `"${anchor}" asks for occurrence ${nth}, but the label occurs ${hits.length} time(s): ${hits.map(at).join(", ")}`,
       };
-    return { s: beatDemoS(hits[nth - 1], log, speed) };
+    return { beat: hits[nth - 1] };
   }
   if (hits.length > 1)
     return {
@@ -713,7 +747,7 @@ export function findBeat(
         hits.map((b, i) => `#${i + 1} at ${s2(beatDemoS(b, log, speed))}s`).join(", ") +
         `. Name one, e.g. "${anchor}#2".`,
     };
-  return { s: beatDemoS(hits[0], log, speed) };
+  return { beat: hits[0] };
 }
 
 /** One authored range -> seconds, or a sentence. */
@@ -785,9 +819,34 @@ export function resolveReel(
     if ("problem" in r) return { problem: `segment ${i + 1} (clip) ${r.problem}` };
     // The anchors are spent: downstream reads seconds only, and the cache key
     // hashes the resolved range, so a re-shoot that moves a beat re-renders.
-    const fields: ClipFields & ClipAnchors = { ...seg.clip };
+    const { open, ...fields }: ClipFields & ClipAnchors = { ...seg.clip };
     for (const k of ["fromBeat", "leadS", "toBeat", "tailS"] as const) delete fields[k];
-    segments.push({ ...seg, clip: { ...fields, fromS: r.fromS, toS: r.toS } });
+    // An opening's beat resolves to its control's centre here, with the range,
+    // so DemoClip and the cache key see a point and a re-shoot that moves the
+    // control re-renders the clip.
+    let resolvedOpen: ResolvedOpen | undefined;
+    if (open !== undefined) {
+      const bad = openProblem(open);
+      if (bad) return { problem: `segment ${i + 1} (clip) ${bad}` };
+      let at = { x: 0.5, y: 0.5 };
+      if (typeof open.at === "string") {
+        const hit = findBeatEvent(open.at, log, speed);
+        if ("problem" in hit) return { problem: `segment ${i + 1} (clip) open.at: ${hit.problem}` };
+        at = beatPoint(hit.beat, log.viewport);
+      } else if (open.at) {
+        at = open.at;
+      }
+      resolvedOpen = { ...open, at };
+    }
+    segments.push({
+      ...seg,
+      clip: {
+        ...fields,
+        ...(resolvedOpen ? { open: resolvedOpen } : {}),
+        fromS: r.fromS,
+        toS: r.toS,
+      },
+    });
   }
   return { reel: { ...reel, segments } };
 }

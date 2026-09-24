@@ -8,15 +8,26 @@ import {
 } from "remotion";
 import { Video } from "@remotion/media";
 import { zoomAt, type ClickLog } from "./lib/zoom";
-import { BASE_POSE, poseToCss } from "./lib/camera";
-import { footageFrames } from "./lib/demo-duration";
+import {
+  BASE_POSE,
+  groupToContentY,
+  poseToCss,
+  type CameraPose,
+} from "./lib/camera";
+import { demoSize, footageFrames } from "./lib/demo-duration";
 import { CHROME_H, WINDOW_FIT } from "./lib/window";
 import { resolveGround } from "./lib/backdrop";
 import { Backdrop } from "./Backdrop";
 import { Cursor } from "./Cursor";
 import { ShutterBlur } from "./ShutterBlur";
 import { cornerTravelPx, groupsFor, shutterFraction } from "./lib/shutter";
-import { RimLight, Stage, useDesignScale, WindowFrame } from "./WindowFrame";
+import {
+  DesignWidthContext,
+  RimLight,
+  Stage,
+  useDesignScale,
+  WindowFrame,
+} from "./WindowFrame";
 import { pushEnvelope, pushToCss, type PushSpec } from "./lib/push";
 import {
   cropClipPath,
@@ -32,6 +43,22 @@ import {
 } from "./KeycapHUD";
 import type { ReelLook } from "./lib/look";
 import { resolveStylePreset, type ReelStyle } from "./lib/style";
+import {
+  aspectMagnification,
+  cachedFollow,
+  clampView,
+  coverScale,
+  cropPoint,
+  followAt,
+  footageBounds,
+  isNativeAspect,
+  plateTransform,
+  visibleHalf,
+  type Aspect,
+  type Size,
+  type View,
+} from "./lib/aspect";
+import { openAt, openFrames, openPose, type ResolvedOpen } from "./lib/open";
 
 const round = (n: number) => Math.round(n);
 
@@ -124,7 +151,36 @@ export type DemoClipProps = {
    * frozen frame reads as a dropped render, not as a hold.
    */
   freeze?: boolean;
+  /**
+   * Output aspect. Absent or "16:9" renders the footage's own shape, exactly as
+   * before; "1:1" and "9:16" render a moving crop of it that follows the
+   * clicks. The composition's SIZE comes from this too (src/Root.tsx). See
+   * src/lib/aspect.ts.
+   */
+  aspect?: Aspect;
+  /**
+   * The first frame's framing, eased into the style's own over the camera's
+   * move time. Needs `range` to know where the shot starts. See src/lib/open.ts.
+   */
+  open?: ResolvedOpen;
 };
+
+/** The opening, with the frame its shot starts on, or undefined. */
+const openOf = (
+  props: DemoClipProps,
+): { pose: ResolvedOpen; first: number } | undefined =>
+  props.open ? { pose: props.open, first: props.range?.first ?? 0 } : undefined;
+
+/** A CSS camera state back to the content-space pose poseToCss made it from. */
+const cssToPose = (
+  z: { scale: number; translateX: number; translateY: number },
+  chromeFrac: number,
+  fit: number,
+): CameraPose => ({
+  scale: z.scale / fit,
+  cx: 0.5 - z.translateX / z.scale,
+  cy: groupToContentY(0.5 - z.translateY / z.scale, chromeFrac),
+});
 
 /**
  * The camera, as a function of frame, for the window group. Shared by the
@@ -145,6 +201,12 @@ function useCameraAt(
   drift: number | undefined,
   /** The style's shot group, for its float size and whether the camera runs. */
   shot: { windowFit: number | null; zoom: boolean },
+  /**
+   * The clip's opening pose and the frame its shot starts on. Read HERE for the
+   * same reason `drift` is: the shadow, the window and the shutter must all
+   * see one camera, or the shadow separates from the window on the opening.
+   */
+  open: { pose: ResolvedOpen; first: number } | undefined,
 ) {
   const { fps, height } = useVideoConfig();
   const chromeH = CHROME_H * useDesignScale();
@@ -156,7 +218,7 @@ function useCameraAt(
   // The style's float size, falling back to the constant every framed reel
   // rendered against before `windowFit` was wired through.
   const fit = shot.windowFit ?? WINDOW_FIT;
-  const poseAt = (frame: number) =>
+  const styleAt = (frame: number) =>
     shot.zoom
       ? zoomAt(frame, fps, log, { chromeFrac, speed, fit, drift })
       : // A CONSTANT POSE. Not `zoomAt` with the drift zeroed — that still
@@ -164,6 +226,26 @@ function useCameraAt(
         // at `fit` for the whole shot, so the only thing that moves it is its
         // own envelope.
         poseToCss(BASE_POSE, chromeFrac, fit);
+  if (!open) return { poseAt: styleAt, chromeH };
+  // The opening, eased into the style's own camera. Clamped at the window's
+  // EFFECTIVE scale, the rule frameFor holds the track's keyframes to, so an
+  // opening on a control in a corner lands where the camera would put it.
+  const running0 = cssToPose(styleAt(open.first), chromeFrac, fit);
+  const start = openPose(open.pose, running0, (s) => fit * s);
+  const frames = openFrames(open.pose, start, running0, log.viewport, speed, fps);
+  const poseAt = (frame: number) =>
+    frame - open.first >= frames
+      ? styleAt(frame)
+      : poseToCss(
+          openAt(
+            start,
+            cssToPose(styleAt(frame), chromeFrac, fit),
+            frame - open.first,
+            frames,
+          ),
+          chromeFrac,
+          fit,
+        );
   return { poseAt, chromeH };
 }
 
@@ -182,10 +264,11 @@ function useCameraGroup(
   speed: number,
   drift: number | undefined,
   shot: { windowFit: number | null; zoom: boolean },
+  open: { pose: ResolvedOpen; first: number } | undefined,
 ) {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const { poseAt, chromeH } = useCameraAt(chrome, log, speed, drift, shot);
+  const { poseAt, chromeH } = useCameraAt(chrome, log, speed, drift, shot, open);
   const z = poseAt(frame);
 
   const style: React.CSSProperties = {
@@ -238,7 +321,14 @@ const HeldFootage: React.FC<{
  */
 const ShadowGroup: React.FC<DemoClipProps> = (props) => {
   const { log, chrome = false, speed = 1, drift, backdrop } = props;
-  const { style } = useCameraGroup(chrome, log, speed, drift, resolveStylePreset(props).shot);
+  const { style } = useCameraGroup(
+    chrome,
+    log,
+    speed,
+    drift,
+    resolveStylePreset(props).shot,
+    openOf(props),
+  );
   // The preset's flat ground, when it has one, wins over the backdrop image.
   // See resolveGround for the one rule every composition shares.
   const { light } = resolveGround({
@@ -269,7 +359,14 @@ const WindowGroup: React.FC<DemoClipProps> = (props) => {
   // flat-ground grammar says no ripple, which its reels asked for and never got.
   const cursor = props.cursor ?? shot.cursor;
   const ripple = props.ripple ?? shot.ripple;
-  const { z, frame, fps, style } = useCameraGroup(chrome, log, speed, drift, shot);
+  const { z, frame, fps, style } = useCameraGroup(
+    chrome,
+    log,
+    speed,
+    drift,
+    shot,
+    openOf(props),
+  );
   const trimBefore = log.trimBeforeMs
     ? round((log.trimBeforeMs / 1000) * fps)
     : undefined;
@@ -357,6 +454,7 @@ const ShutteredWindow: React.FC<DemoClipProps> = (props) => {
     speed,
     drift,
     resolveStylePreset(props).shot,
+    openOf(props),
   );
   const half = shutterFraction() / 2;
   const travel = cornerTravelPx(
@@ -412,18 +510,8 @@ const cropToCss = (
  * ~34px/frame, an order below where a shutter earns its render cost, and the
  * blur is destructive to flat UI colour (see the banding note in WindowFrame).
  */
-const FullBleedClip: React.FC<DemoClipProps> = ({
-  name,
-  log,
-  speed = 1,
-  crop,
-  push,
-  range,
-  pageBg = "#fcfcfc",
-  cursor = false,
-  ripple,
-  freeze = false,
-}) => {
+const FullBleedClip: React.FC<DemoClipProps> = (props) => {
+  const { log, speed = 1, crop, push, range, pageBg = "#fcfcfc", open } = props;
   const frame = useCurrentFrame();
   const { fps, durationInFrames } = useVideoConfig();
   const designScale = useDesignScale();
@@ -432,12 +520,83 @@ const FullBleedClip: React.FC<DemoClipProps> = ({
   const shotFrames = range ? range.last - range.first + 1 : durationInFrames;
   const envelope = pushEnvelope(frame - first, shotFrames, push);
 
-  const trimBefore = log.trimBeforeMs
-    ? round((log.trimBeforeMs / 1000) * fps)
-    : undefined;
   // Same time base the cursor uses, so a keycap and a pointer cannot disagree
   // about when a beat happened.
   const timeS = (frame / fps) * speed - (log.offsetMs ?? 0) / 1000;
+  const k = resolveCrop(crop)?.k ?? 1;
+
+  let picture = <CroppedFootage {...props} timeS={timeS} cameraScale={k} />;
+  if (open) {
+    // The opening, as a camera over the CROPPED frame: `scale` is in the crop's
+    // own units, so the push past the crop is scale / k, about the opening
+    // point wherever the crop put it. poseToCss's clamp keeps the frame edge
+    // inside the picture. A layer only when there is an opening, so every clip
+    // without one renders exactly as it did.
+    const start = openPose(
+      { ...open, scale: open.scale / k, at: cropPoint(open.at, resolveCrop(crop)) },
+      BASE_POSE,
+    );
+    const frames = openFrames(open, start, BASE_POSE, log.viewport, speed, fps);
+    const css = poseToCss(openAt(start, BASE_POSE, frame - first, frames), 0, 1);
+    picture = (
+      <AbsoluteFill
+        style={{
+          transform: `translate(${css.translateX * 100}%, ${css.translateY * 100}%) scale(${css.scale})`,
+        }}
+      >
+        <CroppedFootage {...props} timeS={timeS} cameraScale={k * css.scale} />
+      </AbsoluteFill>
+    );
+  }
+
+  return (
+    <AbsoluteFill style={{ overflow: "hidden", backgroundColor: pageBg }}>
+      <AbsoluteFill
+        style={{
+          transform: pushToCss(envelope, designScale),
+          willChange: "transform",
+        }}
+      >
+        {picture}
+      </AbsoluteFill>
+      {/*
+        Outside the push wrapper above, deliberately: the reference's keycap
+        holds a fixed frame position while the footage slides under it.
+      */}
+      {log.keys?.length ? (
+        <KeycapHUD keys={log.keys} timeS={timeS} speed={speed} />
+      ) : null}
+    </AbsoluteFill>
+  );
+};
+
+/**
+ * The full-bleed picture: the footage under its static crop, and the pointer
+ * under the same crop. Two sibling layers, no wrapper of its own, so it drops
+ * into the native frame and into an aspect plate alike.
+ *
+ * `cameraScale` is every magnification ABOVE the pointer — the crop's k, and
+ * at another aspect the plate's cover and the follow's zoom — which <Cursor>
+ * counter-scales to k^CURSOR_SCALE_EXP.
+ */
+const CroppedFootage: React.FC<
+  DemoClipProps & { timeS: number; cameraScale: number }
+> = ({
+  name,
+  log,
+  speed = 1,
+  crop,
+  range,
+  cursor = false,
+  ripple,
+  freeze = false,
+  timeS,
+  cameraScale,
+}) => {
+  const { fps } = useVideoConfig();
+  const trimBefore = log.trimBeforeMs
+    ? round((log.trimBeforeMs / 1000) * fps)
+    : undefined;
   const resolved = resolveCrop(crop);
   // The clip-path rides on the SAME layers as the transform, and both the
   // footage and the pointer get it: an arrow travelling outside the framed
@@ -458,6 +617,152 @@ const FullBleedClip: React.FC<DemoClipProps> = ({
   );
 
   return (
+    <>
+      <AbsoluteFill style={cropStyle}>
+        {/*
+          <Freeze> pins the child's clock, which is the only thing that
+          reaches <Video> — there is no "show frame N" prop to set. Wrapping
+          the footage alone (rather than the whole shot) keeps the push
+          envelope live above it, so a still can still be authored to arrive
+          on a move if a reel ever wants that. This one does not.
+        */}
+        {freeze && range ? (
+          <Freeze frame={range.last}>{footage}</Freeze>
+        ) : (
+          footage
+        )}
+      </AbsoluteFill>
+      {cursor && !freeze ? (
+        /*
+          The crop again, on a layer of its own, INSIDE the push wrapper. The
+          pointer is part of the picture: it has to land on the control it is
+          pressing, so it shares the footage's crop AND its push. It used to
+          sit outside the push like the keycap, and for the 12-15 frames at
+          each end of a shot the UI slid up to 114 px under a pointer that
+          stayed put — an arrow skating off its target. Only the keycap is a
+          caption; only the keycap holds still.
+          Nesting it under the crop is also what makes CURSOR_SCALE_EXP mean
+          what it says. The wrapper multiplies the arrow by k and <Cursor>
+          divides by k^(1 - exp), leaving k^exp — the sub-linear growth the
+          framed look already gets from living inside its camera transform. As
+          a bare sibling the multiply was missing and the arrow SHRANK as the
+          crop tightened.
+        */
+        <AbsoluteFill style={cropStyle}>
+          <Cursor
+            log={log}
+            timeS={timeS}
+            cameraScale={cameraScale}
+            ripple={ripple ?? false}
+          />
+        </AbsoluteFill>
+      ) : null}
+    </>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Other aspects: a moving crop of the footage (src/lib/aspect.ts)
+// ---------------------------------------------------------------------------
+
+/**
+ * The view of the plate at this frame: the follow's centre, the zoom camera's
+ * magnification past what the aspect already gives, and the opening eased
+ * into both. Clamped so the plate always covers `box`.
+ *
+ * WHY THE CAMERA ONLY LENDS ITS SCALE. The zoom track is framed for a 16:9
+ * window: frameFor pulls a subject near an edge toward the centre so the
+ * window's edge stays out of shot. A narrow crop needs the opposite — the
+ * subject itself — so the centre comes from the click rects (followTrack) and
+ * the camera contributes only how tight it is. And only past the aspect's own
+ * magnification: a 9:16 crop is already 1.78x the 16:9 picture, more than
+ * every punch but S_MAX's 1.74, so at 9:16 the camera's job is to follow and at
+ * 1:1 (1.00x) it punches as it always has.
+ */
+function useAspectView(
+  props: DemoClipProps,
+  box: Size,
+  crop: ReturnType<typeof resolveCrop>,
+  /** The style camera's pose scale at a frame; 1 = no camera. */
+  cameraScale: (frame: number) => number,
+): { view: View; s: number; plate: Size } {
+  const frame = useCurrentFrame();
+  const { fps, durationInFrames, width, height } = useVideoConfig();
+  const { log, speed = 1, open, range, freeze } = props;
+  const plate = demoSize(log);
+  const s = coverScale(box, plate);
+  const mag = aspectMagnification(plate, { width, height });
+  const half = visibleHalf(box, plate);
+  const follow = cachedFollow(log, {
+    fps,
+    speed,
+    frames: durationInFrames,
+    half,
+    crop,
+  });
+  const running = (f: number): View => {
+    const c = followAt(follow, f);
+    return { scale: Math.max(1, cameraScale(f) / mag), cx: c.x, cy: c.y };
+  };
+  // A still holds its last frame; the crop holds with it.
+  const f = freeze && range ? range.last : frame;
+  let view = running(f);
+  if (open) {
+    const first = range?.first ?? 0;
+    const k = crop?.k ?? 1;
+    const run0 = running(first);
+    const p = cropPoint(open.at, crop);
+    // An opening's scale is in the 16:9 framing's units; the aspect and the
+    // crop already supply mag * k of it.
+    const start = {
+      scale: Math.max(1, open.scale / (mag * k), run0.scale),
+      cx: p.x,
+      cy: p.y,
+    };
+    const frames = openFrames(open, start, run0, log.viewport, speed, fps);
+    view = openAt(start, view, f - first, frames);
+  }
+  return { view: clampView(view, half, footageBounds(crop)), s, plate };
+}
+
+/**
+ * The 16:9 plate, centred in its parent and moved by `transform`. Whatever is
+ * inside is laid out exactly as the native cut lays it out.
+ */
+const PlateView: React.FC<{
+  plate: Size;
+  transform: string;
+  children: React.ReactNode;
+}> = ({ plate, transform, children }) => (
+  <AbsoluteFill style={{ justifyContent: "center", alignItems: "center" }}>
+    <div
+      style={{
+        position: "relative",
+        flexShrink: 0,
+        width: plate.width,
+        height: plate.height,
+        transform,
+        willChange: "transform",
+      }}
+    >
+      {children}
+    </div>
+  </AbsoluteFill>
+);
+
+/** Full-bleed at another aspect: the frame IS the box. */
+const AspectBleed: React.FC<DemoClipProps> = (props) => {
+  const { log, speed = 1, crop, push, range, pageBg = "#fcfcfc" } = props;
+  const frame = useCurrentFrame();
+  const { fps, durationInFrames, width, height } = useVideoConfig();
+  const designScale = useDesignScale();
+  const first = range?.first ?? 0;
+  const shotFrames = range ? range.last - range.first + 1 : durationInFrames;
+  const envelope = pushEnvelope(frame - first, shotFrames, push);
+  const timeS = (frame / fps) * speed - (log.offsetMs ?? 0) / 1000;
+  const resolved = resolveCrop(crop);
+  const { view, s, plate } = useAspectView(props, { width, height }, resolved, () => 1);
+  return (
     <AbsoluteFill style={{ overflow: "hidden", backgroundColor: pageBg }}>
       <AbsoluteFill
         style={{
@@ -465,54 +770,114 @@ const FullBleedClip: React.FC<DemoClipProps> = ({
           willChange: "transform",
         }}
       >
-        <AbsoluteFill style={cropStyle}>
-          {/*
-            <Freeze> pins the child's clock, which is the only thing that
-            reaches <Video> — there is no "show frame N" prop to set. Wrapping
-            the footage alone (rather than the whole shot) keeps the push
-            envelope live above it, so a still can still be authored to arrive
-            on a move if a reel ever wants that. This one does not.
-          */}
-          {freeze && range ? (
-            <Freeze frame={range.last}>{footage}</Freeze>
-          ) : (
-            footage
-          )}
-        </AbsoluteFill>
-        {cursor && !freeze ? (
-          /*
-            The crop again, on a layer of its own, INSIDE the push wrapper. The
-            pointer is part of the picture: it has to land on the control it is
-            pressing, so it shares the footage's crop AND its push. It used to
-            sit outside the push like the keycap, and for the 12-15 frames at
-            each end of a shot the UI slid up to 114 px under a pointer that
-            stayed put — an arrow skating off its target. Only the keycap is a
-            caption; only the keycap holds still.
-            Nesting it under the crop is also what makes CURSOR_SCALE_EXP mean
-            what it says. The wrapper multiplies the arrow by k and <Cursor>
-            divides by k^(1 - exp), leaving k^exp — the sub-linear growth the
-            framed look already gets from living inside its camera transform. As
-            a bare sibling the multiply was missing and the arrow SHRANK as the
-            crop tightened.
-          */
-          <AbsoluteFill style={cropStyle}>
-            <Cursor
-              log={log}
-              timeS={timeS}
-              cameraScale={resolved?.k ?? 1}
-              ripple={ripple ?? false}
-            />
-          </AbsoluteFill>
-        ) : null}
+        <PlateView plate={plate} transform={plateTransform(view, plate, s)}>
+          <CroppedFootage
+            {...props}
+            timeS={timeS}
+            cameraScale={(resolved?.k ?? 1) * s * view.scale}
+          />
+        </PlateView>
       </AbsoluteFill>
-      {/*
-        Outside the push wrapper above, deliberately: the reference's keycap
-        holds a fixed frame position while the footage slides under it.
-      */}
       {log.keys?.length ? (
         <KeycapHUD keys={log.keys} timeS={timeS} speed={speed} />
       ) : null}
     </AbsoluteFill>
+  );
+};
+
+/**
+ * A windowed style at another aspect: the window takes the frame's shape.
+ *
+ * THE FRAMING CHOICE. The window stays `windowFit` of the frame on both axes,
+ * exactly the rule it follows at 16:9 — so at 9:16 it is a tall panel, and the
+ * footage inside is a moving crop of the recording at full panel height. The
+ * alternatives, by the arithmetic at 1440x2560: the whole 16:9 window fitted
+ * to the frame's width is 1238x696 — 23% of the frame, its UI at 0.56x the
+ * 16:9 cut's size; a square 1238 window still leaves 58% of the frame to the
+ * backdrop. The panel
+ * keeps the grammar — ground, rim light, rounded window, the style's own push —
+ * and gives the product the frame.
+ *
+ * No shutter: its job is the zoom camera's fast punches, and here the camera
+ * only lends magnification to a crop that moves at follow speed (see
+ * useAspectView). No chrome either; a reel never draws it.
+ */
+const AspectWindow: React.FC<DemoClipProps> = (props) => {
+  const { name, log, speed = 1, drift } = props;
+  const { shot } = resolveStylePreset(props);
+  const frame = useCurrentFrame();
+  const { fps, width, height } = useVideoConfig();
+  const fit = shot.windowFit ?? WINDOW_FIT;
+  const box = { width: width * fit, height: height * fit };
+  const { view, s, plate } = useAspectView(props, box, undefined, (f) =>
+    shot.zoom ? zoomAt(f, fps, log, { speed, fit, drift }).scale / fit : 1,
+  );
+  const { light } = resolveGround({ ground: shot.ground, ownBackdrop: props.backdrop });
+  const cursor = props.cursor ?? shot.cursor;
+  const ripple = props.ripple ?? shot.ripple;
+  const trimBefore = log.trimBeforeMs
+    ? round((log.trimBeforeMs / 1000) * fps)
+    : undefined;
+  const timeS = (frame / fps) * speed - (log.offsetMs ?? 0) / 1000;
+  const panel: React.CSSProperties = {
+    position: "absolute",
+    width: box.width,
+    height: box.height,
+    left: (width - box.width) / 2,
+    top: (height - box.height) / 2,
+  };
+  return (
+    <AbsoluteFill>
+      <Backdrop name={props.backdrop} ground={shot.ground} />
+      <FramedPush {...props}>
+        <div style={panel}>
+          <RimLight light={light} />
+        </div>
+        <div style={panel}>
+          <WindowFrame>
+            <PlateView plate={plate} transform={plateTransform(view, plate, s)}>
+              <HeldFootage log={log} speed={speed}>
+                <Video
+                  src={staticFile(`${name}.mp4`)}
+                  trimBefore={trimBefore}
+                  playbackRate={speed}
+                  objectFit="fill"
+                  style={{ width: "100%", height: "100%" }}
+                />
+              </HeldFootage>
+              {cursor ? (
+                <Cursor
+                  log={log}
+                  timeS={timeS}
+                  cameraScale={s * view.scale}
+                  ripple={ripple}
+                />
+              ) : null}
+            </PlateView>
+          </WindowFrame>
+        </div>
+        <FramedKeycap {...props} />
+      </FramedPush>
+    </AbsoluteFill>
+  );
+};
+
+/**
+ * Any aspect but the footage's own. Everything under it is laid out against
+ * the NATIVE width (DesignWidthContext), so the pointer, the keycap, the window
+ * radius and every push distance are the same pixel size as in the 16:9 cut —
+ * the frame is only taller or narrower.
+ */
+const AspectClip: React.FC<DemoClipProps> = (props) => {
+  const { shot } = resolveStylePreset(props);
+  return (
+    <DesignWidthContext.Provider value={demoSize(props.log).width}>
+      {shot.framing === "window" ? (
+        <AspectWindow {...props} />
+      ) : (
+        <AspectBleed {...props} />
+      )}
+    </DesignWidthContext.Provider>
   );
 };
 
@@ -533,6 +898,9 @@ export const DemoClip: React.FC<DemoClipProps> = (props) => {
   // On the style's FRAMING, not its name — so a future grammar picks a path by
   // saying which framing it uses. `isolate` (src/lib/crop.ts) renders down the
   // full-bleed path too: it is a crop with a clip-path, not a third layer stack.
+  // Another aspect is a moving crop of the footage, windowed or not, and
+  // shares no layer with either native path. Native renders exactly as before.
+  if (!isNativeAspect(props.aspect)) return <AspectClip {...props} />;
   const { shot } = resolveStylePreset(props);
   if (shot.framing !== "window") return <FullBleedClip {...props} />;
 

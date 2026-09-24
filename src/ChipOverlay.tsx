@@ -20,16 +20,47 @@ export type ChipOverlayProps = {
   style: AnnotationStyle;
   /** Total film length, so the overlay is as long as the picture it rides on. */
   totalS: number;
+  /** The film's size, when it is not 2560x1440. See HudOverlayProps. */
+  size?: { width: number; height: number };
+  /**
+   * The 16:9 cut's height. The pill is sized against it, so a chip is the same
+   * pixel size at every aspect — 7.3% of a 2560-tall vertical frame would be a
+   * 187px slab. Absent = the frame's height, which is the native case; present
+   * (any other aspect, even 1:1 whose height matches) also pulls a chip that
+   * would hang off the frame back inside it.
+   */
+  designHeight?: number;
 };
 
-export const ChipOverlay: React.FC<ChipOverlayProps> = ({ chips, style }) => {
+/** Frame fraction kept clear at the sides when a chip has to be pulled in. */
+const EDGE_FRAC = 0.04;
+/** Advance of an average Inter glyph at 500, as a share of the font size. */
+const GLYPH_EM = 0.56;
+
+export const ChipOverlay: React.FC<ChipOverlayProps> = ({
+  chips,
+  style,
+  designHeight,
+}) => {
   const frame = useCurrentFrame();
-  const { fps, height } = useVideoConfig();
+  const { fps, width, height } = useVideoConfig();
   const t = frame / fps;
   const live = chipsAt(chips, t);
   if (live.length === 0) return <AbsoluteFill />;
 
-  const pillH = height * style.heightFrac;
+  const pillH = (designHeight ?? height) * style.heightFrac;
+  const fontSize = (pillH * style.capRatio) / 0.715;
+  // At another aspect a placement authored against a 16:9 panel edge can hang
+  // off a narrower frame, so the pill's centre is pulled in until the whole
+  // pill fits, from an estimate of its width. Native placements are the
+  // author's and are left exactly where they were put.
+  const centreX = (c: ReelChip): number => {
+    if (designHeight == null) return c.x;
+    const halfW = (c.text.length * GLYPH_EM * fontSize + 2 * pillH * 0.38) / 2 / width;
+    const lo = EDGE_FRAC + halfW;
+    const hi = 1 - EDGE_FRAC - halfW;
+    return lo >= hi ? 0.5 : Math.min(hi, Math.max(lo, c.x));
+  };
 
   return (
     <AbsoluteFill>
@@ -55,7 +86,7 @@ export const ChipOverlay: React.FC<ChipOverlayProps> = ({ chips, style }) => {
             key={`${c.text}-${c.fromS}`}
             style={{
               position: "absolute",
-              left: `${c.x * 100}%`,
+              left: `${centreX(c) * 100}%`,
               top: `${c.y * 100}%`,
               // Translate by half the pill's OWN size so x/y mean its centre —
               // which is what an author placing a chip against a panel edge is
@@ -74,7 +105,7 @@ export const ChipOverlay: React.FC<ChipOverlayProps> = ({ chips, style }) => {
               borderRadius: pillH * style.radiusFrac,
               // Cap height is the spec, so the nominal size is derived from it
               // through a grotesque's ~0.715 cap ratio.
-              fontSize: (pillH * style.capRatio) / 0.715,
+              fontSize,
               fontFamily: '"Inter", ui-sans-serif, system-ui, sans-serif',
               fontWeight: 500,
               letterSpacing: "-0.01em",
