@@ -26,6 +26,28 @@
  * the same state, JPEG q95 is 50.1 dB PSNR and q100 51.1 dB, while the
  * screencast PNG is bit-identical (SSIM 1.000, PSNR inf). PNG it is.
  *
+ * Re-measured on scripts/fixtures/animation.html (one 1 s animation, frames
+ * counted inside it), Chromium 151, on a machine at load average ~23 on 8
+ * cores:
+ *
+ *                        transform  opacity  layout (left)  rAF
+ *   headless 1920x1080   59         59-60    58             53-60
+ *   headed   1920x1080   60         60       59             59
+ *   headless 3840x2160   28-39      32-42    26-33          26-37
+ *   headed   3840x2160   39         38       34             39
+ *
+ * So compositor-only animations (transform, opacity) are NOT under-sampled,
+ * headless or headed — they get as many frames as a main-thread repaint. What
+ * limits 4K is per-frame cost in the browser: a raw CDP client that acks and
+ * drops every frame gets the same 35-38 fps as this recorder, and JPEG q90 only
+ * 39-44. That cost is the full-frame encode, so it scales with CPU contention:
+ * the 56-58 in the table above was an idle machine. A heartbeat element or
+ * forced BeginFrames would add frames where nothing moves, which holdPlan
+ * already fills for free, and cannot buy encode throughput. A 250 ms toast
+ * fade in the smoke fixture got 15 frames at ~55 fps in the same loaded
+ * session; a shoot log's small "N frames (N distinct)" is mostly the idle
+ * stretches, not a low rate. Record on a quiet machine for the full rate.
+ *
  * Idle is ZERO frames: the screencast is damage-driven, so a still page sends
  * nothing at all. The file therefore cannot be made by counting frames; each
  * frame is placed on its own `metadata.timestamp` (the compositor's swap time,

@@ -24,13 +24,18 @@ import {
   ESTABLISH_CUSHION_S,
   LEAD_FALLBACK_S,
   RECORD_SLOW_MO_MS,
+  recordingRate,
 } from "../src/lib/click-log";
 import {
+  captureScaleFor,
   captureScaleInitScript,
   enforceCaptureSize,
+  naturalOverflow,
   OVERFLOW_PROBE,
-  resolveCaptureScale,
+  overflowVerdict,
   scaledViewport,
+  watchPortals,
+  type Overflow,
 } from "./lib/capture-scale";
 import type { ClickEvent, Flow } from "./lib/flow";
 import {
@@ -134,13 +139,18 @@ async function main() {
   // never during tour capture. shootViewport stays the LOGICAL size the flow
   // authored against; captureViewport is the PHYSICAL size everything downstream
   // (video, rects, cursor, log.viewport) lives in. See scripts/lib/capture-scale.ts.
-  const captureScale =
-    tourMode === "capture" ? 1 : resolveCaptureScale(process.env.CAPTURE_SCALE);
+  const pick = captureScaleFor(flow?.captureScale);
+  const captureScale = tourMode === "capture" ? 1 : pick.scale;
   const captureViewport = scaledViewport(shootViewport, captureScale);
   const viewport = tourMode === "capture" ? CAPTURE_VIEWPORT : captureViewport;
   const captureMode = resolveCaptureMode(process.env.DEMO_CAPTURE);
   if (tourMode !== "capture") {
-    const soft = enforceCaptureSize(captureViewport, shootViewport, captureScale);
+    const soft = enforceCaptureSize(
+      captureViewport,
+      shootViewport,
+      captureScale,
+      pick.allowSoft ? "1" : undefined,
+    );
     if (soft) console.warn(soft);
   }
 
@@ -182,7 +192,8 @@ async function main() {
   if (tourMode !== "capture")
     console.log(
       `capture    -> ${captureViewport.width}x${captureViewport.height} ` +
-        `(logical ${shootViewport.width}x${shootViewport.height} @ zoom ${captureScale}, ${captureMode})`,
+        `(logical ${shootViewport.width}x${shootViewport.height} @ zoom ${captureScale}` +
+        `${pick.source === "flow" ? ", pinned by the flow" : ""}, ${captureMode})`,
     );
   const recStart = Date.now();
   if (tourMode !== "capture" && useBakedCursor())
@@ -233,16 +244,26 @@ async function main() {
   const demoStart = Date.now();
   const getElapsedMs = clock.now;
 
-  const ctx = buildContext(
-    page,
-    baseURL,
-    clicks,
-    getElapsedMs,
-    cursor,
-    undefined,
-    undefined,
-    name,
+  // Every beat is followed by a probe for popovers the zoom threw off-frame.
+  const portals = watchPortals(
+    buildContext(
+      page,
+      baseURL,
+      clicks,
+      getElapsedMs,
+      cursor,
+      undefined,
+      undefined,
+      name,
+    ),
+    console.warn,
+    captureScale,
   );
+  const ctx = portals.ctx;
+  // Measured while filming, compared once filming has stopped (the natural
+  // measurement relayouts the page) — see overflowVerdict.
+  let zoomed: Overflow | null = null;
+  let natural: Overflow | null = null;
 
   try {
     // Tiny buffer only — flows wait for paint themselves (no multi-second blank).
@@ -255,24 +276,19 @@ async function main() {
       await page.waitForTimeout(120);
       await flow.run(ctx);
     }
-    if (captureScale > 1) {
-      const o = (await page.evaluate(OVERFLOW_PROBE)) as {
-        vOverflow: number;
-        hOverflow: number;
-      };
-      const bad = o.vOverflow > 1.02 || o.hOverflow > 1.02;
-      console.log(
-        `overflow   -> v=${o.vOverflow} h=${o.hOverflow}` +
-          (bad
-            ? `  ⚠ app overflows under zoom (vh/vw layout) — HD capture will clip it`
-            : `  ✓ layout fits`),
-      );
-    }
+    if (captureScale > 1)
+      zoomed = (await page.evaluate(OVERFLOW_PROBE)) as Overflow;
     await page.waitForTimeout(END_TAIL_S * 1000);
   } finally {
     const rawDurationMs = getElapsedMs();
+    await portals.drain();
     const rec = await footage.finish({
       close: async () => {
+        // The CDP path has stopped filming by now; the Playwright one has not.
+        if (zoomed && captureMode === "cdp")
+          natural = await naturalOverflow(page, shootViewport).catch(
+            () => null,
+          );
         await context.close(); // flushes a Playwright video file
         await browser.close();
       },
@@ -280,6 +296,10 @@ async function main() {
       durationMs: rawDurationMs,
       clockTrimMs: demoStart - recStart,
     });
+    if (zoomed) {
+      const v = overflowVerdict(zoomed, natural);
+      (v.bad ? console.warn : console.log)(v.line);
+    }
     console.log(`recording  -> ${path.relative(ROOT, rec.file)}`);
     (rec.unsure ? console.warn : console.log)(`sync       -> ${rec.sync}`);
 
@@ -300,6 +320,8 @@ async function main() {
       durationMs: trimmed.durationMs,
       trimBeforeMs: trimBeforeMs || undefined,
       offsetMs: 0,
+      // The speed this shoot was paced for, so render can warn on another.
+      speed: recordingRate(),
       // Omitted on the baked-cursor path so Remotion does not draw a second one.
       cursorTrack: useBakedCursor() ? undefined : trimmed.cursor,
       clicks: trimmed.clicks,

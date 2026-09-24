@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Capture-scale edge-case fixture</title>
+    <!--
+      Every way an app can size or place something against the viewport that
+      the CAPTURE_SCALE root zoom has to see through (scripts/lib/capture-scale.ts).
+      Each case is one box with an id; capture-scale.test.ts loads this page at
+      scale 1 and at scale 2 and asserts every box lands at the same LOGICAL
+      rect. Laid out for a 1920x1080 logical viewport.
+
+        #media     vw inside @media (Tailwind `sm:max-w-[90vw]` compiles to this)
+        #nested    vw inside @supports > @layer, and vh in a nested style rule
+        #bp        a breakpoint between the logical and physical width, which
+                   the physical viewport would trip (min-width: 2400px)
+        #mm        the same breakpoint read from JS through matchMedia
+        #inserted  a vw rule insertRule()d into an EXISTING sheet after load
+                   (CSS-in-JS "speedy" mode: the sheet count never changes)
+        #replaced  a <style> whose text is replaced after load
+        #inline    style="width:…vw" in the markup
+        #inlinejs  el.style.width = "…vw" set from script after load
+        #adopted   a constructed sheet in document.adoptedStyleSheets
+        #shadow    a vw rule inside a shadow root
+        #portal    a Radix-like popover: position:fixed, placed by transform
+                   from its trigger's getBoundingClientRect, as floating-ui does
+        #mark      placed at the last click's clientX/clientY
+    -->
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+        background: #eef0f4;
+        color: #0f172a;
+      }
+      .row { display: flex; flex-wrap: wrap; gap: 12px; padding: 16px; align-items: flex-start; }
+      .box {
+        height: 36px;
+        background: #6366f1;
+        color: #fff;
+        font-size: 13px;
+        padding: 8px;
+        border-radius: 8px;
+        white-space: nowrap;
+        overflow: hidden;
+      }
+      .box:nth-child(2n) { background: #0ea5e9; }
+      @media (min-width: 640px) {
+        #media { width: 30vw; }
+      }
+      @supports (display: grid) {
+        @layer base {
+          #nested { width: 12vw; }
+        }
+      }
+      .wrap {
+        & #nested { height: 5vh; }
+      }
+      #bp { width: 200px; }
+      @media (min-width: 2400px) {
+        #bp { width: 600px; }
+      }
+      #trigger {
+        position: absolute;
+        left: 640px;
+        top: 520px;
+        width: 180px;
+        height: 40px;
+        border: 0;
+        border-radius: 8px;
+        background: #0f172a;
+        color: #fff;
+        font: inherit;
+      }
+      [data-radix-popper-content-wrapper] {
+        position: fixed;
+        left: 0;
+        top: 0;
+        background: #fff;
+        border-radius: 10px;
+        box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18);
+        padding: 10px;
+      }
+      #mark {
+        position: fixed;
+        width: 10px;
+        height: 10px;
+        margin: -5px 0 0 -5px;
+        border-radius: 50%;
+        background: #ef4444;
+        left: 0;
+        top: 0;
+      }
+    </style>
+    <style id="dyn">
+      .placeholder-rule { color: inherit; }
+    </style>
+    <style id="swap">
+      #replaced { width: 100px; }
+    </style>
+  </head>
+  <body>
+    <div class="row wrap">
+      <div class="box" id="media">media 30vw</div>
+      <div class="box" id="nested">nested 12vw / 5vh</div>
+      <div class="box" id="bp">breakpoint</div>
+      <div class="box" id="mm">matchMedia</div>
+    </div>
+    <div class="row">
+      <div class="box" id="inserted">insertRule 25vw</div>
+      <div class="box" id="replaced">replaced 20vw</div>
+      <div class="box" id="inline" style="width: 18vw">inline 18vw</div>
+      <div class="box" id="inlinejs">inline js 15vw</div>
+    </div>
+    <div class="row">
+      <div class="box" id="adopted">adopted 22vw</div>
+      <div id="host"></div>
+    </div>
+    <button id="trigger">Open popover</button>
+    <div id="mark"></div>
+    <script>
+      // Everything below happens AFTER first paint, the way an app hydrates.
+      window.__ready = false;
+      requestAnimationFrame(function () {
+        document.getElementById("mm").style.width =
+          matchMedia("(min-width: 2400px)").matches ? "600px" : "240px";
+
+        var dyn = document.getElementById("dyn").sheet;
+        dyn.insertRule("#inserted { width: 25vw; }", dyn.cssRules.length);
+
+        document.getElementById("swap").textContent = "#replaced { width: 20vw; }";
+
+        document.getElementById("inlinejs").style.width = "15vw";
+
+        var sheet = new CSSStyleSheet();
+        sheet.replaceSync("#adopted { width: 22vw; }");
+        document.adoptedStyleSheets = document.adoptedStyleSheets.concat([sheet]);
+
+        var root = document.getElementById("host").attachShadow({ mode: "open" });
+        root.innerHTML =
+          "<style>#shadow { width: 14vw; height: 36px; background: #14b8a6; border-radius: 8px; }</style>" +
+          '<div id="shadow"></div>';
+
+        // floating-ui's placement, reduced to its core: read the trigger's
+        // client rect, write it back as a transform and a width.
+        var trigger = document.getElementById("trigger");
+        var pop = document.createElement("div");
+        pop.setAttribute("data-radix-popper-content-wrapper", "");
+        pop.id = "portal";
+        pop.textContent = "popover";
+        document.body.appendChild(pop);
+        var r = trigger.getBoundingClientRect();
+        pop.style.transform = "translate(" + r.left + "px, " + (r.bottom + 8) + "px)";
+        pop.style.width = r.width * 1.5 + "px";
+
+        document.addEventListener("click", function (e) {
+          var m = document.getElementById("mark");
+          m.style.left = e.clientX + "px";
+          m.style.top = e.clientY + "px";
+        });
+        requestAnimationFrame(function () { window.__ready = true; });
+      });
+    </script>
+  </body>
+</html>

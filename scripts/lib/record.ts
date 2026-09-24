@@ -7,14 +7,19 @@ import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   END_TAIL_S,
+  recordingRate,
   type CursorSample,
   type KeyEvent,
 } from "../../src/lib/click-log";
 import {
+  captureScaleFor,
   enforceCaptureSize,
+  naturalOverflow,
   OVERFLOW_PROBE,
-  resolveCaptureScale,
+  overflowVerdict,
   scaledViewport,
+  watchPortals,
+  type Overflow,
 } from "./capture-scale";
 import type { ClickEvent, Flow } from "./flow";
 import { flashMarker, openFootage, startClock, type Footage } from "./footage";
@@ -77,19 +82,33 @@ export async function recordFlow(
   for (const d of [RECORDINGS, PUBLIC, DIAG])
     fs.mkdirSync(d, { recursive: true });
 
-  const captureScale = resolveCaptureScale(process.env.CAPTURE_SCALE);
+  const {
+    scale: captureScale,
+    allowSoft,
+    source: scaleSource,
+  } = captureScaleFor(flow.captureScale);
   const captureMode = resolveCaptureMode(process.env.DEMO_CAPTURE);
   // Refuse a capture the render would upscale BEFORE opening a browser — a
   // --check run warns instead, so an author learns it while writing the flow.
   const physical = scaledViewport(flow.viewport, captureScale);
   if (check) {
     try {
-      enforceCaptureSize(physical, flow.viewport, captureScale);
+      enforceCaptureSize(
+        physical,
+        flow.viewport,
+        captureScale,
+        allowSoft ? "1" : undefined,
+      );
     } catch (err) {
       warn(`⚠ ${err instanceof Error ? err.message : err}`);
     }
   } else {
-    const soft = enforceCaptureSize(physical, flow.viewport, captureScale);
+    const soft = enforceCaptureSize(
+      physical,
+      flow.viewport,
+      captureScale,
+      allowSoft ? "1" : undefined,
+    );
     if (soft) warn(soft);
   }
   const { context, close, physicalViewport } = await openContext(mode, {
@@ -106,6 +125,7 @@ export async function recordFlow(
   say(
     `capture    -> ${physicalViewport.width}x${physicalViewport.height} ` +
       `(logical ${flow.viewport.width}x${flow.viewport.height} @ zoom ${captureScale}` +
+      `${scaleSource === "flow" ? ", pinned by the flow" : ""}` +
       `${check ? "" : `, ${captureMode}`})`,
   );
   const recStart = Date.now();
@@ -169,36 +189,34 @@ export async function recordFlow(
   const clicks: ClickEvent[] = [];
   const cursor: CursorSample[] = [];
   const keys: KeyEvent[] = [];
-  const ctx = buildContext(
-    page,
-    startUrl,
-    clicks,
-    clock.now,
-    cursor,
-    flow.targets,
-    keys,
-    // Seed glides and typing from the flow, not the start URL, so a re-shoot
-    // against another host or workspace keeps the same pointer paths.
-    flow.name,
+  // Every beat is followed by a probe for popovers the zoom threw off-frame.
+  const portals = watchPortals(
+    buildContext(
+      page,
+      startUrl,
+      clicks,
+      clock.now,
+      cursor,
+      flow.targets,
+      keys,
+      // Seed glides and typing from the flow, not the start URL, so a re-shoot
+      // against another host or workspace keeps the same pointer paths.
+      flow.name,
+    ),
+    warn,
+    captureScale,
   );
 
   let ok = true;
   let error: string | undefined;
+  // Measured while filming, compared once filming has stopped (the natural
+  // measurement relayouts the page) — see overflowVerdict.
+  let zoomed: Overflow | null = null;
+  let natural: Overflow | null = null;
   try {
-    await flow.run(ctx);
-    if (captureScale > 1) {
-      const o = (await page.evaluate(OVERFLOW_PROBE)) as {
-        vOverflow: number;
-        hOverflow: number;
-      };
-      const bad = o.vOverflow > 1.02 || o.hOverflow > 1.02;
-      say(
-        `overflow   -> v=${o.vOverflow} h=${o.hOverflow}` +
-          (bad
-            ? `  ⚠ app overflows under zoom (vh/vw layout) — HD capture will clip it`
-            : `  ✓ layout fits`),
-      );
-    }
+    await flow.run(portals.ctx);
+    if (captureScale > 1)
+      zoomed = (await page.evaluate(OVERFLOW_PROBE)) as Overflow;
     await page.waitForTimeout(check ? 200 : END_TAIL_S * 1000);
   } catch (err) {
     ok = false;
@@ -221,11 +239,28 @@ export async function recordFlow(
   }
 
   const durationMs = clock.now();
+  await portals.drain();
   /** Only a fallback now — see headTrimMs for why the clock is not trusted. */
   const clockTrimMs = demoStart - recStart;
+  // The CDP path stops filming before it calls close, so the relayout is off
+  // camera; the Playwright path films until close, so it skips the measurement.
+  const closeAfterProbe = async () => {
+    if (zoomed && (!footage || captureMode === "cdp"))
+      natural = await naturalOverflow(page, flow.viewport).catch(() => null);
+    await close();
+  };
   const rec = footage
-    ? await footage.finish({ close, clock, durationMs, clockTrimMs })
-    : (await close(), null);
+    ? await footage.finish({
+        close: closeAfterProbe,
+        clock,
+        durationMs,
+        clockTrimMs,
+      })
+    : (await closeAfterProbe(), null);
+  if (zoomed) {
+    const v = overflowVerdict(zoomed, natural);
+    (v.bad ? warn : say)(v.line);
+  }
 
   if (check || !rec) {
     say(
@@ -246,6 +281,8 @@ export async function recordFlow(
     durationMs,
     trimBeforeMs,
     offsetMs: 0,
+    // The speed this shoot was paced for, so render can warn on another.
+    speed: recordingRate(),
     backdrop: flow.backdrop,
     // Omitted on the baked-cursor path so Remotion does not draw a second one.
     cursorTrack: useBakedCursor() ? undefined : cursor,

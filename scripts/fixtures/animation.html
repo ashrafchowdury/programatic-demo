@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Screencast frame-rate fixture</title>
+    <!--
+      How many frames the CDP screencast delivers through an animation (see
+      scripts/lib/screencast.ts). Add ?run=<mode> to start one 1 s animation
+      300 ms after load; window.__done turns true when it has finished.
+
+        transform  a CSS transition on transform only — compositor-driven,
+                   so the main thread never paints it
+        opacity    a CSS transition on opacity only, same (a toast fading)
+        layout     a CSS transition on `left` — repaints on the main thread
+        raf        requestAnimationFrame writing a transform each frame
+    -->
+    <style>
+      body { margin: 0; background: #f1f5f9; font-family: system-ui, sans-serif; }
+      .box {
+        position: absolute;
+        top: 200px;
+        left: 200px;
+        width: 240px;
+        height: 240px;
+        border-radius: 24px;
+        background: linear-gradient(135deg, #6366f1, #0ea5e9);
+      }
+      .box.transform { transition: transform 1s linear; }
+      .box.transform.go { transform: translateX(1200px); }
+      .box.opacity { transition: opacity 1s linear; }
+      .box.opacity.go { opacity: 0; }
+      .box.layout { transition: left 1s linear; }
+      .box.layout.go { left: 1400px; }
+    </style>
+  </head>
+  <body>
+    <div class="box" id="box"></div>
+    <script>
+      window.__done = false;
+      var mode = new URLSearchParams(location.search).get("run") || "transform";
+      var box = document.getElementById("box");
+      if (mode !== "raf") box.classList.add(mode);
+      setTimeout(function () {
+        window.__t0 = Date.now();
+        if (mode === "raf") {
+          var start = performance.now();
+          var step = function (now) {
+            var p = Math.min(1, (now - start) / 1000);
+            box.style.transform = "translateX(" + p * 1200 + "px)";
+            if (p < 1) requestAnimationFrame(step);
+            else window.__done = true;
+          };
+          requestAnimationFrame(step);
+        } else {
+          box.addEventListener("transitionend", function () { window.__done = true; });
+          box.classList.add("go");
+        }
+      }, 300);
+    </script>
+  </body>
+</html>
