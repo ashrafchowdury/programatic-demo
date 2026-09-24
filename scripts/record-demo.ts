@@ -233,7 +233,16 @@ async function main() {
   const demoStart = Date.now();
   const getElapsedMs = clock.now;
 
-  const ctx = buildContext(page, baseURL, clicks, getElapsedMs, cursor);
+  const ctx = buildContext(
+    page,
+    baseURL,
+    clicks,
+    getElapsedMs,
+    cursor,
+    undefined,
+    undefined,
+    name,
+  );
 
   try {
     // Tiny buffer only — flows wait for paint themselves (no multi-second blank).

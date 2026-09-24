@@ -177,6 +177,9 @@ export async function recordFlow(
     cursor,
     flow.targets,
     keys,
+    // Seed glides and typing from the flow, not the start URL, so a re-shoot
+    // against another host or workspace keeps the same pointer paths.
+    flow.name,
   );
 
   let ok = true;
