@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { BASE_POSE, panLimit, posesNearlyEqual } from "./camera";
+import { BASE_POSE, panLimit, poseToCss, posesNearlyEqual } from "./camera";
 import type { ClickLog } from "./click-log";
 import { WINDOW_FIT } from "./window";
 import {
   buildCameraTrack,
+  caretInShot,
+  carryThrough,
   clusterize,
+  contentShare,
   driftPose,
   frameFor,
   sampleTrack,
@@ -628,8 +631,13 @@ describe("the camera and the action agree about time", () => {
     const keys = buildCameraTrack(log, SPEED);
     const last = keys[keys.length - 1];
     assert.ok(posesNearlyEqual(last.pose, BASE_POSE), "must still end at base");
-    const outStart = segmentsOf(keys).pop()!.a.t;
-    assert.ok(outStart >= 6.854 + 1.3 * SPEED - 1e-6, "last hold was cut");
+    const segs = segmentsOf(keys);
+    const outStart = segs[segs.length - 1].a.t;
+    const landed = segs[segs.length - 2].b.t;
+    // The closing hold is HOLD_MIN_S of stillness from when the camera came to
+    // rest on the beat, and never shorter than the watch after the click.
+    assert.ok(outStart - landed >= 1.3 * SPEED - 1e-6, "last hold was cut");
+    assert.ok(outStart >= 6.854 + 0.7 * SPEED - 1e-6, "left before the watch");
     assert.ok(trackDurationMs(log, SPEED) > log.durationMs);
     assert.equal(trackDurationMs(smokeLog, 1), smokeLog.durationMs);
   });
@@ -732,5 +740,248 @@ describe("frameFor with a logged content region", () => {
     const big = { x: 100, y: 60, w: 1700, h: 960 };
     const after = frameFor({ ...click, content: big }, VP, 1.74);
     assert.equal(after.scale, frameFor(click, VP, 1.74).scale);
+  });
+
+  // gmail-automation's Done -> instruction: the popover framing (page y
+  // 283-1006) still had the instruction field in shot after the popover
+  // closed, so the camera stayed on the form's bottom half and the empty page.
+  const popover = {
+    label: "Gmail",
+    tMs: 2000,
+    tDownMs: 1900,
+    tDepartMs: 1000,
+    x: 858,
+    y: 852,
+    rect: { x: 726, y: 808, w: 263, h: 72 },
+    content: { x: 748, y: 299, w: 680, h: 610 },
+    cluster: "trigger",
+  };
+  const field = {
+    label: "write",
+    tMs: 5200,
+    tDownMs: 5100,
+    tDepartMs: 4100,
+    x: 1088,
+    y: 395,
+    rect: { x: 740, y: 359, w: 696, h: 72 },
+    content: { x: 732, y: 33, w: 704, h: 505 },
+    cluster: "instruction",
+  };
+  const formLog = (next: typeof field | Omit<typeof field, "content">): ClickLog => ({
+    name: "form",
+    viewport: VP,
+    durationMs: 10000,
+    clicks: [popover, next],
+  });
+  const geom = { fit: WINDOW_FIT, chromeFrac: 0 };
+
+  it("re-aims on a click still in shot when the page has moved under it", () => {
+    const keys = buildCameraTrack(formLog(field), 1.25, geom);
+    const at = sampleTrack(keys, field.tDownMs / 1000);
+    const held = sampleTrack(keys, popover.tDownMs / 1000);
+    assert.ok(!posesNearlyEqual(at, held), "camera stayed on the popover framing");
+    const own = frameFor(field, VP, 1.74, geom);
+    assert.ok(
+      contentShare(field, at, VP, geom) >= contentShare(field, own, VP, geom) - 0.01,
+    );
+    assert.ok(contentShare(field, held, VP, geom) < contentShare(field, at, VP, geom) - 0.15);
+  });
+
+  it("keeps the pose for a click in shot when nothing says the page moved", () => {
+    const { content: _, ...bare } = field;
+    const keys = buildCameraTrack(formLog(bare), 1.25, geom);
+    assert.ok(
+      posesNearlyEqual(
+        sampleTrack(keys, field.tDownMs / 1000),
+        sampleTrack(keys, popover.tDownMs / 1000),
+      ),
+    );
+  });
+});
+
+const RATE = 1.25;
+
+/** On-screen speed of the frame edge at log time t, in px per 30fps frame. */
+const edgeSpeed = (
+  keys: ReturnType<typeof buildCameraTrack>,
+  t: number,
+  side: -1 | 1,
+  speed = RATE,
+) => {
+  const W = 2560;
+  const H = W * (VP.height / VP.width);
+  const dt = speed / 30 / 8;
+  const at = (x: number) => {
+    const z = poseToCss(sampleTrack(keys, x), 0, WINDOW_FIT);
+    return { x: z.translateX * W, y: z.translateY * H, s: z.scale };
+  };
+  const a = at(side < 0 ? t - dt : t);
+  const b = at(side < 0 ? t : t + dt);
+  return 8 * (Math.hypot(b.x - a.x, b.y - a.y) + (Math.abs(b.s - a.s) * W) / 2);
+};
+
+describe("carryThrough (back-to-back moves)", () => {
+  const z = (cx: number, cy: number) => ({ scale: 1.6, cx, cy });
+
+  it("carries speed through a junction that continues the same way", () => {
+    // Two pans down that meet with no hold: the camera used to stop dead at
+    // the middle key and re-launch.
+    const keys = carryThrough(
+      [
+        { t: 0, pose: z(0.5, 0.35) },
+        { t: 1, pose: z(0.5, 0.35) },
+        { t: 2, pose: z(0.5, 0.5) },
+        { t: 3, pose: z(0.52, 0.62) },
+        { t: 4, pose: z(0.52, 0.62) },
+      ],
+      VP,
+      { fit: WINDOW_FIT },
+    );
+    assert.ok(keys[2].slopes && keys[3].slopes, "junction not blended");
+    const before = edgeSpeed(keys, 2, -1, 1);
+    const after = edgeSpeed(keys, 2, 1, 1);
+    let peak = 0;
+    for (let t = 1; t < 3; t += 0.01) peak = Math.max(peak, edgeSpeed(keys, t, 1, 1));
+    assert.ok(before > 0.2 * peak, `still stops: ${before.toFixed(1)} of ${peak.toFixed(1)}`);
+    assert.ok(
+      Math.abs(before - after) < 0.05 * peak,
+      `${before.toFixed(1)} -> ${after.toFixed(1)} px/f`,
+    );
+    // The junction pose is still reached on time (a press was timed to it).
+    assert.deepEqual(sampleTrack(keys, 2), keys[2].pose);
+    // And the ends that meet a hold still start and land at rest.
+    assert.equal(keys[2].slopes!.from, 0);
+    assert.equal(keys[3].slopes!.to, 0);
+    assert.ok(edgeSpeed(keys, 1, 1, 1) < 0.02 * peak);
+    assert.ok(edgeSpeed(keys, 3, -1, 1) < 0.02 * peak);
+  });
+
+  it("stops on a reversal, where a camera has to", () => {
+    const keys = carryThrough(
+      [
+        { t: 0, pose: z(0.5, 0.4) },
+        { t: 1, pose: z(0.5, 0.6) },
+        { t: 2, pose: z(0.5, 0.4) },
+      ],
+      VP,
+      { fit: WINDOW_FIT },
+    );
+    assert.ok(keys.every((k) => k.slopes == null));
+  });
+
+  it("leaves holds and bent moves alone", () => {
+    const track: Parameters<typeof carryThrough>[0] = [
+      { t: 0, pose: BASE_POSE },
+      { t: 1, pose: z(0.5, 0.4) },
+      { t: 1.5, pose: z(0.5, 0.4) },
+      { t: 2.5, pose: z(0.6, 0.5), via: BASE_POSE },
+      { t: 3.5, pose: BASE_POSE },
+    ];
+    const keys = carryThrough(track, VP, { fit: WINDOW_FIT });
+    assert.deepEqual(keys, track);
+  });
+
+  it("keeps the progress monotone and inside the pan clamp", () => {
+    // A fast move into a slow one: the harmonic mean keeps the slopes < 2.
+    const keys = carryThrough(
+      [
+        { t: 0, pose: z(0.35, 0.35) },
+        { t: 0.6, pose: z(0.5, 0.5) },
+        { t: 3, pose: z(0.52, 0.52) },
+      ],
+      VP,
+      { fit: WINDOW_FIT },
+    );
+    assert.ok(keys[1].slopes!.to < 2 && keys[2].slopes!.from < 2);
+    let last = -Infinity;
+    for (let t = 0; t <= 3; t += 0.005) {
+      const p = sampleTrack(keys, t);
+      assert.ok(p.cx >= last - 1e-12, `backtracks at t=${t}`);
+      last = p.cx;
+      const lim = panLimit(p.scale);
+      assert.ok(Math.abs(p.cx - 0.5) <= lim + 1e-9);
+    }
+  });
+});
+
+describe("caret follow (typing out of frame)", () => {
+  // A composer near the top of the page: the text grows down it for 3s, ending
+  // well below what a punch on the field shows.
+  const caret = Array.from({ length: 13 }, (_, i) => ({
+    tMs: 3000 + i * 250,
+    x: 900,
+    y: Math.round(180 + i * 60),
+    w: 2,
+    h: 22,
+  }));
+  const field = {
+    label: "write",
+    tMs: 2900,
+    tDepartMs: 2200,
+    x: 900,
+    y: 190,
+    rect: { x: 660, y: 170, w: 600, h: 44 },
+    typeEndMs: 6000,
+  };
+  const log = (withCaret: boolean): ClickLog => ({
+    name: "compose",
+    viewport: VP,
+    durationMs: 12000,
+    clicks: [withCaret ? { ...field, caret } : field],
+  });
+  const geom = { fit: WINDOW_FIT, chromeFrac: 0 };
+  /** Is `r` inside the frame the camera shows at `pose`? */
+  const inShot = (
+    pose: { scale: number; cx: number; cy: number },
+    r: { x: number; y: number; w: number; h: number },
+  ) => {
+    const half = 1 / (2 * WINDOW_FIT * pose.scale);
+    return (
+      r.y / VP.height >= pose.cy - half - 1e-9 &&
+      (r.y + r.h) / VP.height <= pose.cy + half + 1e-9
+    );
+  };
+
+  it("pans to keep the latest caret in frame", () => {
+    const plain = buildCameraTrack(log(false), RATE, geom);
+    const keys = buildCameraTrack(log(true), RATE, geom);
+    // Without follow the last rows type out of shot.
+    const last = caret[caret.length - 1];
+    assert.ok(!inShot(sampleTrack(plain, last.tMs / 1000), last));
+    // With it the camera has panned down to them by the time they arrive...
+    assert.ok(inShot(sampleTrack(keys, last.tMs / 1000), last), "caret left the frame");
+    // ...without zooming: follow is a pan at the punch's scale.
+    const held = sampleTrack(plain, 2.9);
+    assert.ok(
+      keys.every((k) => k.pose.scale === 1 || Math.abs(k.pose.scale - held.scale) < 1e-9),
+    );
+  });
+
+  it("respects the pan clamp and the hold", () => {
+    const keys = buildCameraTrack(log(true), RATE, geom);
+    for (const k of keys) {
+      const lim = panLimit(WINDOW_FIT * k.pose.scale) + 1e-9;
+      assert.ok(Math.abs(k.pose.cy - 0.5) <= lim, JSON.stringify(k.pose));
+    }
+    // It never pulls out before the typing has finished and been watched.
+    const out = keys.findIndex((k, i) => i > 0 && k.pose.scale < keys[i - 1].pose.scale - 1e-3);
+    assert.ok(keys[out - 1].t >= (field.typeEndMs / 1000) + 0.7 * RATE - 1e-6);
+  });
+
+  it("adds nothing when the caret stays in shot (the logs in public/)", () => {
+    const still = caret.map((c) => ({ ...c, y: 180 }));
+    assert.deepEqual(
+      buildCameraTrack({ ...log(false), clicks: [{ ...field, caret: still }] }, RATE, geom),
+      buildCameraTrack(log(false), RATE, geom),
+    );
+  });
+
+  it("caretInShot pans only on the axis the caret left", () => {
+    const pose = { scale: 1.6, cx: 0.5, cy: 0.4 };
+    assert.deepEqual(caretInShot(pose, { x: 960, y: 400, w: 2, h: 20 }, VP), pose);
+    const moved = caretInShot(pose, { x: 960, y: 1000, w: 2, h: 20 }, VP);
+    assert.equal(moved.cx, pose.cx);
+    assert.equal(moved.scale, pose.scale);
+    assert.ok(moved.cy > pose.cy);
   });
 });

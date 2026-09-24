@@ -1,0 +1,86 @@
+{
+  "name": "hires-5760",
+  "viewport": {
+    "width": 5760,
+    "height": 3240
+  },
+  "durationMs": 19577,
+  "offsetMs": 0,
+  "clicks": [
+    {
+      "label": "beat 1",
+      "tMs": 2705,
+      "tDepartMs": 851,
+      "x": 4734,
+      "y": 525,
+      "rect": {
+        "x": 4453,
+        "y": 393,
+        "w": 563,
+        "h": 216
+      },
+      "tDownMs": 2588,
+      "cluster": "c1"
+    },
+    {
+      "label": "beat 2",
+      "tMs": 5525,
+      "tDepartMs": 4462,
+      "x": 5624,
+      "y": 750,
+      "rect": {
+        "x": 5488,
+        "y": 618,
+        "w": 272,
+        "h": 216
+      },
+      "tDownMs": 5390,
+      "cluster": "c2"
+    },
+    {
+      "label": "beat 3",
+      "tMs": 8258,
+      "tDepartMs": 7137,
+      "x": 4911,
+      "y": 351,
+      "rect": {
+        "x": 4356,
+        "y": 219,
+        "w": 1110,
+        "h": 216
+      },
+      "tDownMs": 8055,
+      "cluster": "c3"
+    },
+    {
+      "label": "beat 4",
+      "tMs": 13295,
+      "tDepartMs": 11049,
+      "x": 5040,
+      "y": 2987,
+      "rect": {
+        "x": 4320,
+        "y": 2855,
+        "w": 1440,
+        "h": 216
+      },
+      "tDownMs": 13164,
+      "cluster": "c4"
+    },
+    {
+      "label": "beat 5",
+      "tMs": 15362,
+      "tDepartMs": 14469,
+      "x": 4416,
+      "y": 2820,
+      "rect": {
+        "x": 4320,
+        "y": 2688,
+        "w": 192,
+        "h": 216
+      },
+      "tDownMs": 15248,
+      "cluster": "c4"
+    }
+  ]
+}

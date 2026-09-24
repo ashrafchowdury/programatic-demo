@@ -109,7 +109,7 @@ export function panLimit(scale: number): number {
  * 0.5 - 1/(2S) is linear in 1/S, so if both endpoints satisfy it, every point
  * on the line between them does. No move can wander into the render clamp.
  */
-function poseAlong(a: CameraPose, b: CameraPose, e: number): CameraPose {
+export function poseAlong(a: CameraPose, b: CameraPose, e: number): CameraPose {
   const scale = Math.exp(mix(Math.log(a.scale), Math.log(b.scale), e));
   const ua = 1 / a.scale;
   const ub = 1 / b.scale;
@@ -117,13 +117,44 @@ function poseAlong(a: CameraPose, b: CameraPose, e: number): CameraPose {
   return { scale, cx: mix(a.cx, b.cx, w), cy: mix(a.cy, b.cy, w) };
 }
 
-/** One eased progress value drives scale and centre. Convert to CSS *after* this. */
+/**
+ * Progress slopes at the two ends of a move that does NOT start or end at rest
+ * (d progress / d u, u the move's own 0..1 time). See carryProgress.
+ */
+export type MoveSlopes = { from: number; to: number };
+
+/**
+ * Progress for a move that carries speed through one or both of its ends: the
+ * cubic Hermite from 0 to 1 with slopes `from` and `to`.
+ *
+ * Only junction moves use it (a move that ends exactly as the next begins, see
+ * carryThrough in zoom.ts); every move that starts and ends at rest keeps
+ * CAMERA_BEZIER, so their tracks are unchanged. Both slopes stay below 2 by
+ * construction, inside the Fritsch-Carlson bound (s0^2 + s1^2 <= 9), so this is
+ * monotone and stays in 0..1 — the pose never leaves the line between its keys,
+ * which is what keeps it inside the pan clamp (see poseAlong).
+ */
+export function carryProgress(u: number, s: MoveSlopes): number {
+  const x = clamp(u, 0, 1);
+  const x2 = x * x;
+  const x3 = x2 * x;
+  return (
+    3 * x2 - 2 * x3 + s.from * (x3 - 2 * x2 + x) + s.to * (x3 - x2)
+  );
+}
+
+/**
+ * One eased progress value drives scale and centre. Convert to CSS *after* this.
+ * With `slopes` the move carries speed through its ends instead of starting and
+ * stopping at rest (see carryProgress).
+ */
 export function interpolatePose(
   a: CameraPose,
   b: CameraPose,
   t01: number,
+  slopes?: MoveSlopes,
 ): CameraPose {
-  return poseAlong(a, b, cameraEase(t01));
+  return poseAlong(a, b, slopes ? carryProgress(t01, slopes) : cameraEase(t01));
 }
 
 /**

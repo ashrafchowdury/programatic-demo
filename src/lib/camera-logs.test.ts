@@ -1,48 +1,52 @@
 /**
- * Property tests over every real click log in public/.
+ * Property tests over real click logs.
  *
  * The unit tests in zoom.test.ts pin hand-made logs at fit 1, and the motion
  * bugs they missed only existed on real footage at WINDOW_FIT, during moves:
  * presses landing mid-glide, zoom-outs leaving an action early, a render clamp
  * that swerved every punch. These replay the actual recordings the way the
- * composition does (speed 1.25, WINDOW_FIT, the drawn chrome) and assert the
- * rules the track promises. public/*.clicks.json is pipeline output and not
- * committed, so on a fresh checkout (or CI) this whole file skips.
+ * composition does (speed 1.25, and demoGeometry — WINDOW_FIT with no chrome
+ * strip, which is what scripts/render.ts and the reel cut both draw) and
+ * assert the rules the track promises.
+ *
+ * They run over two sets. src/lib/__fixtures__/*.clicks.json are committed:
+ * three real logs with their labels and cluster names replaced and their
+ * cursor tracks dropped (geometry and timing kept exactly) — a typing beat
+ * with caret samples and a content rect, a far-pan tour with a zoom:false
+ * beat that outruns its recording, and a 5760-wide CAPTURE_SCALE=3 log — so a
+ * fresh clone or CI still runs every property. public/*.clicks.json is
+ * pipeline output and gitignored; whatever is there locally runs too.
  */
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { panLimit, contentToWindow, poseToCss } from "./camera";
+import { panLimit, contentToWindow, posesNearlyEqual, poseToCss } from "./camera";
 import {
   ACTION_WATCH_S,
   DEFAULT_PLAYBACK_RATE,
-  DESIGN_WIDTH,
   OUTPUT_WIDTH,
   SETTLE_BEFORE_PRESS_S,
   type ClickLog,
 } from "./click-log";
-import { CHROME_H, WINDOW_FIT } from "./window";
-import { buildCameraTrack, sampleTrack, type CameraKey } from "./zoom";
+import { demoGeometry } from "./demo-duration";
+import { buildCameraTrack, caretInShot, sampleTrack, type CameraKey } from "./zoom";
 
+const readLogs = (dir: string): ClickLog[] =>
+  fs.existsSync(dir)
+    ? fs
+        .readdirSync(dir)
+        .filter((f) => f.endsWith(".clicks.json"))
+        .map((f) => JSON.parse(fs.readFileSync(path.join(dir, f), "utf8")))
+        .filter((log: ClickLog) => log.clicks?.length > 0)
+    : [];
+
+const FIXTURES = path.resolve(import.meta.dirname, "__fixtures__");
 const PUBLIC = path.resolve(import.meta.dirname, "../../public");
-const logs: ClickLog[] = fs.existsSync(PUBLIC)
-  ? fs
-      .readdirSync(PUBLIC)
-      .filter((f) => f.endsWith(".clicks.json"))
-      .map((f) => JSON.parse(fs.readFileSync(path.join(PUBLIC, f), "utf8")))
-      .filter((log: ClickLog) => log.clicks?.length > 0)
-  : [];
+const logs: ClickLog[] = [...readLogs(FIXTURES), ...readLogs(PUBLIC)];
 
 const SPEED = DEFAULT_PLAYBACK_RATE;
 const EPS = 1e-6;
-
-/** The chrome fraction DemoClip draws for this log (see useCameraAt). */
-const chromeFracOf = (log: ClickLog) => {
-  const chromeH = CHROME_H * (OUTPUT_WIDTH / DESIGN_WIDTH);
-  const height = OUTPUT_WIDTH * (log.viewport.height / log.viewport.width);
-  return chromeH / (height + chromeH);
-};
 
 const moving = (a: CameraKey, b: CameraKey) =>
   b.via != null ||
@@ -69,13 +73,18 @@ const segments = (keys: CameraKey[]) => {
 
 const name = (log: ClickLog) => log.name || "(unnamed)";
 
-describe("camera over every public/*.clicks.json", { skip: logs.length === 0 }, () => {
+describe("camera over the fixture logs and every local public/*.clicks.json", () => {
+  it("has the committed fixtures to run on", () => {
+    assert.ok(readLogs(FIXTURES).length >= 3, "src/lib/__fixtures__ is missing");
+  });
+
   const tracks = logs.map((log) => {
-    const cf = chromeFracOf(log);
+    const geom = demoGeometry(log);
     return {
       log,
-      cf,
-      keys: buildCameraTrack(log, SPEED, { fit: WINDOW_FIT, chromeFrac: cf }),
+      cf: geom.chromeFrac,
+      fit: geom.fit,
+      keys: buildCameraTrack(log, SPEED, geom),
     };
   });
 
@@ -153,16 +162,19 @@ describe("camera over every public/*.clicks.json", { skip: logs.length === 0 }, 
   });
 
   it("keeps velocity continuous at WINDOW_FIT across moves", () => {
-    // Every move starts and ends at rest, so wherever one move meets a hold
-    // or another move, the on-screen speed on both sides of the key is ~0.
-    // A step there is a kick (the old curve launched at full average speed)
-    // or a dead stop between back-to-back moves.
+    // A move that meets a hold starts or lands at rest, so the on-screen speed
+    // on both sides of that key is ~0; a step there is a kick (the old curve
+    // launched at full average speed). Where two moves meet with no hold
+    // between them the speed CARRIES through the key (carryThrough) — so the
+    // rule at every key is "the same on both sides", and ~0 wherever the key
+    // is not such a junction.
     const W = OUTPUT_WIDTH;
     const kicks: string[] = [];
-    for (const { log, keys, cf } of tracks) {
+    let junctions = 0;
+    for (const { log, keys, cf, fit } of tracks) {
       const H = OUTPUT_WIDTH * (log.viewport.height / log.viewport.width);
       const edge = (t: number) => {
-        const z = poseToCss(sampleTrack(keys, t), cf, WINDOW_FIT);
+        const z = poseToCss(sampleTrack(keys, t), cf, fit);
         return { x: z.translateX * W, y: z.translateY * H, s: z.scale };
       };
       // px per screen frame at 30fps, of the frame edge (translate + growth)
@@ -174,17 +186,43 @@ describe("camera over every public/*.clicks.json", { skip: logs.length === 0 }, 
       };
       let peak = 0;
       for (let t = 0; t < keys[keys.length - 1].t; t += dt) peak = Math.max(peak, speedAt(t));
-      for (const k of keys.slice(1, -1)) {
+      for (let i = 1; i + 1 < keys.length; i++) {
+        const k = keys[i];
+        const carried = (k.slopes?.to ?? 0) > 0;
+        if (carried) junctions++;
         const before = speedAt(k.t - dt / 4 - 1e-4);
         const after = speedAt(k.t + 1e-4);
-        if (Math.max(before, after) > 0.05 * peak) {
+        const bad = carried
+          ? Math.abs(before - after) > 0.05 * peak
+          : Math.max(before, after) > 0.05 * peak;
+        if (bad) {
           kicks.push(
-            `${name(log)} t=${k.t.toFixed(3)}: ${before.toFixed(1)} -> ${after.toFixed(1)} px/f (peak ${peak.toFixed(0)})`,
+            `${name(log)} t=${k.t.toFixed(3)}${carried ? " (junction)" : ""}: ${before.toFixed(1)} -> ${after.toFixed(1)} px/f (peak ${peak.toFixed(0)})`,
           );
         }
       }
     }
-    assert.deepEqual(kicks, []);
+    assert.deepEqual(kicks, [], `${junctions} carried junctions`);
+  });
+
+  it("keeps the caret in shot while a beat types", () => {
+    // Wherever the camera is holding during a typing beat, the latest caret
+    // sample is inside the frame (or the pan clamp is what stops it).
+    const lost: string[] = [];
+    for (const { log, keys, cf, fit } of tracks) {
+      const segs = segments(keys);
+      for (const c of log.clicks) {
+        if (c.zoom === false) continue;
+        for (const s of c.caret ?? []) {
+          const t = s.tMs / 1000;
+          if (segs.some((g) => t > g.a && t < g.b)) continue;
+          const pose = sampleTrack(keys, t);
+          const want = caretInShot(pose, s, log.viewport, { fit, chromeFrac: cf });
+          if (!posesNearlyEqual(pose, want)) lost.push(`${name(log)} "${c.label}" t=${t.toFixed(2)}`);
+        }
+      }
+    }
+    assert.deepEqual(lost, []);
   });
 
   it("ends every clip at base", () => {

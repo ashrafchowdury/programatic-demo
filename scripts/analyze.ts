@@ -73,11 +73,13 @@ import {
   FrameRecorder,
   MOVES,
   pressFrame,
+  pressSpeed,
   SEGMENT,
   type Boundary,
   type FrameRecord,
   type Move,
   type Plane,
+  type Similarity,
 } from "./lib/motion-metrics";
 import {
   resolveStyle,
@@ -205,7 +207,7 @@ const FROZEN_THRESHOLD = 2;
 /** Frames closer than this join the same run. */
 const RUN_GAP_S = 0.15;
 /**
- * MOVING FRAME, the reel definition (docs/reel/02-motion.md): more than 0.2%
+ * MOVING FRAME, the reel definition (docs/reel/cursor/02-motion.md): more than 0.2%
  * of pixels change by more than 8/255. Threshold each pixel, then count — an
  * averaged amplitude ranks encoders, not films. This is the metric the style
  * `targets.movingFrac` and `longestStillF` were measured with.
@@ -441,7 +443,12 @@ const edgeTrace = (file: string) =>
 // camera estimator and the cell stats.
 // ---------------------------------------------------------------------------
 
-type FramePass = { recs: FrameRecord[]; l2: Plane[] };
+type FramePass = {
+  recs: FrameRecord[];
+  l2: Plane[];
+  /** The camera from the first frame to the last, fitted directly. */
+  end: Similarity | null;
+};
 
 async function framePass(file: string, fps: number): Promise<FramePass> {
   const rec = new FrameRecorder(fps);
@@ -452,7 +459,7 @@ async function framePass(file: string, fps: number): Promise<FramePass> {
     ANALYSIS_H,
     (d) => rec.push({ w: ANALYSIS_W, h: ANALYSIS_H, d }),
   );
-  return { recs: rec.recs, l2: rec.l2 };
+  return { recs: rec.recs, l2: rec.l2, end: rec.endVsStart() };
 }
 
 // ---------------------------------------------------------------------------
@@ -644,6 +651,9 @@ async function analyzeDemo(
     s *= 1 + (r.model?.a ?? 0);
     scale.push(s);
   }
+  // End vs start framing: fitted first-to-last directly when the two frames
+  // share enough to fit (see FrameRecorder.endVsStart), else the integral.
+  const endScale = fp.end ? 1 + fp.end.a : scale[n - 1];
 
   // --- Settle before press -----------------------------------------------
   const name = path.basename(file, path.extname(file));
@@ -665,16 +675,14 @@ async function analyzeDemo(
     playback = opts.speed ?? resolvePlaybackRate(process.env.DEMO_SPEED);
     logMatches =
       p.frames >= Math.ceil((clickLog.durationMs / 1000 / playback) * fps) - 1;
+    const speedSeries = recs.map((r) => r.speed);
     for (const c of clickLog.clicks) {
       const f = pressFrame(c.tDownMs ?? c.tMs, playback, fps, clickLog.offsetMs);
       if (f < 1 || f >= n) continue;
-      const here = [recs[f]?.speed, recs[f + 1]?.speed];
       presses.push({
         label: c.label ?? "",
         frame: f,
-        speed: here.some((v) => v == null)
-          ? null
-          : Math.max(...(here as number[])),
+        speed: pressSpeed(speedSeries, f),
       });
     }
   }
@@ -771,7 +779,7 @@ async function analyzeDemo(
   for (const [pass, msg] of checks) log(`  [${ok(pass)}] ${msg}`);
   log(
     `  [info] velocity jumps ${cam.jumps.length}; zoomed-hold blank share max ` +
-      `${fmt(100 * max(zoomed.map((h) => h.blank)), 0)}%; ends at ${fmt(scale[n - 1])}x of start framing`,
+      `${fmt(100 * max(zoomed.map((h) => h.blank)), 0)}%; ends at ${fmt(endScale)}x of start framing`,
   );
 
   const summary: Summary = {
@@ -790,7 +798,7 @@ async function analyzeDemo(
     zoomedHolds: zoomed.length,
     blankShareZoomedMax: round(max(zoomed.map((h) => h.blank))),
     blankShareZoomedMean: round(mean(zoomed.map((h) => h.blank))),
-    endScale: round(scale[n - 1]),
+    endScale: round(endScale),
     edgeWidthMedian: round(edgeAll),
     edgeWidthHolds: round(edgeHold),
     edgeWidthZoomedHolds: round(edgeZoom),
@@ -1061,7 +1069,7 @@ async function analyzeReel(
   const empties = cuts.filter((c) => c.kind === "empty").length;
   const meanShotS = mean(segReports.map((s) => s.lengthS));
   const cutsPerMin = (hard + dissolves) / Math.max(1e-9, minutes);
-  // Moving/still on non-transition frames, the docs/reel/02-motion.md chain.
+  // Moving/still on non-transition frames, the docs/reel/cursor/02-motion.md chain.
   const counted: boolean[] = [];
   for (let f = 1; f < n; f++) if (!skip(f)) counted.push(movingF[f] > MOVING_SHARE);
   const movingFrac = counted.filter(Boolean).length / Math.max(1, counted.length);

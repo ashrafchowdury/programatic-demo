@@ -1,0 +1,152 @@
+{
+  "name": "far-pans",
+  "viewport": {
+    "width": 1920,
+    "height": 1080
+  },
+  "durationMs": 23758,
+  "offsetMs": 0,
+  "clicks": [
+    {
+      "label": "beat 1",
+      "tMs": 2742,
+      "tDepartMs": 1035,
+      "x": 579,
+      "y": 545,
+      "rect": {
+        "x": 381,
+        "y": 501,
+        "w": 395,
+        "h": 72
+      },
+      "cluster": "c1"
+    },
+    {
+      "label": "beat 2",
+      "tMs": 4109,
+      "tDepartMs": 3066,
+      "x": 836,
+      "y": 545,
+      "rect": {
+        "x": 740,
+        "y": 501,
+        "w": 191,
+        "h": 72
+      },
+      "cluster": "c1",
+      "zoom": false
+    },
+    {
+      "label": "beat 3",
+      "tMs": 9842,
+      "tDepartMs": 7202,
+      "x": 502,
+      "y": 466,
+      "rect": {
+        "x": 345,
+        "y": 422,
+        "w": 314,
+        "h": 72
+      },
+      "cluster": "c2"
+    },
+    {
+      "label": "beat 4",
+      "tMs": 11839,
+      "tDepartMs": 10590,
+      "x": 559,
+      "y": 586,
+      "rect": {
+        "x": 350,
+        "y": 542,
+        "w": 418,
+        "h": 72
+      },
+      "cluster": "c2"
+    },
+    {
+      "label": "beat 5",
+      "tMs": 13933,
+      "tDepartMs": 12667,
+      "x": 502,
+      "y": 630,
+      "rect": {
+        "x": 345,
+        "y": 586,
+        "w": 314,
+        "h": 72
+      },
+      "cluster": "c3"
+    },
+    {
+      "label": "beat 6",
+      "tMs": 15242,
+      "tDepartMs": 14019,
+      "x": 503,
+      "y": 713,
+      "rect": {
+        "x": 350,
+        "y": 669,
+        "w": 306,
+        "h": 72
+      },
+      "cluster": "c3"
+    },
+    {
+      "label": "beat 7",
+      "tMs": 16438,
+      "tDepartMs": 16085,
+      "x": 502,
+      "y": 710,
+      "rect": {
+        "x": 345,
+        "y": 666,
+        "w": 314,
+        "h": 72
+      },
+      "cluster": "c4"
+    },
+    {
+      "label": "beat 8",
+      "tMs": 17759,
+      "tDepartMs": 16520,
+      "x": 503,
+      "y": 569,
+      "rect": {
+        "x": 350,
+        "y": 525,
+        "w": 306,
+        "h": 72
+      },
+      "cluster": "c4"
+    },
+    {
+      "label": "beat 9",
+      "tMs": 21356,
+      "tDepartMs": 21134,
+      "x": 1122,
+      "y": 505,
+      "rect": {
+        "x": 677,
+        "y": 448,
+        "w": 890,
+        "h": 113
+      },
+      "cluster": "c5"
+    },
+    {
+      "label": "beat 10",
+      "tMs": 22585,
+      "tDepartMs": 21433,
+      "x": 1122,
+      "y": 632,
+      "rect": {
+        "x": 677,
+        "y": 575,
+        "w": 890,
+        "h": 113
+      },
+      "cluster": "c5"
+    }
+  ]
+}

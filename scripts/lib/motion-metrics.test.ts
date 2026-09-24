@@ -16,6 +16,7 @@ import {
   frameStats,
   MOVES,
   pressFrame,
+  pressSpeed,
   pyramid,
   speedOf,
   TO_1920,
@@ -219,6 +220,61 @@ describe("findMoves (onset)", () => {
 
   it("ignores drift under the minimum peak", () => {
     assert.equal(findMoves([0, 2, 3, 4, 3, 2, 0]).length, 0);
+  });
+
+  it("reads a small move's onset from its sub-floor first frame", () => {
+    // gmail-automation 4.50 s as measured: frame one is 0.22 px, under the
+    // floor, and the second frame alone read as a 17% lurch.
+    const s = [0, 0, 0.22, 2.3, 6.01, 10.77, 13.72, 13.04, 10.47, 6, 3, 1.2, 0.4, 0];
+    const [m] = findMoves(s);
+    assert.equal(m.start, 2);
+    assert.ok(m.onset[0] < 0.05, `onset ${m.onset[0]}`);
+    assert.ok(Math.abs(m.onset[1] - 2.3 / 13.72) < 1e-9);
+  });
+
+  it("does not walk back onto a still frame before a real lurch", () => {
+    // Noise (0.3) before a move that starts at 60% of its peak.
+    const [m] = findMoves([0, 0, 0.3, 8.4, 14, 12, 8, 4, 1.5, 0]);
+    assert.equal(m.start, 3);
+    assert.ok(m.onset[0] > 0.5);
+  });
+});
+
+describe("FrameRecorder.endVsStart", () => {
+  it("fits the first frame to the last directly, not by integrating", () => {
+    // Out to 1.2x and back: the round trip ends where it started.
+    const path: Array<[number, number, number]> = [
+      [0.5, 800, 450],
+      [0.55, 820, 440],
+      [0.6, 840, 430],
+      [0.55, 820, 440],
+      [0.5, 800, 450],
+    ];
+    const r = record(path.map(([s, x, y]) => view(WORLD, s, x, y)));
+    const m = r.endVsStart();
+    assert.ok(m, "no fit");
+    assert.ok(Math.abs(m.a) < 0.005 && Math.abs(m.tx) < 0.5 && Math.abs(m.ty) < 0.5, JSON.stringify(m));
+    assert.equal(new FrameRecorder(30).endVsStart(), null);
+  });
+});
+
+describe("pressSpeed", () => {
+  it("reads a lone moving frame under a held camera as the page", () => {
+    // gmail "Pick an agent": the dropdown opened on f55 alone.
+    const s = [0, 0, 0.03, 8.16, 0.08, 0.07];
+    assert.ok(pressSpeed(s, 2)! < 0.1);
+  });
+
+  it("keeps a camera that is still landing", () => {
+    assert.equal(pressSpeed([6, 4, 3, 2.5, 1.2, 0.4], 2), 3);
+  });
+
+  it("keeps a move that starts on the press", () => {
+    assert.equal(pressSpeed([0, 0, 0.3, 2.3, 6], 2), 2.3);
+  });
+
+  it("is unknown when a frame was not measured", () => {
+    assert.equal(pressSpeed([0, null, 0], 0), null);
   });
 });
 

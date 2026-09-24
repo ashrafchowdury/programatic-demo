@@ -24,10 +24,12 @@ import {
   mix,
   moveDuration,
   panLimit,
+  poseAlong,
   poseToCss,
   posesNearlyEqual,
   poseTravelPx,
   type CameraPose,
+  type MoveSlopes,
 } from "./camera";
 import { WINDOW_FIT } from "./window";
 
@@ -51,6 +53,12 @@ export type CameraKey = {
    * Absent on ordinary keys, whose move is a straight line.
    */
   via?: CameraPose;
+  /**
+   * The move that ENDS at this key carries speed through its ends instead of
+   * starting and landing at rest (see carryThrough). Absent on every move that
+   * meets a hold, which is nearly all of them.
+   */
+  slopes?: MoveSlopes;
 };
 
 export type ZoomOptions = {
@@ -445,19 +453,123 @@ function clickInShot(
 }
 
 /**
+ * How much more of the frame the product must fill at `next` than at `cur` for
+ * a click that is already in shot to re-aim anyway (see settle).
+ *
+ * The click being in shot is not enough when the page has changed under the
+ * camera. gmail-automation held the trigger popover's framing (page y 283-1006)
+ * through the instruction beat and Create, after Done had closed the popover:
+ * the click was still in shot, the next pose was no tighter, so the camera
+ * stayed — on the bottom half of the form's frame and the empty page below it.
+ * 86% of that hold was blank (analyze), the worst hold in the five demos.
+ * Measured by `contentShare` on the logs in public/: that carry-over filled
+ * 0.20 of the frame with the form where the form's own pose fills 0.39 (0.30
+ * vs 0.49 at Create). Every other pose carried over a click in public/ is
+ * within 0.05 of that click's own, so 0.15 re-aims only where the page moved.
+ * After: gmail's instruction and Create hold 75% blank (max 76%), was 86-87%
+ * — measured on the footage at the track's poses. The form is itself mostly
+ * white; no pose that keeps it the subject reads under ~73% (a pose scan at
+ * S 1.2-1.74), so the rest of that number is the page, not the framing.
+ */
+export const REFRAME_GAIN = 0.15;
+
+/**
+ * Share of the frame at `pose` that the click's product fills: its control
+ * (with the menu room frameFor gives it) and logged content, in shot. 0 when
+ * no content was logged — there is nothing to measure against.
+ */
+export function contentShare(
+  c: ClickEvent,
+  pose: CameraPose,
+  vp: { width: number; height: number },
+  geom: FrameGeometry = {},
+): number {
+  if (!c.content) return 0;
+  const W = vp.width;
+  const H = vp.height;
+  const fit = geom.fit && geom.fit > 0 ? geom.fit : WINDOW_FIT;
+  const cf = clamp(geom.chromeFrac ?? 0, 0, 0.2);
+  const eff = Math.max(1, fit * pose.scale);
+  const k = W > 0 ? W / DESIGN_WIDTH : 1;
+  const rect = c.rect ?? { x: c.x - 60 * k, y: c.y - 24 * k, w: 120 * k, h: 48 * k };
+  const menuRoom = (rect.h >= 90 * k ? 24 : MENU_ROOM) * k;
+  const u = clipTo(
+    union({ x: rect.x, y: rect.y, w: rect.w, h: rect.h + menuRoom }, c.content),
+    W,
+    H,
+  );
+  // The visible window-group span, in content px: the group is H / (1 - cf)
+  // tall with the chrome on top, as frameFor works in.
+  const vw = W / eff;
+  const vh = H / (1 - cf) / eff;
+  const x0 = pose.cx * W - vw / 2;
+  const y0 = pose.cy * H - vh / 2;
+  const ix = Math.max(0, Math.min(x0 + vw, u.x + u.w) - Math.max(x0, u.x));
+  const iy = Math.max(0, Math.min(y0 + vh, u.y + u.h) - Math.max(y0, u.y));
+  return (ix * iy) / (vw * vh);
+}
+
+/**
  * The pose to use for click `c` when the camera is already at `cur`: `next`
- * if the move earns itself, otherwise `cur`. See REPOSE_MIN_DS.
+ * if the move earns itself, otherwise `cur`. See REPOSE_MIN_DS and
+ * REFRAME_GAIN.
  */
 function settle(
   cur: CameraPose,
   next: CameraPose,
   c: ClickEvent,
   vp: { width: number; height: number },
-  fit: number,
+  geom: FrameGeometry,
 ): CameraPose {
+  const fit = geom.fit && geom.fit > 0 ? geom.fit : WINDOW_FIT;
   if (cur.scale <= BASE_POSE.scale) return next;
   if (next.scale - cur.scale >= REPOSE_MIN_DS) return next;
-  return clickInShot(c, cur, vp, fit) ? cur : next;
+  if (!clickInShot(c, cur, vp, fit)) return next;
+  return contentShare(c, next, vp, geom) - contentShare(c, cur, vp, geom) >=
+    REFRAME_GAIN
+    ? next
+    : cur;
+}
+
+/**
+ * The pose that keeps a caret sample in shot: `pose` when it already is, else
+ * `pose` panned (never zoomed) so the caret sits mid-frame on each axis it had
+ * left — half a frame of room for the lines still to come, so the camera steps
+ * once per screenful of text rather than once per line. A rect too big for the
+ * frame (a textarea logged whole) keeps its end in shot: the bottom, where the
+ * text is growing, and the left, where each line starts. Held to the same
+ * effective-scale pan limit frameFor uses, so the render clamp never acts.
+ */
+export function caretInShot(
+  pose: CameraPose,
+  r: { x: number; y: number; w: number; h: number },
+  vp: { width: number; height: number },
+  geom: FrameGeometry = {},
+): CameraPose {
+  const fit = geom.fit && geom.fit > 0 ? geom.fit : WINDOW_FIT;
+  const cf = clamp(geom.chromeFrac ?? 0, 0, 0.2);
+  const eff = pose.scale * fit;
+  if (eff <= 1) return pose;
+  const half = 1 / (2 * eff);
+  const margin = Math.min(CLICK_MARGIN, half * 0.4);
+  const reach = half - margin;
+  const lim = panLimit(eff);
+  const toG = (yPx: number) => cf + clamp(yPx / vp.height, 0, 1) * (1 - cf);
+  // Window-group space, as frameFor works in (x as-is, y under the chrome).
+  const axis = (g: number, a: number, b: number, keepEnd: boolean) => {
+    if (a >= g - reach && b <= g + reach) return g;
+    const want =
+      b - a <= 2 * reach ? (a + b) / 2 : keepEnd ? b - reach : a + reach;
+    return clamp(want, 0.5 - lim, 0.5 + lim);
+  };
+  const gx = axis(
+    pose.cx,
+    clamp(r.x / vp.width, 0, 1),
+    clamp((r.x + r.w) / vp.width, 0, 1),
+    false,
+  );
+  const gy = axis(cf + pose.cy * (1 - cf), toG(r.y), toG(r.y + r.h), true);
+  return { scale: pose.scale, cx: gx, cy: groupToContentY(gy, cf) };
 }
 
 function departS(c: ClickEvent): number {
@@ -491,6 +603,78 @@ function normalizeKeys(keys: CameraKey[]): CameraKey[] {
   return out;
 }
 
+/**
+ * Carry speed through every key where one straight move ends exactly as the
+ * next begins (D1).
+ *
+ * Every move eases in from rest and lands at rest, which is right wherever a
+ * move meets a hold. Where two moves meet with no hold between them — a caret
+ * follow running straight into the next beat's pan, a pan fitMove could only
+ * start the instant the last one landed — it was a dead stop and a re-launch in
+ * the middle of what reads as one glide, the same fault interpolateVia fixed
+ * for an out-and-in through base.
+ *
+ * This keeps both keys (the junction pose is still reached at its time — it is
+ * the framing a press was timed against) and gives the two moves matching
+ * on-screen speed there: the harmonic mean of their average speeds (the
+ * Fritsch-Butland tangent, which keeps each slope under 2 and the progress
+ * monotone), scaled by the cosine of the turn. A reversal (turn >= 90 degrees)
+ * carries nothing: stopping is what a camera does when it changes its mind.
+ * Speed is matched in screen space (poseToCss at this fit and chrome) so the
+ * frame edge, not the pose maths, is what runs continuously.
+ *
+ * Via moves keep their rest-to-rest ease: their ends are already the far ends
+ * of a trail, and bending one AND carrying through it is not worth the curve.
+ * On the 21 logs in public/ there are no junctions today (measured), so every
+ * shipped track is unchanged; the follow pans (followCaret) are what create them.
+ */
+export function carryThrough(
+  keys: CameraKey[],
+  vp: { width: number; height: number },
+  geom: FrameGeometry,
+): CameraKey[] {
+  const fit = geom.fit && geom.fit > 0 ? geom.fit : WINDOW_FIT;
+  const cf = clamp(geom.chromeFrac ?? 0, 0, 0.2);
+  const aspect = vp.width > 0 ? vp.height / vp.width : 1;
+  // Frame-edge position in output widths: translate x, translate y, and the
+  // edge's growth (half the scale), the three things the viewer sees move.
+  const screen = (p: CameraPose) => {
+    const z = poseToCss(p, cf, fit);
+    return [z.translateX, z.translateY * aspect, z.scale / 2];
+  };
+  const straight = (a: CameraKey, b: CameraKey) =>
+    b.via == null && b.t - a.t > 1e-6 && !posesSame(a.pose, b.pose);
+  const D = 1e-4;
+  const diff = (p: number[], q: number[]) => p.map((v, i) => (v - q[i]) / D);
+  const norm = (v: number[]) => Math.hypot(...v);
+  const out = keys.map((k) => ({ ...k }));
+  for (let i = 1; i + 1 < out.length; i++) {
+    const a = out[i - 1];
+    const j = out[i];
+    const c = out[i + 1];
+    if (!straight(a, j) || !straight(j, c)) continue;
+    // Screen velocity per unit of progress at the junction end of each move.
+    const dL = diff(screen(j.pose), screen(poseAlong(a.pose, j.pose, 1 - D)));
+    const dR = diff(screen(poseAlong(j.pose, c.pose, D)), screen(j.pose));
+    const nL = norm(dL);
+    const nR = norm(dR);
+    if (nL < 1e-9 || nR < 1e-9) continue;
+    const cos = dL.reduce((s, v, k) => s + v * dR[k], 0) / (nL * nR);
+    if (cos <= 0) continue;
+    const vL = nL / (j.t - a.t);
+    const vR = nR / (c.t - j.t);
+    const v = (cos * 2 * vL * vR) / (vL + vR);
+    j.slopes = { from: j.slopes?.from ?? 0, to: v / vL };
+    c.slopes = { from: v / vR, to: 0 };
+  }
+  return out;
+}
+
+const posesSame = (a: CameraPose, b: CameraPose): boolean =>
+  Math.abs(a.scale - b.scale) < 1e-6 &&
+  Math.abs(a.cx - b.cx) < 1e-6 &&
+  Math.abs(a.cy - b.cy) < 1e-6;
+
 /** Mousedown of a click, on the log clock (focus beats have none: use tMs). */
 const pressS = (c: ClickEvent): number => (c.tDownMs ?? c.tMs) / 1000;
 
@@ -504,7 +688,6 @@ export function buildCameraTrack(
   geom: FrameGeometry = {},
 ): CameraKey[] {
   const vp = log.viewport;
-  const fit = geom.fit && geom.fit > 0 ? geom.fit : WINDOW_FIT;
   const base = basePose(geom.chromeFrac ?? 0);
   const groups = stickify(clusterize(log.clicks, vp), vp);
   const keys: CameraKey[] = [{ t: 0, pose: base }];
@@ -666,12 +849,54 @@ export function buildCameraTrack(
     move(to, m.start, m.dur);
   };
 
+  /**
+   * Keep the text in shot while `c` types (D15). The recorder logs where the
+   * text is going (ClickEvent.caret) every ~250 ms; a field that grows or a
+   * caret that runs down the page past the zoomed frame used to type out of
+   * shot, because the pose was fixed at the press. Each sample the camera is
+   * free for is checked — the latest one a pan's length ahead (the log is
+   * offline, so the camera can leave as the text is about to go out of shot
+   * rather than after it has) — and when that caret is out of frame the camera
+   * pans (caretInShot: same scale, pan-clamped) to bring it back mid-frame.
+   * Samples a pan in progress has already covered are skipped, not chased.
+   *
+   * It lives inside the hold and never stretches it: a pan that cannot land by
+   * `until` (the full hold, or the next beat's own move if that is sooner) is
+   * not started. No caret samples, or none that leave the frame, adds no key.
+   */
+  // A pan is never shorter than 700ms on screen (moveDuration), so that is how
+  // far ahead the camera looks.
+  const caretLead = 0.7 * speed;
+  const followCaret = (c: ClickEvent, until: number) => {
+    const samples = c.caret;
+    if (!samples?.length || pose.scale <= base.scale + 1e-3) return;
+    const from = pressS(c);
+    for (let i = 0; i < samples.length; i++) {
+      // Superseded while the camera was still busy: a later sample says more.
+      if (i + 1 < samples.length && samples[i + 1].tMs / 1000 <= free) continue;
+      const now = Math.max(free, from, samples[i].tMs / 1000);
+      let j = i;
+      while (j + 1 < samples.length && samples[j + 1].tMs / 1000 <= now + caretLead) j++;
+      const to = caretInShot(pose, samples[j], vp, geom);
+      if (posesNearlyEqual(pose, to)) continue;
+      const m = fitMove(now, now, until, moveDuration(pose, to, "pan", vp, speed));
+      if (m.start + m.dur > until + 1e-6) return;
+      move(to, m.start, m.dur);
+    }
+  };
+  /** When the beat after `c` wants the camera: its own lead, or its group's. */
+  const nextWant = (i: number, j: number): number => {
+    const group = meta[i].group;
+    if (j + 1 < group.length) return departS(group[j + 1]) - CAMERA_LEAD_S;
+    return i + 1 < meta.length ? meta[i + 1].tIn : Infinity;
+  };
+
   for (let i = 0; i < meta.length; i++) {
     const { group, poses, tIn } = meta[i];
     const prev = i > 0 ? meta[i - 1].group : null;
     const prevLast = prev ? prev[prev.length - 1] : null;
     reach(
-      settle(pose, poses[0], group[0], vp, fit),
+      settle(pose, poses[0], group[0], vp, geom),
       tIn,
       pressS(group[0]),
       prevLast
@@ -679,14 +904,16 @@ export function buildCameraTrack(
         : { hard: 0, soft: 0 },
       true,
     );
+    followCaret(group[0], Math.min(holdUntil(group[0]), nextWant(i, 0)));
     for (let j = 1; j < group.length; j++) {
       reach(
-        settle(pose, poses[j], group[j], vp, fit),
+        settle(pose, poses[j], group[j], vp, geom),
         departS(group[j]) - CAMERA_LEAD_S,
         pressS(group[j]),
         { hard: watchUntil(group[j - 1]), soft: holdUntil(group[j - 1]) },
         false,
       );
+      followCaret(group[j], Math.min(holdUntil(group[j]), nextWant(i, j)));
     }
   }
 
@@ -696,16 +923,29 @@ export function buildCameraTrack(
   // track runs past durationMs and the composition holds the last frame of the
   // footage (see trackDurationMs) rather than ending zoomed in or clipping the
   // payoff.
+  //
+  // For the closing CLICK that full hold is HOLD_MIN_S of stillness counted
+  // from when the camera came to rest on it, not from the click: the camera
+  // has usually been still on the button for 0.3-1 s before the press, and
+  // what follows the press is the payoff, which reads at base. Counted from the
+  // click, the hold sat zoomed on where the button had been — agent-skill's
+  // Create drawer closes under it (78% blank page, analyze) — and ran
+  // agent-tool 1.05 s past its footage. The watch floor still applies, and a
+  // typing beat keeps its tail.
   const lastGroup = meta[meta.length - 1].group;
   const last = lastGroup[lastGroup.length - 1];
   if (pose.scale > base.scale + 1e-3 || !posesNearlyEqual(pose, base)) {
-    const outStart = Math.max(free, holdUntil(last));
+    const leave =
+      last.typeEndMs != null
+        ? holdUntil(last)
+        : Math.max(watchUntil(last), Math.min(holdUntil(last), free + holdMin));
+    const outStart = Math.max(free, leave);
     move(base, outStart, moveDuration(pose, base, "out", vp, speed));
   }
   const clipEnd = (log.durationMs || last.tMs + END_TAIL_S * 1000) / 1000;
   keys.push({ t: Math.max(clipEnd, free + baseBeat), pose: base });
 
-  return normalizeKeys(keys);
+  return carryThrough(normalizeKeys(keys), vp, geom);
 }
 
 /**
@@ -740,7 +980,7 @@ export function sampleTrack(keys: CameraKey[], t: number): CameraPose {
   const u = (t - a.t) / dur;
   return b.via
     ? interpolateVia(a.pose, b.via, b.pose, u)
-    : interpolatePose(a.pose, b.pose, u);
+    : interpolatePose(a.pose, b.pose, u, b.slopes);
 }
 
 /**

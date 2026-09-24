@@ -579,13 +579,28 @@ export class FrameRecorder {
   readonly recs: FrameRecord[] = [];
   readonly l2: Plane[] = [];
   private prev: Pyramid | null = null;
+  private first: Pyramid | null = null;
   private prevStats: FrameStats | null = null;
   private hint: Similarity | null = null;
 
   constructor(private readonly fps: number) {}
 
+  /**
+   * The camera between the first frame pushed and the last, estimated
+   * directly — or null when it cannot be (no frames, or the two pictures share
+   * too little to fit). The per-frame models compound: every page change a
+   * held camera sees adds a small false scale, and gmail-automation integrated
+   * to "ends at 0.88x" across 706 frames whose first and last window rects are
+   * identical. One direct fit has no such drift.
+   */
+  endVsStart(): Similarity | null {
+    if (!this.first || !this.prev) return null;
+    return estimateMotion(this.first, this.prev, null).model;
+  }
+
   push(plane: Plane): FrameRecord {
     const pyr = pyramid(plane);
+    this.first ??= pyr;
     const stats = frameStats(pyr[0]);
     let model: Similarity | null = { a: 0, tx: 0, ty: 0 };
     let change: CellChange | null = null;
@@ -885,6 +900,22 @@ export const MOVES = {
   jump: 15,
   /** A press is "settled" when the camera speed at its frame is below this. */
   settle: 2,
+  /**
+   * A move's onset is read from its first frame of motion, which for a small
+   * move sits under `floor`: the zero-slope ease puts 2-5% of peak on frame one,
+   * and on a 14 px/f reframe that is 0.2-0.8 px. Counted from the first frame
+   * over `floor`, those moves reported their SECOND frame (17-25% of peak) as
+   * the onset and were flagged as lurches — gmail 4.50 s (f134 0.22, f135 2.30,
+   * peak 13.7), hourly 6.47 s (f193 0.30, f194 3.49), agent-tool 4.13 s (f123
+   * 0.83, f124 8.07) — while the same curve on a big move passed, because its
+   * frame one cleared the floor. So a move is walked back over up to two
+   * sub-floor frames that climb into it: above `leadIn` (the held-frame
+   * estimator floor reads 0.00-0.09 on these holds) and at least `leadInRatio`
+   * of the frame after (the ramps above run 0.086-0.10; a still frame before a
+   * real lurch reads far under it).
+   */
+  leadIn: 0.15,
+  leadInRatio: 1 / 15,
 };
 
 export type Move = {
@@ -929,14 +960,22 @@ export function findMoves(raw: Array<number | null>): Move[] {
         peakAt = i;
       }
     if (peak >= MOVES.minPeak && e - k + 1 >= MOVES.minFrames) {
+      // Walk back into the move's sub-floor lead-in (see MOVES.leadIn).
+      let s = k;
+      for (let j = 0; j < 2 && s > 0; j++) {
+        const v = raw[s - 1];
+        const next = raw[s] ?? 0;
+        if (v == null || v <= MOVES.leadIn || v >= next || v < MOVES.leadInRatio * next) break;
+        s--;
+      }
       // A move whose frame-before is unmeasured (the range start, a cut, an
       // estimator miss) may already have been moving: its onset is unknown,
       // not "a lurch". Reel shots that push in from the cut land here.
-      const observed = k > 0 && raw[k - 1] != null;
+      const observed = s > 0 && raw[s - 1] != null;
       const onset = [0, 1, 2]
-        .map((j) => raw[k + j])
+        .map((j) => raw[s + j])
         .map((v) => (v == null || !observed ? NaN : v / peak));
-      out.push({ start: k, end: e, peak, peakAt, onset });
+      out.push({ start: s, end: e, peak, peakAt, onset });
     }
     k = e + 1;
   }
@@ -957,6 +996,35 @@ export function findJumps(
     if (dv > MOVES.jump) out.push({ frame: i, dv });
   }
   return out;
+}
+
+/**
+ * Camera speed at a press: the larger of frames `f` and `f + 1` (the press and
+ * the frame it shows on), or null when either is unmeasured.
+ *
+ * A frame moving on its own — both neighbours under MOVES.floor — is the page,
+ * not the camera: a camera move is at least MOVES.minFrames long and eases in
+ * and out, so it cannot put 8 px on one frame between two still ones. gmail
+ * and hourly "Pick an agent" read 8.16 / 8.10 px@1920 on the one frame the
+ * dropdown opened under a camera the track holds still (f54 0.03, f55 8.16,
+ * f56 0.08), and were counted as presses landing mid-move.
+ */
+export function pressSpeed(
+  speed: Array<number | null>,
+  f: number,
+): number | null {
+  const at = (i: number): number | null => {
+    const v = speed[i];
+    if (v == null) return null;
+    const lone =
+      v > MOVES.floor &&
+      (speed[i - 1] ?? Infinity) <= MOVES.floor &&
+      (speed[i + 1] ?? Infinity) <= MOVES.floor;
+    return lone ? Math.max(speed[i - 1] ?? 0, speed[i + 1] ?? 0) : v;
+  };
+  const a = at(f);
+  const b = at(f + 1);
+  return a == null || b == null ? null : Math.max(a, b);
 }
 
 /** Output frame a log-time press lands on. Mirrors zoomAt's clock. */

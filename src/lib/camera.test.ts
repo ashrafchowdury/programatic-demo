@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   BASE_POSE,
   cameraEase,
+  carryProgress,
   interpolatePose,
   interpolateVia,
   moveDuration,
@@ -110,6 +111,41 @@ describe("interpolatePose", () => {
       assert.ok(Math.abs(pose.cx - 0.5) <= lim + 1e-12, `cx out at ${i}`);
       assert.ok(Math.abs(pose.cy - 0.5) <= lim + 1e-12, `cy out at ${i}`);
     }
+  });
+});
+
+describe("carryProgress", () => {
+  const slope = (u: number, s: { from: number; to: number }) =>
+    (carryProgress(u + 1e-6, s) - carryProgress(u - 1e-6, s)) / 2e-6;
+
+  it("runs 0 to 1 with the slopes it was asked for", () => {
+    const s = { from: 0, to: 1.2 };
+    assert.equal(carryProgress(0, s), 0);
+    assert.ok(Math.abs(carryProgress(1, s) - 1) < 1e-12);
+    assert.ok(Math.abs(slope(1e-5, s)) < 1e-3);
+    assert.ok(Math.abs(slope(1 - 1e-5, s) - 1.2) < 1e-3);
+  });
+
+  it("is monotone for every slope pair under 2", () => {
+    for (const from of [0, 0.5, 1, 1.99])
+      for (const to of [0, 0.5, 1, 1.99]) {
+        let last = 0;
+        for (let u = 0; u <= 1; u += 0.01) {
+          const e = carryProgress(u, { from, to });
+          assert.ok(e >= last - 1e-12 && e <= 1 + 1e-12, `${from},${to} @${u}`);
+          last = e;
+        }
+      }
+  });
+
+  it("is only used when asked: interpolatePose keeps CAMERA_BEZIER otherwise", () => {
+    const a = { scale: 1.4, cx: 0.45, cy: 0.5 };
+    const b = { scale: 1.4, cx: 0.55, cy: 0.5 };
+    assert.deepEqual(interpolatePose(a, b, 0.3), interpolatePose(a, b, 0.3, undefined));
+    assert.notDeepEqual(
+      interpolatePose(a, b, 0.3),
+      interpolatePose(a, b, 0.3, { from: 0, to: 1 }),
+    );
   });
 });
 
