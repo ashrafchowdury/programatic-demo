@@ -57,10 +57,15 @@ Things that follow from this, and are not obvious:
 - **The name is shared on purpose.** `out/demo/agent-skill.mp4` and
   `out/reel/agent-skill.mp4` are a demo and the film cut from it. The directory
   is what tells them apart — never the filename.
-- **Only a still can be 4K.** Playwright's screencast emits CSS-viewport pixels
-  whatever `deviceScaleFactor` says; `page.screenshot()` reads the real
-  compositor surface. Do not try to raise video resolution this way — measured
-  three times, see `src/lib/click-log.ts`.
+- **Only a still RENDERS at 4K; a demo CAPTURES at it.** The screencast emits
+  CSS-viewport pixels whatever `deviceScaleFactor` says (measured three times,
+  see `src/lib/click-log.ts`), so DSF buys a video nothing. What does work is
+  `CAPTURE_SCALE` (default 2): a 2x CSS viewport under a root `zoom`, which the
+  CDP recorder films as true 3840x2160 frames — enough that the 2560 render
+  never upscales the app, even at the camera's deepest zoom. See
+  `scripts/lib/capture-scale.ts` and `scripts/lib/screencast.ts`. The demo and
+  reel output stay 2560 (`OUTPUT_WIDTH`); a still's `page.screenshot()` reads
+  the compositor surface and renders at 3840.
 - A lone title card is a one-card reel: `pnpm intro <name>` renders
   `intros/<name>` to `out/reel/<name>.intro.mp4` through the reel pipeline.
   `render:intro` and `stitch` are retired — for card + demo, write a reel.
@@ -88,8 +93,13 @@ Still: author `shots/<name>.ts` (steps + the region to keep + a `look`:
 `pnpm shot <name> --probe` writes a coordinate grid to `.diag/shots/` for
 picking a rect by eye.
 
-Needs **system ffmpeg** (`brew install ffmpeg`); the bundled one lacks
-`signalstats` and the recorder silently mis-syncs without it.
+Needs **system ffmpeg** (`brew install ffmpeg`) for `pnpm analyze` and
+`pnpm reel` — Remotion's bundled one is filter-whitelisted (no `signalstats`,
+`xfade`, audio filters). Recording does not strictly need it: the default CDP
+capture muxes through the bundled ffmpeg and syncs off the frames' own
+timestamps, using the magenta marker (read with system `signalstats`) only as
+a cross-check. The `DEMO_CAPTURE=playwright` fallback does need it — without
+it that path guesses the trim and warns.
 
 ## Rules
 
@@ -108,8 +118,10 @@ Needs **system ffmpeg** (`brew install ffmpeg`); the bundled one lacks
 
 Most non-obvious numbers carry their measurement in a comment beside them —
 camera timings in `src/lib/click-log.ts`, framing in `src/lib/zoom.ts`, easing in
-`src/lib/camera.ts`, backdrop and the motion-blur banding rule in
-`src/DemoClip.tsx`, renderer flags in `scripts/render.ts`.
+`src/lib/camera.ts`, the backdrop in `src/Backdrop.tsx` (which ground a render
+gets: `resolveGround` in `src/lib/backdrop.ts`), rim light and the motion-blur
+banding rule in `src/WindowFrame.tsx`, the shutter in `src/lib/shutter.ts`,
+renderer flags in `scripts/lib/remotion.ts`.
 
 **Measure before you change one, and measure the effect after.** This codebase
 has shipped several confident, plausible, wrong theories — I/O-bound rendering,
@@ -147,7 +159,8 @@ carries uncommitted work, so `HEAD` is not the baseline you think it is.
 | `scripts/` | recorders, convert, render, analyze, reel, shoot-still |
 | `scripts/lib/` | cursor, flow DSL, selector ladder, session, batch, out paths, `motion-metrics` (analyze's pure half) |
 | `src/lib/` | click-log types, camera, zoom track, `demo-duration`, intro/reel types, `style` (reel choreography styles), `look` (framed / fullbleed) |
-| `src/DemoClip.tsx` | demo composition: backdrop, window, motion blur |
+| `src/DemoClip.tsx` | demo composition: window, camera, motion blur |
+| `src/Backdrop.tsx` · `src/lib/backdrop.ts` | the studio ground every composition draws on; `resolveGround` picks it |
 | `src/ShutterBlur.tsx` | the centred-shutter motion blur DemoClip draws through |
 | `src/Cursor.tsx` · `src/KeycapHUD.tsx` | the vector pointer; the keycap pill that replaces it in full-bleed footage |
 | `src/Intro.tsx` | title-card composition: cards, chip, logo lockup |

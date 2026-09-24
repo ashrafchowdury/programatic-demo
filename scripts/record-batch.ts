@@ -3,7 +3,7 @@
  *
  * The persistent profile can only be held by one browser, so the batch does the
  * one thing that needs it — proving the session is live and re-exporting
- * `storageState.json` — serially up front, then fans out into isolated contexts
+ * `.sessions/<host>.json` — serially up front, then fans out into isolated contexts
  * that share nothing.
  *
  * Flows that write the same app state are grouped into a serial lane (see
@@ -82,7 +82,7 @@ async function main() {
   // Serial, and before anything else: needs the profile lock every isolated
   // worker is about to do without, and fails loudly if we are not signed in.
   console.log(
-    "session    -> refreshing storageState.json from .session-profile",
+    "session    -> refreshing .sessions/<host>.json from .session-profile",
   );
   await refreshSession(flows[0]);
 

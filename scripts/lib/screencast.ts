@@ -45,7 +45,7 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { CDPSession, Page } from "playwright";
-import { BT709_ARGS } from "./encode";
+import { BT709_ARGS, X264_BT709_VUI } from "./encode";
 
 export type CaptureMode = "cdp" | "playwright";
 
@@ -254,10 +254,9 @@ export const INTERMEDIATE_ARGS = [
   "-pix_fmt",
   "yuv444p",
   ...BT709_ARGS,
-  // Primaries and transfer only reach the stream through x264's VUI in the
-  // bundled ffmpeg; see CONVERT_ARGS in scripts/convert.ts.
-  "-x264-params",
-  "colorprim=bt709:transfer=bt709:colormatrix=bt709",
+  // Primaries and transfer only reach the stream through x264's VUI from an
+  // untagged PNG source, on either ffmpeg; see X264_BT709_VUI.
+  ...X264_BT709_VUI,
 ] as const;
 
 /**

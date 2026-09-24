@@ -58,6 +58,7 @@ import { execFile, execFileSync, spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { promisify } from "node:util";
+import { probeVideo, requireFilters, type VideoProbe } from "./lib/ffmpeg";
 import { outPathOf } from "./lib/out";
 import {
   ANALYSIS_H,
@@ -171,6 +172,18 @@ const AUDIT = {
    * Near-empty frames either side of a reel boundary. One or two bare frames
    * read as a beat; the audit's "the eye lands on nothing for several frames"
    * is agent-tool's stage seams, which measure 11–13 frames each.
+   *
+   * KNOWN FALSE POSITIVE: a RECAP card's head. The reference film fails this
+   * itself — its recap (f1094) opens on 4 bare frames and then the mark alone
+   * for 8 (ink 0.0068–0.0080, under SEGMENT.emptyInk), 12 f by this count,
+   * while its five sentence-card heads measure 0–2 f. A proof recap has the
+   * same shape (6 bare, mark 0.0057, 14 f — two bare frames long, because
+   * BASE's recap.leadS 0.17 is 5.1 frames and the mark is binary, so it lands
+   * on frame 6; 0.12 lands it on the film's frame 4). Ink cannot tell that apart
+   * from agent-tool's seams — 3 bare frames, then a stage at 0.0045–0.0091 —
+   * so the fix belongs in knowing WHICH boundary opens a recap (from the reel
+   * spec), not in this number. Until then, a 12 f run at a recap head is the
+   * reference's own shape, not a defect.
    */
   emptyRunF: 3,
 };
@@ -229,13 +242,7 @@ const ZOOMED = 1.15;
 
 type Sample = { t: number; v: number };
 type Run = { start: number; end: number; peak: number };
-type Probe = {
-  width: number;
-  height: number;
-  fps: number;
-  duration: number;
-  frames: number;
-};
+type Probe = VideoProbe;
 type Mode = "demo" | "reel";
 
 const execFileP = promisify(execFile);
@@ -246,52 +253,6 @@ const run = (bin: string, args: string[]): string =>
     stdio: ["ignore", "pipe", "ignore"],
     maxBuffer: 64 * 1024 * 1024,
   });
-
-const ffprobe = (args: string[]) => run("ffprobe", args);
-
-/** Fail with the fix, not a stack trace, when ffmpeg is missing or too minimal. */
-function requireFfmpeg(): void {
-  let filters = "";
-  try {
-    filters = run("ffmpeg", ["-hide_banner", "-filters"]);
-  } catch {
-    throw new Error(
-      "scripts/analyze.ts needs a system ffmpeg on PATH — `brew install ffmpeg`.",
-    );
-  }
-  const missing = [
-    "scdet",
-    "signalstats",
-    "convolution",
-    "metadata",
-    "blurdetect",
-  ].filter((f) => !new RegExp(`\\b${f}\\b`).test(filters));
-  if (missing.length) {
-    throw new Error(
-      `This ffmpeg build lacks the ${missing.join(", ")} filter(s). Install a full build: \`brew install ffmpeg\`.`,
-    );
-  }
-}
-
-function probe(file: string): Probe {
-  const raw = ffprobe([
-    "-v", "error",
-    "-select_streams", "v:0",
-    "-count_packets",
-    "-show_entries", "stream=width,height,r_frame_rate,duration,nb_read_packets",
-    "-of", "default=noprint_wrappers=1",
-    file,
-  ]);
-  const get = (k: string) => raw.match(new RegExp(`^${k}=(.+)$`, "m"))?.[1] ?? "";
-  const [num, den] = get("r_frame_rate").split("/");
-  return {
-    width: Number(get("width")),
-    height: Number(get("height")),
-    fps: Number(num) / Number(den || 1),
-    duration: Number(get("duration")),
-    frames: Number(get("nb_read_packets")),
-  };
-}
 
 /**
  * Run one ffmpeg filter pass and read back a `metadata=print` dump.
@@ -1267,7 +1228,10 @@ async function main() {
     compare(a, b);
     return;
   }
-  requireFfmpeg();
+  requireFilters(
+    ["scdet", "signalstats", "convolution", "metadata", "blurdetect"],
+    "scripts/analyze.ts",
+  );
   const jsonOut = flag(args, "--json");
   const speedArg = flag(args, "--speed");
   const styleArg = flag(args, "--style");
@@ -1290,7 +1254,7 @@ async function main() {
       );
     }
     const mode = force ?? detectMode(file);
-    const p = probe(file);
+    const p = probeVideo(file);
     log(`\n=== ${path.relative(ROOT, file)}  [${mode}] ===`);
     log(
       `  ${p.width}x${p.height}  ${p.fps.toFixed(0)} fps  ${p.duration.toFixed(2)} s  ${p.frames} frames`,

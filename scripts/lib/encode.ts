@@ -46,8 +46,35 @@ export const X264_ARGS = [
   "yuv420p",
 ] as const;
 
+/**
+ * The same tags written into x264's own VUI, which is the only route that
+ * reliably lands primaries and transfer.
+ *
+ * BT709_ARGS alone is NOT enough when the frames reaching the encoder carry no
+ * colour properties (a PNG/RGB source, a lavfi graph): the frame's "unknown"
+ * wins over the output option. Measured, 320x180 libx264 from an untagged PNG
+ * source, ffprobe color_space/color_transfer/color_primaries:
+ *
+ *                          BT709_ARGS            + X264_BT709_VUI
+ *   system ffmpeg 8.1.2    bt709/unknown/unknown  bt709/bt709/bt709
+ *   bundled ffmpeg 7.1     bt709/unknown/unknown  bt709/bt709/bt709
+ *
+ * A pass whose INPUT is already tagged (xfade over Remotion's segments) came
+ * out bt709 on all three either way — the frames carry the tags through — so
+ * this only ever turns "unknown" into bt709, never changes a tagged result.
+ * libx264 only: another encoder would reject the option.
+ */
+export const X264_BT709_VUI = [
+  "-x264-params",
+  "colorprim=bt709:transfer=bt709:colormatrix=bt709",
+] as const;
+
 /** Every flag a video-encoding ffmpeg pass needs, in one spread. */
-export const VIDEO_ENCODE_ARGS: string[] = [...X264_ARGS, ...BT709_ARGS];
+export const VIDEO_ENCODE_ARGS: string[] = [
+  ...X264_ARGS,
+  ...BT709_ARGS,
+  ...X264_BT709_VUI,
+];
 
 /** ffprobe entries deliveryProblems reads. */
 export const DELIVERY_PROBE_KEYS =

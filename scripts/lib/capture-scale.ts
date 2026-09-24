@@ -63,9 +63,9 @@
  * in the same viewport pixels, so no coordinate conversion is needed.
  */
 
-import { OUTPUT_WIDTH, type ClickLog } from "../../src/lib/click-log";
+import { OUTPUT_WIDTH } from "../../src/lib/click-log";
 import { WINDOW_FIT } from "../../src/lib/window";
-import { buildCameraTrack } from "../../src/lib/zoom";
+import { S_MAX } from "../../src/lib/zoom";
 
 export type Size = { width: number; height: number };
 
@@ -112,30 +112,6 @@ export const DEFAULT_CAPTURE_SCALE = 2;
 export const MAX_CAPTURE_SCALE = 4;
 
 /**
- * The deepest camera scale the track builder will use, read off the builder
- * itself rather than copied: a synthetic log of pin-sized clicks, far enough
- * apart to be separate beats, lets every punch reach its ceiling. S_MAX lives
- * private to src/lib/zoom.ts; deriving it here means a retune there moves the
- * capture floor with it instead of silently leaving it behind.
- */
-export function cameraScaleCeiling(): number {
-  const pin = (tMs: number, x: number) => ({
-    tMs,
-    x,
-    y: 540,
-    rect: { x: x - 4, y: 536, w: 8, h: 8 },
-  });
-  const log: ClickLog = {
-    name: "ceiling",
-    viewport: { width: 1920, height: 1080 },
-    durationMs: 40_000,
-    offsetMs: 0,
-    clicks: [pin(2_000, 900), pin(14_000, 300), pin(26_000, 1500)],
-  };
-  return Math.max(...buildCameraTrack(log).map((k) => k.pose.scale));
-}
-
-/**
  * Narrowest source that is never upscaled on screen: the render draws the app
  * at OUTPUT_WIDTH x WINDOW_FIT at base and camera-zooms up to the ceiling, so
  * at S_MAX the app's width in output pixels is 2560 x 0.86 x 1.74 = 3831.
@@ -162,7 +138,10 @@ export function cameraScaleCeiling(): number {
 export function minCaptureWidth(
   outputWidth = OUTPUT_WIDTH,
   fit = WINDOW_FIT,
-  ceiling = cameraScaleCeiling(),
+  // The camera's deepest zoom, imported so a retune in zoom.ts moves the
+  // capture floor with it. capture-scale.test.ts checks the track builder
+  // really reaches it.
+  ceiling = S_MAX,
 ): number {
   return Math.ceil(outputWidth * fit * ceiling);
 }

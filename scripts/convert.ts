@@ -12,7 +12,7 @@
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { BT709_ARGS } from "./lib/encode";
+import { BT709_ARGS, X264_BT709_VUI } from "./lib/encode";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const REMOTION_BIN = path.join(ROOT, "node_modules", ".bin", "remotion");
@@ -49,11 +49,9 @@ const CONVERT_ARGS = [
   "-pix_fmt",
   "yuv420p",
   ...BT709_ARGS,
-  // Remotion's bundled ffmpeg (7.1) drops -color_primaries/-color_trc on the
-  // way to libx264 — measured: the stream probed primaries and transfer
-  // "unknown" with BT709_ARGS alone. Writing them into x264's own VUI lands.
-  "-x264-params",
-  "colorprim=bt709:transfer=bt709:colormatrix=bt709",
+  // Primaries and transfer only land through x264's own VUI — BT709_ARGS alone
+  // probed "unknown" on both ffmpegs. See X264_BT709_VUI.
+  ...X264_BT709_VUI,
 ];
 
 /** The newer of the two raw recordings, so a re-shoot on either path wins. */

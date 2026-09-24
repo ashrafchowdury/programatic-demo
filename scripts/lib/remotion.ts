@@ -17,9 +17,11 @@ export const REMOTION_BIN = path.join(ROOT, "node_modules", ".bin", "remotion");
  * Chromium's rasteriser. `angle` = the real GPU. This is the single biggest
  * lever in the whole pipeline.
  *
- * What this composition costs is <CameraMotionBlur>. It renders its subtree
- * once per sample and composites the copies with `plus-lighter` at fractional
- * opacity, so a frame is 8 full-size layer rasterisations plus 8 blends.
+ * What this composition costs is its motion blur — src/ShutterBlur.tsx now,
+ * Remotion's <CameraMotionBlur> when the numbers below were taken; both work the
+ * same way. It renders its subtree once per sample and composites the copies
+ * with `plus-lighter` at fractional opacity, so a frame is 8 (16 on a fast
+ * move) full-size layer rasterisations plus as many blends.
  * Software-rasterising that is what made the render slow, and it is precisely
  * the work a GPU exists to do.
  *

@@ -147,11 +147,16 @@ brew install ffmpeg          # macOS
 apt-get install -y ffmpeg    # Debian/Ubuntu
 ```
 
-**Not** the one bundled with Remotion — that build has no `signalstats`, which
-the recorder uses to measure its sync marker. Missing it does not error: the
-recorder warns, falls back to a *guessed* trim, and every click in the finished
-video drifts out of sync. A silent wrong result is worse than a crash, so check
-for the warning.
+**Not** the one bundled with Remotion — that build is filter-whitelisted (no
+`signalstats`, `xfade`, audio filters), and `pnpm analyze` and `pnpm reel` need
+those. The recorder itself leans on it less than it used to. The default CDP
+capture muxes through the bundled ffmpeg and takes its head trim from the
+frames' own compositor timestamps, so it syncs without a system ffmpeg; the
+magenta marker (read with system `signalstats`) is then only a cross-check, and
+its absence is noted in the sync line, not a fault. The
+`DEMO_CAPTURE=playwright` fallback has no timestamps: there a missing
+`signalstats` makes it warn and fall back to a *guessed* trim, and every click
+drifts out of sync — check for that warning if you use it.
 
 ### No GPU?
 
@@ -282,8 +287,10 @@ Most non-obvious constants carry their measurement in a comment beside them:
 | `src/lib/click-log.ts` | every camera timing constant, `OUTPUT_WIDTH`, capture scale |
 | `src/lib/zoom.ts` | clustering, region framing, the keyframe track |
 | `src/lib/camera.ts` | easing curve, distance-aware durations |
-| `src/DemoClip.tsx` | backdrop, rim light, and the motion-blur banding rule |
-| `scripts/render.ts` | GPU renderer measurements |
+| `src/Backdrop.tsx` · `src/lib/backdrop.ts` | the baked backdrop and its banding measurement; `resolveGround` (which ground a render gets) |
+| `src/WindowFrame.tsx` | rim light, and the motion-blur banding rule |
+| `src/lib/shutter.ts` | the centred shutter `src/ShutterBlur.tsx` draws, sample groups |
+| `scripts/lib/remotion.ts` | GPU renderer measurements |
 
 If a number looks arbitrary, read the comment before changing it — several were
 derived from measured reference footage, and two earlier theories written into

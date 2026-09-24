@@ -1,6 +1,6 @@
 /**
  * Renders the DemoClip composition for <name> to MP4.
- *   out/<name>.mp4    — h264, for docs / general use
+ *   out/demo/<name>.mp4    — h264, for docs / general use
  *
  * The composition reads public/<name>.clicks.json (via calculateMetadata) for its
  * size, duration, and zoom keyframes, so we only pass the name.

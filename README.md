@@ -30,7 +30,7 @@ studio frame. The result is an MP4 you can regenerate every release.
 
 A reel is cut **from** a demo, so render the demo first. A still stands alone —
 it drives the app itself and never touches the video pipeline. It is also the
-only one that can be 4K, for a reason worth knowing: see
+only one that renders at 4K (a demo captures at 4K but renders at 2560): see
 [Stills](#stills-one-part-of-the-app-at-4k).
 
 ## Why
@@ -68,7 +68,7 @@ where you clicked and when.
 | --- | --- |
 | Node | 20+ |
 | pnpm | 9+ |
-| ffmpeg | **system install required** (`brew install ffmpeg`) — see [Sync](#sync-why-the-recorder-flashes-the-screen) |
+| ffmpeg | **system install required** (`brew install ffmpeg`) for `pnpm reel` and `pnpm analyze`, and for the sync cross-check — see [Sync](#sync-why-the-recorder-flashes-the-screen) |
 | GPU | rendering rasterises on the GPU, worth **roughly 10×** on a real demo (a 23s clip: 24 min → 2-3 min). No usable GPU (CI, headless Linux)? Set `DEMO_GL=swiftshader` — see [Knobs](#knobs) |
 
 ## Quick start
@@ -122,12 +122,11 @@ window that loses focus blurs inputs, pauses animations and flips
 to watch a flow fail. `capture:session` is always headed — you cannot type a
 password into a window you cannot see.
 
-> **The recorders do not agree on this yet.** `record:live`, `record:batch` and
-> `still` are headless unless `HEADED=1` (or `HEADLESS=0`). The older
-> `pnpm record <name>` (`scripts/record-demo.ts`, used by `pnpm clip:*` and the
-> self-tour) is the opposite: **headed** unless `HEADLESS=1`, headless for
-> `smoke`, and always headed under `DEMO_TOUR=capture`. `HEADED` means nothing
-> to it and `HEADLESS=1` means nothing to the others.
+Every recorder reads this the same way — `record:live`, `record:batch`,
+`still` and `pnpm record <name>` alike: headless unless `HEADED=1` (or
+`HEADLESS=0`). The one exception is a `DEMO_TOUR=capture` run, which is always
+headed because a human drives it. A public site that challenges headless
+browsers (Google, sometimes) is a reason to set `HEADED=1` for that take.
 
 ### Several at once
 
@@ -359,10 +358,13 @@ title-card hold and reads as a stall mid-film.
 
 ## Stills: one part of the app, at 4K
 
-Demos are video, and video from this pipeline can never be 4K — Playwright's
-screencast emits CSS-viewport pixels no matter what you ask it for. A
-**screenshot** is different: it reads the real compositor surface, so at a
-1920×1080 viewport with `deviceScaleFactor: 2` it really is 3840×2160.
+Demos are video, and the screencast emits CSS-viewport pixels no matter what
+`deviceScaleFactor` says. A demo gets its detail another way — `CAPTURE_SCALE`
+(default 2) doubles the CSS viewport under a root `zoom`, so the recorder films
+true 3840×2160 frames of the same layout — but it renders at 2560, where 4K
+buys the film almost nothing (`OUTPUT_WIDTH` in `src/lib/click-log.ts`). A
+**screenshot** reads the real compositor surface, so at a 1920×1080 viewport
+with `deviceScaleFactor: 2` it really is 3840×2160, and a still renders there.
 
 That is what a still is: a captured region of the app, framed on the same
 backdrop and in the same window as the clips, sized for wherever you are posting
@@ -656,9 +658,15 @@ guesses shipped bugs:
 | `videoDuration - duration` | over-trims by teardown tail (~0.46 s) | same, but intermittent |
 
 Both put the footage ahead of the click log, so drawers opened before the pointer
-arrived. **This needs a system ffmpeg** — Remotion's bundled build has no
-`signalstats`. Without it the recorder falls back to the old estimate and prints
-a loud warning.
+arrived.
+
+The default CDP capture no longer depends on the marker: every frame carries
+its compositor swap time, so the head trim is exact, and the marker is read
+only as a cross-check (a disagreement over 100 ms prints a warning and trusts
+the marker). Reading the marker needs a **system ffmpeg** — Remotion's bundled
+build has no `signalstats` — so without one a CDP shoot still syncs, just
+unchecked. The `DEMO_CAPTURE=playwright` fallback has no timestamps; without
+system ffmpeg it falls back to the old estimate and prints a loud warning.
 
 ### Knobs
 
@@ -681,7 +689,7 @@ controls, not here. `.env.example` lists them with a line each.
 | --- | --- | --- | --- |
 | `APP_BASE_URL` | — | The app to sign in to (`capture:session`, required) and the start URL for any flow or shot that names none | [`.env.example`](.env.example) |
 | `DEMO_URL_<NAME>` | — | A flow's start URL, kept out of the repo because it embeds account ids | [`.env.example`](.env.example) |
-| `HEADED` / `HEADLESS` | see above | Show the browser. The recorders read these differently — see [Recording your own app](#recording-your-own-app) | [`scripts/lib/session.ts`](scripts/lib/session.ts) |
+| `HEADED` / `HEADLESS` | headless | `HEADED=1` (or `HEADLESS=0`) shows the browser, in every recorder — see [Recording your own app](#recording-your-own-app) | [`scripts/lib/session.ts`](scripts/lib/session.ts) |
 | `CAPTURE_SCALE` | `2` (max 4) | Record at this multiple of the flow's viewport while the app lays out at its own size — sharper footage. A capture too narrow for full zoom is refused unless `DEMO_ALLOW_SOFT_CAPTURE=1` | [`scripts/lib/capture-scale.ts`](scripts/lib/capture-scale.ts) |
 | `DEMO_CAPTURE` | `cdp` | Capture path: lossless compositor frames on their own timestamps. `playwright` falls back to Playwright's 25fps 1 Mbps VP8 | [`scripts/lib/screencast.ts`](scripts/lib/screencast.ts) |
 | `DEMO_CAPTURE_FPS` | `60` | Frame rate of the CDP intermediate. `DEMO_KEEP_FRAMES=1` keeps its raw PNGs | [`scripts/lib/screencast.ts`](scripts/lib/screencast.ts) |
@@ -703,7 +711,8 @@ when Chromium is missing — for CI.
 | `src/lib/camera.ts` | Pose interpolator + distance-aware durations |
 | `src/lib/zoom.ts` | Keyframe track + region framing |
 | `src/lib/demo-duration.ts` | How many frames a demo runs, sized from the camera track |
-| `src/DemoClip.tsx` | Studio frame, backdrop, shuttered motion blur |
+| `src/DemoClip.tsx` | Studio frame, camera, shuttered motion blur |
+| `src/Backdrop.tsx` · `src/lib/backdrop.ts` | The studio backdrop every composition draws on; `resolveGround` picks the ground (image, flat colour, transparent) |
 | `src/ShutterBlur.tsx` | The motion blur: a shutter centred on the frame (`src/lib/shutter.ts`) |
 | `src/Cursor.tsx` | The vector pointer, drawn from the click log's cursor track |
 | `src/KeycapHUD.tsx` | On-screen keycap pill, the pointer's stand-in in full-bleed footage |
@@ -745,7 +754,7 @@ Deeper pipeline notes, in the agent-readable versions — one per feature:
 
 Most non-obvious constants carry their measurement in a comment beside them —
 why the backdrop is a baked image rather than a CSS gradient, why a soft gradient
-must not live inside `CameraMotionBlur`, why the output is 2560 and not 4K. If a
+must not live inside the motion blur (`ShutterBlur`), why the output is 2560 and not 4K. If a
 number looks arbitrary, the reason is usually one scroll away.
 
 ## License

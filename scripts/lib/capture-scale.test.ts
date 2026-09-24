@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { OUTPUT_WIDTH } from "../../src/lib/click-log";
+import { OUTPUT_WIDTH, type ClickLog } from "../../src/lib/click-log";
 import { WINDOW_FIT } from "../../src/lib/window";
+import { buildCameraTrack, S_MAX } from "../../src/lib/zoom";
 import {
-  cameraScaleCeiling,
   captureSizeProblem,
   DEFAULT_CAPTURE_SCALE,
   enforceCaptureSize,
@@ -14,9 +14,26 @@ import {
 const HD = { width: 1920, height: 1080 };
 
 describe("capture floor (D6)", () => {
-  it("reads the camera ceiling off the track builder", () => {
-    // S_MAX in src/lib/zoom.ts. If this moves, the floor moves with it.
-    assert.equal(cameraScaleCeiling(), 1.74);
+  it("floors at a ceiling the track builder actually reaches", () => {
+    // Pin-sized clicks far enough apart to be separate beats let every punch
+    // reach its ceiling. If a clamp elsewhere stopped the camera short of
+    // S_MAX, the floor would be pricing a zoom that never happens.
+    const pin = (tMs: number, x: number) => ({
+      tMs,
+      x,
+      y: 540,
+      rect: { x: x - 4, y: 536, w: 8, h: 8 },
+    });
+    const log: ClickLog = {
+      name: "ceiling",
+      viewport: HD,
+      durationMs: 40_000,
+      offsetMs: 0,
+      clicks: [pin(2_000, 900), pin(14_000, 300), pin(26_000, 1500)],
+    };
+    const deepest = Math.max(...buildCameraTrack(log).map((k) => k.pose.scale));
+    assert.equal(deepest, S_MAX);
+    assert.equal(S_MAX, 1.74);
   });
 
   it("is the app's width at full zoom: 2560 x 0.86 x 1.74", () => {

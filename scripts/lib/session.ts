@@ -6,13 +6,14 @@
  * takes an exclusive lock on that directory, so exactly one browser may use it
  * at a time. That lock is the sole reason shoots used to be serial.
  *
- * "isolated" launches a throwaway browser and seeds a fresh context from
- * `storageState.json`. Nothing is shared, so any number can run at once.
+ * "isolated" launches a throwaway browser and seeds a fresh context from the
+ * host's snapshot, `.sessions/<host>.json` (see sessionKey). Nothing is shared,
+ * so any number can run at once.
  * Measured: two isolated contexts created from the same exported state both
  * reached the authenticated playground concurrently.
  *
- * The two are kept in sync by `refreshSession`, which re-exports the state file
- * from the profile. Do not skip it and trust a stale `storageState.json` — the
+ * The two are kept in sync by `refreshSession`, which re-exports the snapshot
+ * from the profile. Do not skip it and trust a stale `.sessions/<host>.json` — the
  * profile is the thing a login actually updates, so the export drifts behind it
  * the moment a session is renewed.
  */
@@ -129,8 +130,9 @@ export const hasStoredSession = (url: string): boolean =>
  * window was never neutral, it was a variable in the recording.
  *
  * Opt back in with HEADED=1 (or HEADLESS=0) when you need to watch a flow fail.
- * `capture:session` ignores this and stays headed unconditionally — you cannot
- * type a password into a window you cannot see.
+ * Every recorder reads it — record:live, record:batch, still and `pnpm record`
+ * alike. `capture:session` and a DEMO_TOUR=capture run ignore it and stay
+ * headed unconditionally — a human has to drive those.
  */
 export function resolveHeadless(): boolean {
   if (process.env.HEADED === "1") return false;
@@ -232,8 +234,8 @@ export async function openContext(
 }
 
 /**
- * Re-export `storageState.json` from the persistent profile, proving the
- * session is live on the way through.
+ * Re-export the start URL's `.sessions/<host>.json` from the persistent
+ * profile, proving the session is live on the way through.
  *
  * Runs ONCE and serially before a batch fans out: it needs the profile lock, so
  * it cannot overlap with anything, and every isolated worker depends on its

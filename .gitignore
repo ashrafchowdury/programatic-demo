@@ -71,8 +71,8 @@ intros/*
 reels/*
 
 # Shot specs name one account's screens, same as flows/ and intros/. The
-# captured PNGs and their sidecars are pipeline output; out/shots/ is already
-# covered by the `out` rule above.
+# captured PNGs and their sidecars (public/shots/) are pipeline output; the
+# rendered stills in out/still/ are already covered by the `out` rule above.
 shots/*
 !shots/smoke.ts
 !shots/smoke-cutout.ts

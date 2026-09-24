@@ -11,7 +11,7 @@
  *
  * For several flows at once use `scripts/record-batch.ts`, which cannot use the
  * profile — it holds an exclusive lock — and seeds isolated contexts from
- * `storageState.json` instead.
+ * `.sessions/<host>.json` instead.
  *
  * Usage:
  *   pnpm exec tsx scripts/record-live.ts <flow-name>

@@ -45,6 +45,7 @@ import {
   useBakedCursor,
 } from "./lib/recorder";
 import { resolveCaptureMode } from "./lib/screencast";
+import { resolveHeadless } from "./lib/session";
 import {
   CAPTURE_DEVICE_SCALE_FACTOR,
   CAPTURE_VIEWPORT,
@@ -146,12 +147,11 @@ async function main() {
   fs.mkdirSync(RECORDINGS, { recursive: true });
   fs.mkdirSync(PUBLIC, { recursive: true });
 
-  // Headed by default for live sites (Google often challenges headless).
-  // Set HEADLESS=1 for offline fixtures (smoke). Capture is always headed.
-  const headless =
-    tourMode === "capture"
-      ? false
-      : process.env.HEADLESS === "1" || name === "smoke";
+  // Headless by default, like every other recorder (see resolveHeadless for
+  // why a visible window is a variable in the take). HEADED=1 (or HEADLESS=0)
+  // shows it — reach for that on a live site that challenges headless, as
+  // Google sometimes does. A tour capture is always headed: a human drives it.
+  const headless = tourMode === "capture" ? false : resolveHeadless();
 
   const browser = await chromium.launch({
     headless,

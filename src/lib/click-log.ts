@@ -216,6 +216,13 @@ export const OUTPUT_WIDTH = 2560;
  * resolution moves the whole design together instead of shrinking the details.
  */
 export const DESIGN_WIDTH = 1920;
+/**
+ * Frame rate of every composition and every film the pipeline writes — demo,
+ * reel, intro. One constant so a reel's frame counts, its HUD timing and the
+ * delivery check cannot disagree with the composition that rendered them.
+ * Capture runs at its own rate (CAPTURE_FPS in scripts/lib/screencast.ts).
+ */
+export const FPS = 30;
 
 /** Fallback lead-in when a log has no tDepartMs (older recordings). */
 export const LEAD_FALLBACK_S = 0.75;

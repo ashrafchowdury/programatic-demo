@@ -31,8 +31,9 @@ import {
 } from "./camera";
 import { WINDOW_FIT } from "./window";
 
-export type { ClickEvent, ClickLog } from "./click-log";
-export { EMPTY_LOG } from "./click-log";
+// DemoClip.tsx still imports ClickLog from here; everything else takes it from
+// ./click-log directly.
+export type { ClickLog } from "./click-log";
 
 export type ZoomState = {
   /** Effective on-screen magnification, WINDOW_FIT included. */
@@ -78,7 +79,7 @@ export type ZoomOptions = {
 // 1.50x native, which is where 1080p source stops holding up. If you change
 // WINDOW_FIT in DemoClip.tsx, rescale these to keep the product near 1.5.
 const S_MIN = 1.18;
-const S_MAX = 1.74;
+export const S_MAX = 1.74;
 const S_MAX_SOFT = 1.54;
 /**
  * The least a punch may zoom when the target leaves it a choice.
@@ -108,7 +109,7 @@ const WIDE_FIT = 0.92;
  * that could not make up its mind. A cluster only tightens or pans to reach a
  * click; it never pulls back mid-cluster for a click it can already see.
  */
-const REPOSE_MIN_DS = 0.12;
+export const REPOSE_MIN_DS = 0.12;
 const PAD = 80;
 const MENU_ROOM = 110;
 const FRAME_FRAC = 0.55;
@@ -119,15 +120,15 @@ const FRAME_FRAC = 0.55;
  * fine when the framed region is small but can leave the CLICK ITSELF at the
  * very edge when the region is large and the click sits near its edge.
  */
-const CLICK_MARGIN = 0.04;
+export const CLICK_MARGIN = 0.04;
 /**
  * Cursor weight: a hint toward the click, not the aim point.
  * The camera frames the region, not the pointer.
  */
 const CLICK_WEIGHT = 0.2;
 
-// Auto-clustering fallback when clicks omit `cluster`.
-const GROUP_TIME_GAP = 2.2;
+// Auto-clustering fallback when clicks omit `cluster`. Time gap in seconds.
+export const GROUP_TIME_GAP = 2.2;
 const GROUP_DIST_FRAC = 0.28;
 
 /**
@@ -848,7 +849,8 @@ export function driftPose(
 
 /**
  * The track is a pure function of (log, speed) but zoomAt runs per frame — and
- * once per sub-sample under CameraMotionBlur, so ~8x that. Cache it per log.
+ * once per shutter sample under ShutterBlur (8 or 16 per frame, see
+ * src/lib/shutter.ts groupsFor). Cache it per log.
  */
 const trackCache = new WeakMap<ClickLog, Map<string, CameraKey[]>>();
 

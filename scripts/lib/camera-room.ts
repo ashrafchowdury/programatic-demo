@@ -26,14 +26,7 @@ import {
 } from "../../src/lib/click-log";
 import { SHARPNESS_CEILING } from "../../src/lib/crop";
 import { WINDOW_FIT } from "../../src/lib/window";
-import { frameFor } from "../../src/lib/zoom";
-
-/** Same value as REPOSE_MIN_DS in zoom.ts: a smaller re-pose does not move. */
-const REPOSE_MIN_DS = 0.12;
-/** Same as GROUP_TIME_GAP in zoom.ts: auto-clustering's time gap, seconds. */
-const GROUP_TIME_GAP_S = 2.2;
-/** Same as CLICK_MARGIN in zoom.ts. */
-const CLICK_MARGIN = 0.04;
+import { CLICK_MARGIN, frameFor, GROUP_TIME_GAP, REPOSE_MIN_DS } from "../../src/lib/zoom";
 
 type Vp = { width: number; height: number };
 
@@ -91,7 +84,7 @@ export function earliestPressMs(
   const sameCluster =
     beat.cluster != null
       ? beat.cluster === p.cluster
-      : p.cluster == null && departMs - p.tMs < GROUP_TIME_GAP_S * 1000;
+      : p.cluster == null && departMs - p.tMs < GROUP_TIME_GAP * 1000;
   // The camera may not leave the previous action before it has been watched.
   const hard = Math.max(p.tMs, p.typeEndMs ?? p.tMs) + ACTION_WATCH_S * rate * 1000;
 

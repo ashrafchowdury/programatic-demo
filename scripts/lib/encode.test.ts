@@ -4,6 +4,7 @@ import {
   deliveryProblems,
   overlayArgs,
   VIDEO_ENCODE_ARGS,
+  X264_BT709_VUI,
   type DeliveryStream,
 } from "./encode";
 
@@ -63,6 +64,9 @@ describe("overlayArgs", () => {
     assert.deepEqual(a.slice(i, i + VIDEO_ENCODE_ARGS.length), VIDEO_ENCODE_ARGS);
     assert.equal(a[a.indexOf("-pix_fmt") + 1], "yuv420p");
     assert.equal(a[a.indexOf("-colorspace") + 1], "bt709");
+    // The VUI route: without it primaries/transfer probe "unknown" from an
+    // untagged source on both ffmpegs.
+    assert.equal(a[a.indexOf("-x264-params") + 1], X264_BT709_VUI[1]);
     assert.equal(a[a.length - 1], "/out.mp4");
   });
 });

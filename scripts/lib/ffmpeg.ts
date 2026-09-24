@@ -79,6 +79,49 @@ export function mediaDurationS(file: string): number {
   return d;
 }
 
+/** What `pnpm analyze` needs of a film: geometry, rate, length, frame count. */
+export type VideoProbe = {
+  width: number;
+  height: number;
+  fps: number;
+  duration: number;
+  frames: number;
+};
+
+/** Parse a `-of default=noprint_wrappers=1` stream dump into a VideoProbe. Pure. */
+export function parseVideoProbe(raw: string): VideoProbe {
+  const get = (k: string) => raw.match(new RegExp(`^${k}=(.+)$`, "m"))?.[1] ?? "";
+  const [num, den] = get("r_frame_rate").split("/");
+  return {
+    width: Number(get("width")),
+    height: Number(get("height")),
+    fps: Number(num) / Number(den || 1),
+    duration: Number(get("duration")),
+    frames: Number(get("nb_read_packets")),
+  };
+}
+
+/**
+ * The first video stream's facts, via the system ffprobe. Frames are COUNTED
+ * (`-count_packets`), not read from the header — a header's nb_frames is
+ * absent on some muxes, and analyze sizes every per-frame array from it.
+ */
+export function probeVideo(file: string): VideoProbe {
+  const raw = execFileSync(
+    "ffprobe",
+    [
+      "-v", "error",
+      "-select_streams", "v:0",
+      "-count_packets",
+      "-show_entries", "stream=width,height,r_frame_rate,duration,nb_read_packets",
+      "-of", "default=noprint_wrappers=1",
+      file,
+    ],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+  );
+  return parseVideoProbe(raw);
+}
+
 /** Which of `wanted` are absent from an `ffmpeg -filters` dump. Pure. */
 export function missingFilters(
   filtersText: string,
@@ -92,9 +135,6 @@ let filterDump: string | null = null;
 /**
  * Fail with the fix, not a stack trace, when the SYSTEM ffmpeg is missing or
  * lacks a filter `purpose` needs. The dump is read once per process.
- *
- * scripts/analyze.ts still carries its own copy (requireFfmpeg); it can switch
- * to `requireFilters(["scdet", "signalstats", ...], "scripts/analyze.ts")`.
  */
 export function requireFilters(wanted: readonly string[], purpose: string): void {
   let dump = filterDump;
