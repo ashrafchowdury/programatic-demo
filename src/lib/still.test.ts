@@ -35,6 +35,15 @@ import {
   shotPixels,
   windowBox,
   type ShotMeta,
+  AUTO_SPLIT_MAX,
+  MIN_PIECE_FILL,
+  bleedGaps,
+  pieceFills,
+  presetFraming,
+  presetsProblem,
+  productBox,
+  resolveSplit,
+  unintendedEdges,
 } from "./still";
 
 const FIT = 0.86;
@@ -675,5 +684,120 @@ describe("bleedLayout fill", () => {
     const withAspect = captureTargetPx("bleed", FIT, { zoom: "fill", aspect: 9 / 16 });
     const fixed = captureTargetPx("bleed", FIT, { zoom: 1.3 });
     assert.ok(withAspect > fixed, "a 16:9 region filling a story frame needs far more");
+  });
+});
+
+describe("pieceFills and resolveSplit", () => {
+  // agents-page: a 1440x900 screen as a top-left bleed at zoom 1.6.
+  const page = meta({ region: { width: 1440, height: 900 }, look: "bleed", zoom: 1.6, anchor: "top-left", inset: 0.06 });
+
+  it("finds the empty third piece of agents-page on wide", () => {
+    const fills = pieceFills(page, "bleed", STILL_PRESETS.wide, 3, 8, FIT);
+    assert.equal(fills[2], 0, "pure backdrop");
+    assert.ok(fills[1] < MIN_PIECE_FILL, `second piece ${fills[1]}`);
+  });
+
+  it("auto cuts wide whole and portrait in three", () => {
+    assert.equal(resolveSplit(page, "bleed", STILL_PRESETS.wide, "auto", 8, FIT).count, 1);
+    assert.equal(resolveSplit(page, "bleed", STILL_PRESETS.og, "auto", 8, FIT).count, 1);
+    const portrait = resolveSplit(page, "bleed", STILL_PRESETS.portrait, "auto", 8, FIT);
+    assert.equal(portrait.count, 3);
+    assert.ok(portrait.fills.every((f) => f >= MIN_PIECE_FILL));
+  });
+
+  it("never cuts more than AUTO_SPLIT_MAX, and takes a number as asked", () => {
+    const fill = meta({ look: "bleed", zoom: "fill" });
+    assert.equal(resolveSplit(fill, "bleed", STILL_PRESETS.story, "auto", 0, FIT).count, AUTO_SPLIT_MAX);
+    const asked = resolveSplit(page, "bleed", STILL_PRESETS.wide, 3, 8, FIT);
+    assert.equal(asked.count, 3);
+    assert.equal(asked.fills.length, 3);
+    assert.equal(resolveSplit(page, "bleed", STILL_PRESETS.wide, undefined, 0, FIT).count, 1);
+  });
+
+  it("measures a cutout by its body: the home column fills two stories, not two squares", () => {
+    const column = meta({
+      look: "cutout",
+      region: { width: 640, height: 660 },
+      body: { x: 10, y: 10, width: 620, height: 640 },
+      scale: 6.5,
+      fit: 0.76,
+    });
+    assert.equal(resolveSplit(column, "cutout", STILL_PRESETS.story, "auto", 12, FIT).count, 2);
+    assert.equal(resolveSplit(column, "cutout", STILL_PRESETS.square, "auto", 12, FIT).count, 1);
+    assert.equal(resolveSplit(column, "cutout", STILL_PRESETS.wide, "auto", 12, FIT).count, 1);
+  });
+});
+
+describe("unintendedEdges", () => {
+  // agents-home-composer: a wide composer at fit 1.35, pinned left.
+  const composer = meta({
+    look: "cutout",
+    region: { width: 720, height: 330 },
+    body: { x: 10, y: 5, width: 700, height: 310 },
+    scale: 6,
+    fit: 1.35,
+    anchor: "left",
+    inset: 0.08,
+  });
+
+  it("flags the og card the composer fills top to bottom", () => {
+    const box = productBox(composer, "cutout", STILL_PRESETS.og, FIT);
+    const edges = unintendedEdges("cutout", box, STILL_PRESETS.og, { fit: 1.35, anchor: "left" });
+    assert.ok(edges.includes("top") && edges.includes("bottom"), edges.join());
+    assert.ok(!edges.includes("right"), "running off the far side is the point");
+  });
+
+  it("is quiet for a window, which never reaches the edge, and for a bleed", () => {
+    const box = productBox(meta(), "window", STILL_PRESETS.story, FIT);
+    assert.deepEqual(unintendedEdges("window", box, STILL_PRESETS.story), []);
+    assert.deepEqual(unintendedEdges("bleed", { x: -10, y: -10, width: 9999, height: 9999 }, STILL_PRESETS.story), []);
+  });
+});
+
+describe("bleedGaps", () => {
+  it("catches smoke-bleed floating in a story frame, and fill cures it", () => {
+    const smoke = meta({ region: { width: 1440, height: 810 }, look: "bleed" });
+    const floating = bleedLayout(smoke, STILL_PRESETS.story, FIT);
+    const gaps = bleedGaps(floating, STILL_PRESETS.story, { anchor: "top-left" });
+    assert.ok((gaps.bottom ?? 0) > 0.5, `bottom ${gaps.bottom}`);
+    assert.equal(gaps.top, undefined, "the anchored side keeps its inset");
+    const strip = bleedLayout(smoke, STILL_PRESETS.story, FIT, { zoom: 2, anchor: "left" });
+    assert.deepEqual(bleedGaps(strip, STILL_PRESETS.story, { anchor: "left" }), {}, "a strip run off the right");
+    const centred = bleedLayout(smoke, STILL_PRESETS.story, FIT, { anchor: "center" });
+    assert.ok(bleedGaps(centred, STILL_PRESETS.story, { anchor: "center" }).top! > 0.1);
+    const filled = bleedLayout(smoke, STILL_PRESETS.story, FIT, { zoom: "fill" });
+    assert.deepEqual(bleedGaps(filled, STILL_PRESETS.story, { anchor: "top-left" }), {});
+  });
+});
+
+describe("presetFraming", () => {
+  it("lays a preset's override over the shot's own knobs", () => {
+    const m = meta({ zoom: 1.6, anchor: "top-left", split: 3, presets: { story: { look: "bleed", zoom: "fill" } } });
+    assert.deepEqual(presetFraming(m, "story"), { look: "bleed", zoom: "fill", anchor: "top-left", split: 3 });
+    assert.deepEqual(presetFraming(m, "wide"), { zoom: 1.6, anchor: "top-left", split: 3 });
+  });
+
+  it("sizes the capture for a preset that turns into a fill bleed", () => {
+    const plain = captureTargetPx("window", FIT, { aspect: 9 / 16 });
+    const filled = captureTargetPx("window", FIT, { aspect: 9 / 16, presets: { story: { look: "bleed", zoom: "fill" } } });
+    assert.ok(filled > plain, `${filled} > ${plain}`);
+  });
+});
+
+describe("presetsProblem", () => {
+  it("judges each override, and keeps a cutout a cutout", () => {
+    assert.equal(presetsProblem({}), null);
+    assert.equal(presetsProblem({ presets: { story: { look: "bleed", zoom: "fill", split: "auto" } } }), null);
+    assert.match(presetsProblem({ presets: { poster: {} } })!, /not a preset/);
+    assert.match(presetsProblem({ presets: { og: { fit: 9 } } })!, /presets\.og.*fit/);
+    assert.match(presetsProblem({ presets: { og: { look: "cutout" } } })!, /cutout/);
+    assert.match(presetsProblem({ look: "cutout", presets: { og: { look: "bleed" } } })!, /cutout/);
+    assert.equal(presetsProblem({ presets: { og: { gutter: 8 } } }), null, "the shot's split may be what it spaces");
+  });
+
+  it("is part of the sidecar check, and split accepts auto", () => {
+    assert.match(shotMetaProblem(meta({ presets: { og: { zoom: 0.5 } } }))!, /presets\.og/);
+    assert.equal(splitProblem({ split: "auto" }), null);
+    assert.match(splitProblem({ split: "some" })!, /auto/);
   });
 });

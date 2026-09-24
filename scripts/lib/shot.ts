@@ -19,8 +19,12 @@ import type { TargetOverrides } from "./selectors";
 import {
   framingProblem,
   maxScaleFor,
+  presetsProblem,
   splitProblem,
   type Anchor,
+  type PresetOverrides,
+  type Side,
+  type SplitCount,
   type StillLook,
   type Zoom,
 } from "../../src/lib/still";
@@ -57,10 +61,25 @@ export function paddingSides(
  *
  * Omit the region entirely to shoot the whole viewport.
  */
-export type ShotRegion = string | CssTarget | ShotRect;
+export type ShotRegion = string | CssTarget | ShotRect | UnionRegion;
+
+/**
+ * Several elements, as the one box that holds them all — a popover AND the
+ * input it opened from. Measured off the page, so it follows the data: a
+ * hand-read rect for agent-slash-command kept a ~55px empty band above the
+ * menu once the cloud workspace had fewer commands than the one it was read
+ * off. `padding` applies around the union, as for any element region.
+ */
+export type UnionRegion = { union: readonly (string | CssTarget)[] };
+
+/** The box holding every part: `region: union(css(a), css(b))`. */
+export const union = (...parts: (string | CssTarget)[]): UnionRegion => ({ union: parts });
 
 export const isShotRect = (r: ShotRegion): r is ShotRect =>
   typeof r === "object" && "w" in r && "h" in r;
+
+export const isUnion = (r: ShotRegion): r is UnionRegion =>
+  typeof r === "object" && "union" in r;
 
 export type ShotSpec = {
   /** Output name: public/shots/<name>.png and out/still/<name>-<preset>.png. */
@@ -150,9 +169,10 @@ export type ShotSpec = {
   /**
    * Cut the still into this many pieces, side by side, each the preset's size.
    * The layout happens once across all of them, so posted in order they read
-   * as one picture. See splitCanvas in src/lib/still.ts.
+   * as one picture. See splitCanvas in src/lib/still.ts. "auto" cuts each
+   * preset into as many pieces as the product spans there (resolveSplit).
    */
-  split?: number;
+  split?: SplitCount;
   /** Output px of the composition left out between pieces: the platform's gap. */
   gutter?: number;
   /**
@@ -168,6 +188,18 @@ export type ShotSpec = {
    * even with `clean: false`.
    */
   hide?: readonly string[];
+  /**
+   * bleed (or a window a preset reframes as one): the part of the screen to
+   * centre instead of pinning a corner — a name or css(), resolved at capture
+   * against the region and written to the sidecar's `focus`.
+   */
+  focus?: string | CssTarget;
+  /**
+   * Framing that differs per preset, over the knobs above — e.g.
+   * `{ story: { look: "bleed", zoom: "fill" } }` for a landscape screen that
+   * would float in a tall frame. A render flag still wins. See presetFraming.
+   */
+  presets?: PresetOverrides;
 };
 
 export const defineShot = (spec: ShotSpec): ShotSpec => spec;
@@ -288,6 +320,13 @@ export function shotProblem(value: unknown): string | null {
       if ("css" in region) {
         if (typeof region.css !== "string" || region.css === "")
           return "`region` css selector is empty";
+      } else if (isUnion(region as ShotRegion)) {
+        const parts = (region as UnionRegion).union as unknown;
+        if (!Array.isArray(parts) || parts.length < 2)
+          return "`region` union(...) needs at least two parts";
+        for (const part of parts)
+          if (!(typeof part === "string" ? part !== "" : typeof part?.css === "string" && part.css !== ""))
+            return "`region` union(...) parts must be names or css(...)";
       } else if (isShotRect(region as ShotRegion)) {
         for (const key of ["x", "y", "w", "h"] as const) {
           const v = (region as ShotRect)[key];
@@ -296,10 +335,10 @@ export function shotProblem(value: unknown): string | null {
         if ((region as ShotRect).w <= 0 || (region as ShotRect).h <= 0)
           return "`region` must have a positive width and height";
       } else {
-        return "`region` must be a name, css(...), or {x,y,w,h}";
+        return "`region` must be a name, css(...), union(...), or {x,y,w,h}";
       }
     } else {
-      return "`region` must be a name, css(...), or {x,y,w,h}";
+      return "`region` must be a name, css(...), union(...), or {x,y,w,h}";
     }
   }
   if (shot.clean !== undefined && typeof shot.clean !== "boolean")
@@ -308,8 +347,14 @@ export function shotProblem(value: unknown): string | null {
     if (!Array.isArray(shot.hide) || shot.hide.some((h) => typeof h !== "string" || h.trim() === ""))
       return "`hide` must be a list of CSS selector strings";
   }
-  const framing = framingProblem(shot) ?? splitProblem(shot);
+  const framing = framingProblem({ ...shot, focus: undefined }) ?? splitProblem(shot) ?? presetsProblem(shot);
   if (framing) return framing;
+  if (shot.focus !== undefined) {
+    const f = shot.focus as unknown;
+    if (!(typeof f === "string" ? f !== "" : typeof (f as CssTarget)?.css === "string" && (f as CssTarget).css !== ""))
+      return "`focus` must be a name or css(...)";
+    if (shot.look === "cutout") return "`focus` frames a bleed; a cutout is already centred on its element";
+  }
   if (shot.keep !== undefined) {
     if (!Array.isArray(shot.keep) || shot.keep.some((k) => typeof k?.css !== "string" || k.css === ""))
       return "`keep` must be a list of css(...) targets";
@@ -319,6 +364,37 @@ export function shotProblem(value: unknown): string | null {
     if (region === undefined) return "a cutout needs a `region` naming one element";
     if (typeof region === "object" && isShotRect(region as ShotRegion))
       return "a cutout `region` must be a name or css(...), not a rect — there is no element to isolate";
+    if (typeof region === "object" && isUnion(region as ShotRegion))
+      return "a cutout `region` must be one element — name the rest in `keep`";
   }
   return null;
 }
+
+/**
+ * How many CSS px of flat colour run in from each edge of a window crop,
+ * past the padding asked for. `runs` are device px, as the page measured
+ * them (flatRunsInPage); `pad` is the padding each side was given (0 for a
+ * rect, which is taken literally). A band is reported when it is at least
+ * EMPTY_BAND_PX and EMPTY_BAND_SHARE of that axis: agent-slash-command's
+ * rect had 55px of blank page above the menu (16% of its 342px height),
+ * while padding alone is 16px and a card's own inner margin rarely 30.
+ */
+export function emptyBands(
+  runs: Record<Side, number>,
+  scale: number,
+  region: { w: number; h: number },
+  pad: Required<Padding>,
+): { side: Side; px: number; share: number }[] {
+  const out: { side: Side; px: number; share: number }[] = [];
+  for (const side of ["top", "right", "bottom", "left"] as const) {
+    const px = Math.round(runs[side] / scale - pad[side]);
+    const share = px / (side === "top" || side === "bottom" ? region.h : region.w);
+    if (px >= EMPTY_BAND_PX && share >= EMPTY_BAND_SHARE) out.push({ side, px, share });
+  }
+  return out;
+}
+
+/** CSS px of flat colour past the padding before emptyBands reports it. */
+export const EMPTY_BAND_PX = 40;
+/** ...and the share of that axis it must also reach. */
+export const EMPTY_BAND_SHARE = 0.08;

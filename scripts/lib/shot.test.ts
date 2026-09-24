@@ -4,6 +4,8 @@ import { css } from "./flow";
 import {
   captureCss,
   CLEAN_CAPTURE_CSS,
+  emptyBands,
+  union,
   paddingSides,
   rectDrift,
   shotProblem,
@@ -112,5 +114,43 @@ describe("rectDrift", () => {
     assert.equal(rectDrift(a, { x: 11, y: 10, w: 100, h: 50 }), 1);
     assert.equal(rectDrift(a, { x: 10, y: 10, w: 100, h: 58 }), 8);
     assert.equal(rectDrift(a, { x: 7, y: 10, w: 103, h: 50 }), 3);
+  });
+});
+
+describe("union regions, focus and presets", () => {
+  it("accepts a union of names and css(), and refuses it for a cutout", () => {
+    assert.equal(shotProblem(spec({ region: union(css('[role="listbox"]'), "Composer") })), null);
+    assert.match(shotProblem(spec({ region: union(css("a")) }))!, /at least two/);
+    assert.match(shotProblem(spec({ region: union(css("a"), css("")) }))!, /parts/);
+    assert.match(shotProblem(spec({ look: "cutout", region: union(css("a"), css("b")) }))!, /one element/);
+  });
+
+  it("takes focus as a target, not a box, and not on a cutout", () => {
+    assert.equal(shotProblem(spec({ look: "bleed", focus: css(".chat") })), null);
+    assert.match(shotProblem(spec({ focus: "" }))!, /`focus`/);
+    assert.match(shotProblem(spec({ look: "cutout", focus: css(".x") }))!, /`focus`/);
+  });
+
+  it("checks per-preset framing", () => {
+    assert.equal(shotProblem(spec({ presets: { story: { look: "bleed", zoom: "fill" } } })), null);
+    assert.match(shotProblem(spec({ presets: { story: { zoom: 0 } } }))!, /presets\.story/);
+  });
+});
+
+describe("emptyBands", () => {
+  const none = { top: 0, right: 0, bottom: 0, left: 0 };
+
+  it("finds agent-slash-command's blank band above the menu", () => {
+    // 55 css px at scale 4, in a 904x342 rect taken literally.
+    const bands = emptyBands({ ...none, top: 220 }, 4, { w: 904, h: 342 }, none);
+    assert.equal(bands.length, 1);
+    assert.equal(bands[0].side, "top");
+    assert.equal(bands[0].px, 55);
+  });
+
+  it("does not count the padding asked for, or a small margin", () => {
+    const pad = paddingSides(16);
+    assert.deepEqual(emptyBands({ top: 64, right: 64, bottom: 64, left: 64 }, 4, { w: 904, h: 342 }, pad), []);
+    assert.deepEqual(emptyBands({ ...none, bottom: 2 * 60 }, 2, { w: 2000, h: 2000 }, none), [], "60 of 2000 is 3%");
   });
 });

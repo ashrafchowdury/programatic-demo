@@ -45,8 +45,8 @@ export type ShotMeta = {
   backdrop?: string;
   /** Flat ground colour (#rrggbb, or "transparent") instead of a backdrop image. Wins over `backdrop`. */
   ground?: string;
-  /** Cut the still into this many pieces side by side. See splitCanvas. */
-  split?: number;
+  /** Cut the still into this many pieces side by side, or "auto". See splitCanvas, resolveSplit. */
+  split?: SplitCount;
   /** Output px left unrendered between pieces — the platform's gutter. */
   gutter?: number;
   /**
@@ -85,11 +85,57 @@ export type ShotMeta = {
    * Bleed only: the box to keep in view, CSS px relative to the PNG's
    * top-left. A bleed with a focus centres it on the canvas instead of pinning
    * a corner — the corner is rarely where the point of the screen is. Written
-   * by the capture side when the spec names one, or given at render as
-   * `--focus=x,y` (fractions of the region).
+   * by the capture side when the spec names one (`focus: css(...)`, resolved
+   * against the region), or given at render as `--focus=x,y` (fractions of
+   * the region).
    */
   focus?: Box;
+  /**
+   * Framing that differs per preset, over the shot's own: a landscape screen
+   * that is a window on `wide` and a fill bleed on `story`. A render flag
+   * still wins over both. See presetFraming.
+   */
+  presets?: PresetOverrides;
 };
+
+/**
+ * The framing knobs one preset may set differently. `look` may move between
+ * window and bleed — both frame the same opaque crop — but never to or from a
+ * cutout, which is photographed differently.
+ */
+export type PresetFraming = {
+  look?: StillLook;
+  fit?: number;
+  anchor?: Anchor;
+  inset?: number;
+  zoom?: Zoom;
+  split?: SplitCount;
+  gutter?: number;
+};
+export type PresetOverrides = Partial<Record<StillPresetId, PresetFraming>>;
+
+/**
+ * The framing a preset renders with: the preset's override over the shot's
+ * own. Render flags go over this, in render-still. Knobs neither sets are
+ * left out, so each layer's defaults still apply below.
+ */
+export function presetFraming(
+  meta: Pick<ShotMeta, "look" | "fit" | "anchor" | "inset" | "zoom" | "split" | "gutter" | "presets">,
+  preset: StillPresetId,
+): PresetFraming {
+  const own: PresetFraming = {
+    look: meta.look,
+    fit: meta.fit,
+    anchor: meta.anchor,
+    inset: meta.inset,
+    zoom: meta.zoom,
+    split: meta.split,
+    gutter: meta.gutter,
+  };
+  const merged = { ...own, ...meta.presets?.[preset] } as Record<string, unknown>;
+  for (const key of Object.keys(merged)) if (merged[key] === undefined) delete merged[key];
+  return merged as PresetFraming;
+}
 
 /** An axis-aligned box, in whatever unit the caller says. */
 export type Box = { x: number; y: number; width: number; height: number };
@@ -393,23 +439,36 @@ export function windowBox(
 export function captureTargetPx(
   look: StillLook,
   windowFit: number,
-  opts: { fit?: number; zoom?: Zoom; split?: number; gutter?: number; aspect?: number } = {},
+  opts: {
+    fit?: number;
+    zoom?: Zoom;
+    split?: SplitCount;
+    gutter?: number;
+    aspect?: number;
+    presets?: PresetOverrides;
+  } = {},
 ): number {
-  const count = opts.split != null && opts.split > 1 ? opts.split : 1;
-  const whole = (id: StillPresetId): Canvas =>
-    count > 1
-      ? splitCanvas(STILL_PRESETS[id], { count, piece: 0, gutter: opts.gutter ?? 0 }).canvas
-      : STILL_PRESETS[id];
-  const fit = look === "cutout" ? (opts.fit ?? CUTOUT_FIT) : windowFit;
-  const zoom = look === "bleed" ? (opts.zoom ?? BLEED_ZOOM) : 1;
-  // Without the region's shape a fill zoom cannot be resolved; the default
-  // factor stands in, as it always has.
-  const factor = (base: Canvas, canvas: Canvas): number =>
-    zoom === "fill" ? (opts.aspect ? fillZoom(base, canvas) : BLEED_ZOOM) : zoom;
-  return Math.round(
-    Math.max(
-      ...STILL_PRESET_IDS.map((id) => {
-        const canvas = whole(id);
+  // Each preset with its own override over the shot's knobs. An "auto"
+  // split is not resolved here — that needs the whole sidecar — so every
+  // count it could pick is sized for; the surface budget caps the excess.
+  const need = (id: StillPresetId): number => {
+    const o = { look, ...opts, ...opts.presets?.[id] };
+    const counts =
+      o.split === "auto"
+        ? Array.from({ length: AUTO_SPLIT_MAX }, (_, i) => i + 1)
+        : [o.split != null && o.split > 1 ? o.split : 1];
+    const fit = o.look === "cutout" ? (o.fit ?? CUTOUT_FIT) : windowFit;
+    const zoom = o.look === "bleed" ? (o.zoom ?? BLEED_ZOOM) : 1;
+    // Without the region's shape a fill zoom cannot be resolved; the default
+    // factor stands in, as it always has.
+    const factor = (base: Canvas, canvas: Canvas): number =>
+      zoom === "fill" ? (opts.aspect ? fillZoom(base, canvas) : BLEED_ZOOM) : zoom;
+    return Math.max(
+      ...counts.map((count) => {
+        const canvas =
+          count > 1
+            ? splitCanvas(STILL_PRESETS[id], { count, piece: 0, gutter: o.gutter ?? 0 }).canvas
+            : STILL_PRESETS[id];
         if (!opts.aspect || (count === 1 && zoom !== "fill")) {
           const edge = Math.max(canvas.width, canvas.height) * fit;
           return edge * factor({ width: edge, height: edge }, canvas);
@@ -417,8 +476,9 @@ export function captureTargetPx(
         const base = windowBox(opts.aspect, canvas, fit);
         return Math.max(base.width, base.height) * factor(base, canvas);
       }),
-    ),
-  );
+    );
+  };
+  return Math.round(Math.max(...STILL_PRESET_IDS.map(need)));
 }
 
 /**
@@ -503,6 +563,29 @@ export type Split = {
 
 export const MAX_SPLIT = 8;
 
+/**
+ * A split's piece count, or "auto": as many pieces, up to AUTO_SPLIT_MAX, as
+ * the product actually spans on that preset — every piece at least
+ * MIN_PIECE_FILL covered. See resolveSplit.
+ */
+export type SplitCount = number | "auto";
+
+/**
+ * The most pieces "auto" will cut. Three is the carousel the references
+ * post; past that each piece is a sliver of UI.
+ */
+export const AUTO_SPLIT_MAX = 3;
+
+/**
+ * Least share of a piece the product must cover. A piece under it is ground
+ * with an edge of UI: agents-page `wide --split=3` had its third piece at 0%
+ * and its second at 25% (the window, height-bound, spans 1.2 of 3 pieces);
+ * agents-home-cutout on `square` and `wide` sat at 29% and 16% a piece. The
+ * pieces that read — agents-page portrait 3-up, the cutout on story — cover
+ * 36-94%.
+ */
+export const MIN_PIECE_FILL = 0.3;
+
 /** The whole canvas a split lays out across, and where this piece's window starts. */
 export function splitCanvas(
   piece: Canvas,
@@ -517,8 +600,12 @@ export function splitCanvas(
 
 /** Reason a split is unusable, or null. */
 export function splitProblem(v: { split?: unknown; gutter?: unknown }): string | null {
-  if (v.split !== undefined && !(Number.isInteger(v.split) && (v.split as number) >= 1 && (v.split as number) <= MAX_SPLIT))
-    return `\`split\` must be a whole number from 1 to ${MAX_SPLIT}`;
+  if (
+    v.split !== undefined &&
+    v.split !== "auto" &&
+    !(Number.isInteger(v.split) && (v.split as number) >= 1 && (v.split as number) <= MAX_SPLIT)
+  )
+    return `\`split\` must be a whole number from 1 to ${MAX_SPLIT}, or "auto"`;
   if (v.gutter !== undefined && !(typeof v.gutter === "number" && v.gutter >= 0))
     return "`gutter` must be a number >= 0";
   if (v.gutter !== undefined && v.split === undefined) return "`gutter` needs a `split`";
@@ -721,27 +808,175 @@ export function stillLegibility(
     focus?: Box;
   } = {},
 ): Legibility {
-  let drawn: Box;
-  let cssWidth: number;
-  if (look === "cutout" && meta.body) {
-    drawn = cutoutLayout(meta, canvas, opts).body;
-    cssWidth = meta.body.width;
-  } else if (look === "bleed") {
-    drawn = bleedLayout(meta, canvas, windowFit, opts);
-    cssWidth = meta.region.width;
-  } else {
-    const box = windowBox(shotAspect(meta), canvas, windowFit);
-    drawn = { x: (canvas.width - box.width) / 2, y: (canvas.height - box.height) / 2, ...box };
-    cssWidth = meta.region.width;
-  }
-  const seen = (a: number, len: number, room: number) =>
-    Math.max(0, Math.min(room, a + len) - Math.max(0, a));
+  const drawn = productBox(meta, look, canvas, windowFit, opts);
+  const cssWidth = look === "cutout" && meta.body ? meta.body.width : meta.region.width;
   return {
     textScale: (drawn.width / cssWidth) * (FEED_WIDTH / piece.width),
     fill:
-      (seen(drawn.x, drawn.width, canvas.width) * seen(drawn.y, drawn.height, canvas.height)) /
+      (overlap(drawn.x, drawn.width, 0, canvas.width) *
+        overlap(drawn.y, drawn.height, 0, canvas.height)) /
       (canvas.width * canvas.height),
   };
+}
+
+type FramingOpts = {
+  fit?: number;
+  anchor?: Anchor;
+  inset?: number;
+  zoom?: Zoom;
+  upscale?: number;
+  focus?: Box;
+};
+
+/** Length of [a, a+len) inside [from, from+room). */
+const overlap = (a: number, len: number, from: number, room: number): number =>
+  Math.max(0, Math.min(from + room, a + len) - Math.max(from, a));
+
+/**
+ * Where the PRODUCT lands on `canvas`, in canvas px: a cutout's body (not its
+ * shadow), a bleed's window, or the centred window. The one box every
+ * coverage and edge check measures, off the same layout the composition draws.
+ */
+export function productBox(
+  meta: ShotMeta,
+  look: StillLook,
+  canvas: Canvas,
+  windowFit: number,
+  opts: FramingOpts = {},
+): Box {
+  if (look === "cutout" && meta.body) return cutoutLayout(meta, canvas, opts).body;
+  if (look === "bleed") return bleedLayout(meta, canvas, windowFit, opts);
+  const box = windowBox(shotAspect(meta), canvas, windowFit);
+  return { x: (canvas.width - box.width) / 2, y: (canvas.height - box.height) / 2, ...box };
+}
+
+/**
+ * Share of each piece of a `count`-piece split the product covers, 0-1, in
+ * piece order. The layout spans the whole strip, so a product narrower than
+ * the strip leaves the far pieces as ground — see MIN_PIECE_FILL.
+ */
+export function pieceFills(
+  meta: ShotMeta,
+  look: StillLook,
+  piece: Canvas,
+  count: number,
+  gutter: number,
+  windowFit: number,
+  opts: FramingOpts = {},
+): number[] {
+  const { canvas } = splitCanvas(piece, { count, piece: 0, gutter });
+  const box = productBox(meta, look, canvas, windowFit, opts);
+  const tall = overlap(box.y, box.height, 0, piece.height);
+  return Array.from({ length: count }, (_, i) => {
+    const wide = overlap(box.x, box.width, i * (piece.width + gutter), piece.width);
+    return (wide * tall) / (piece.width * piece.height);
+  });
+}
+
+/**
+ * How many pieces a preset is cut into. A number is taken as asked, with
+ * each piece's coverage reported so a piece of ground can be refused; "auto"
+ * is the most pieces, up to AUTO_SPLIT_MAX, that all reach MIN_PIECE_FILL —
+ * 1 when even two would not. agents-page's bleed spans ~1.2 pieces of `wide`
+ * and ~2.6 of `portrait`, so "auto" cuts it 1 and 3.
+ */
+export function resolveSplit(
+  meta: ShotMeta,
+  look: StillLook,
+  piece: Canvas,
+  asked: SplitCount | undefined,
+  gutter: number,
+  windowFit: number,
+  opts: FramingOpts = {},
+): { count: number; fills: number[] } {
+  const fills = (n: number) => pieceFills(meta, look, piece, n, gutter, windowFit, opts);
+  if (asked === undefined || asked === 1) return { count: 1, fills: fills(1) };
+  if (asked !== "auto") return { count: asked, fills: fills(asked) };
+  for (let n = AUTO_SPLIT_MAX; n > 1; n--) {
+    const f = fills(n);
+    if (f.every((v) => v >= MIN_PIECE_FILL)) return { count: n, fills: f };
+  }
+  return { count: 1, fills: fills(1) };
+}
+
+export type Side = "top" | "right" | "bottom" | "left";
+
+/** The sides of `canvas` the box reaches or crosses, within `tol` px. */
+export function sidesReached(box: Box, canvas: Canvas, tol = 1): Side[] {
+  const sides: Side[] = [];
+  if (box.y <= tol) sides.push("top");
+  if (box.x + box.width >= canvas.width - tol) sides.push("right");
+  if (box.y + box.height >= canvas.height - tol) sides.push("bottom");
+  if (box.x <= tol) sides.push("left");
+  return sides;
+}
+
+/** The sides an anchor pins, e.g. top-left -> top and left; center -> none. */
+export function anchoredSides(anchor: Anchor): Side[] {
+  const [v, h] = anchorAxes(anchor);
+  const sides: Side[] = [];
+  if (v !== "center") sides.push(v);
+  if (h !== "center") sides.push(h);
+  return sides;
+}
+
+const OPPOSITE: Record<Side, Side> = { top: "bottom", bottom: "top", left: "right", right: "left" };
+
+/**
+ * Sides a window or cutout reaches that it was not meant to. Neither look
+ * bleeds, so the product touching the canvas edge is a crop nobody asked for
+ * — agents-home-composer at `fit: 1.35` on `og` filled the card top to bottom
+ * and lost its chips. The one exception is a cutout framed past the canvas
+ * (`fit` over 1): its far side, opposite the anchor, runs off on purpose.
+ */
+export function unintendedEdges(
+  look: StillLook,
+  box: Box,
+  canvas: Canvas,
+  opts: { fit?: number; anchor?: Anchor } = {},
+): Side[] {
+  if (look === "bleed") return [];
+  const expected =
+    look === "cutout" && (opts.fit ?? CUTOUT_FIT) > 1
+      ? anchoredSides(opts.anchor ?? "center").map((s) => OPPOSITE[s])
+      : [];
+  return sidesReached(box, canvas).filter((s) => !expected.includes(s));
+}
+
+/**
+ * Past this share of the canvas, ground showing on a side a bleed should run
+ * off is a floating window, not a bleed. smoke-bleed on story stopped at
+ * y=1711 of 3840 — 55% of the frame empty below it.
+ */
+export const MAX_BLEED_GAP = 0.1;
+
+/**
+ * Ground left on the sides a bleed is meant to run off, as a share of that
+ * axis — only the sides over MAX_BLEED_GAP. Those are the sides opposite the
+ * anchored ones: top-left runs off right and bottom. An axis the anchor
+ * centres is not judged when the other is pinned — `left` is a strip run off
+ * the right, sitting in the middle — and `center`, or a focus, should run off
+ * every side.
+ */
+export function bleedGaps(
+  box: Box,
+  canvas: Canvas,
+  opts: { anchor?: Anchor; focus?: Box } = {},
+): Partial<Record<Side, number>> {
+  const pinned = opts.focus ? [] : anchoredSides(opts.anchor ?? "top-left");
+  const judged: Side[] = pinned.length
+    ? pinned.map((s) => OPPOSITE[s])
+    : ["top", "right", "bottom", "left"];
+  const gap: Record<Side, number> = {
+    top: box.y / canvas.height,
+    right: (canvas.width - (box.x + box.width)) / canvas.width,
+    bottom: (canvas.height - (box.y + box.height)) / canvas.height,
+    left: box.x / canvas.width,
+  };
+  const out: Partial<Record<Side, number>> = {};
+  for (const side of Object.keys(gap) as Side[])
+    if (judged.includes(side) && gap[side] > MAX_BLEED_GAP) out[side] = gap[side];
+  return out;
 }
 
 /**
@@ -789,10 +1024,35 @@ export function shotMetaProblem(value: unknown): string | null {
   }
   if (!(typeof meta.scale === "number" && meta.scale > 0))
     return "`scale` must be a number > 0";
-  const framing = framingProblem(meta) ?? splitProblem(meta);
+  const framing = framingProblem(meta) ?? splitProblem(meta) ?? presetsProblem(meta);
   if (framing) return framing;
   if (meta.look === "cutout" && meta.body === undefined)
     return "a cutout sidecar must carry a `body` — re-run `pnpm shot`";
+  return null;
+}
+
+/**
+ * Shape check for per-preset framing, shared by the spec and the sidecar.
+ * Each override is judged like the shot's own knobs; its look may not cross
+ * the cutout line, since the capture decided that.
+ */
+export function presetsProblem(v: { look?: unknown; presets?: unknown }): string | null {
+  if (v.presets === undefined) return null;
+  if (typeof v.presets !== "object" || v.presets === null) return "`presets` must be an object";
+  const own = v.look ?? DEFAULT_LOOK;
+  for (const [id, o] of Object.entries(v.presets as Record<string, unknown>)) {
+    if (!isPresetId(id))
+      return `\`presets.${id}\` is not a preset — expected one of ${STILL_PRESET_IDS.join(", ")}`;
+    if (typeof o !== "object" || o === null) return `\`presets.${id}\` must be an object`;
+    const p = o as PresetFraming;
+    // A gutter alone is fine here: the shot's own split may be what it spaces.
+    const issue = framingProblem(p) ?? splitProblem({ split: p.split });
+    if (!issue && p.gutter !== undefined && !(typeof p.gutter === "number" && p.gutter >= 0))
+      return `\`presets.${id}\`: \`gutter\` must be a number >= 0`;
+    if (issue) return `\`presets.${id}\`: ${issue}`;
+    if (p.look !== undefined && (p.look === "cutout") !== (own === "cutout"))
+      return `\`presets.${id}.look\` cannot turn a ${own} capture into a ${p.look} — a cutout is photographed differently`;
+  }
   return null;
 }
 

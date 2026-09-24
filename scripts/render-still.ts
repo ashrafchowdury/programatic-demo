@@ -70,8 +70,15 @@ import {
   isPresetId,
   maxWindowPx,
   MIN_FILL,
+  MIN_PIECE_FILL,
   MIN_TEXT_SCALE,
+  bleedGaps,
   parseFocus,
+  presetFraming,
+  productBox,
+  resolveSplit,
+  unintendedEdges,
+  type SplitCount,
   resolveAnchor,
   resolveShotLook,
   resolveStillPreset,
@@ -96,7 +103,7 @@ import { resolveGl } from "./lib/remotion";
 type Framing = {
   ground?: string;
   shadow?: boolean;
-  split?: number;
+  split?: SplitCount;
   gutter?: number;
   fit?: number;
   anchor?: Anchor;
@@ -124,6 +131,9 @@ const KNOB_LOOKS: Record<keyof Omit<Framing, "ground" | "split" | "gutter">, Sti
 /** One image to render: a preset, or one piece of a split preset. */
 type Job = {
   preset: StillPresetId;
+  /** The look and knobs THIS preset renders with: flags over its override over the shot's. */
+  look: StillLook;
+  knobs: Omit<Framing, "ground" | "split" | "gutter">;
   piece?: { count: number; piece: number; gutter: number };
   out: string;
 };
@@ -266,7 +276,7 @@ async function main() {
     focus: focusFlag != null ? parseFocus(focusFlag, meta.region) : undefined,
     shadow: boolFlag(argv, "shadow"),
     ground: flag(argv, "ground"),
-    split: numberFlag(argv, "split"),
+    split: flag(argv, "split") === "auto" ? "auto" : numberFlag(argv, "split"),
     gutter: numberFlag(argv, "gutter"),
     upscale: numberFlag(argv, "upscale"),
   };
@@ -274,18 +284,6 @@ async function main() {
     if (framing[key] === undefined) delete framing[key];
   const framingIssue = framingProblem(framing) ?? splitProblem(framing);
   if (framingIssue) throw new Error(framingIssue);
-  for (const key of Object.keys(KNOB_LOOKS) as (keyof typeof KNOB_LOOKS)[]) {
-    if (framing[key] === undefined || KNOB_LOOKS[key].includes(look)) continue;
-    console.warn(
-      `           !  --${key} does nothing to a ${look}; it applies to ${KNOB_LOOKS[key].join(" and ")} — ignored`,
-    );
-    delete framing[key];
-  }
-  // The split and its gutter come from the flag, else the shot.
-  const wanted = framing.split ?? meta.split;
-  const count = wanted != null && wanted > 1 ? wanted : undefined;
-  const gutter = framing.gutter ?? meta.gutter ?? 0;
-
   // A second positional is a preset; reject a typo here rather than silently
   // rendering the default, which looks like the flag was ignored.
   const asked = positional.filter((a) => a !== fromFlag)[1];
@@ -296,6 +294,22 @@ async function main() {
   const presets: StillPresetId[] = all
     ? [...STILL_PRESET_IDS]
     : [resolveStillPreset(asked ?? process.env.DEMO_PRESET)];
+
+  // The look each preset renders: --look for all, else the preset's own
+  // override, else the shot's. shotMetaProblem has already refused an
+  // override that crosses the cutout line.
+  const lookAsked = lookFlag != null && lookFlag !== "";
+  const lookOf = (preset: StillPresetId): StillLook =>
+    lookAsked ? look : (presetFraming(meta, preset).look ?? ownLook);
+  const looks = new Set(presets.map(lookOf));
+  for (const key of Object.keys(KNOB_LOOKS) as (keyof typeof KNOB_LOOKS)[]) {
+    if (framing[key] === undefined || KNOB_LOOKS[key].some((l) => looks.has(l))) continue;
+    console.warn(
+      `           !  --${key} does nothing to a ${[...looks].join(" or ")}; it applies to ` +
+        `${KNOB_LOOKS[key].join(" and ")} — ignored`,
+    );
+    delete framing[key];
+  }
 
   // The ground: the same rule the composition applies. Resolved here and
   // passed down explicitly, so the render cannot depend on which environment
@@ -329,19 +343,45 @@ async function main() {
 
   const suffix = nameSuffix(
     look,
-    lookFlag != null && look !== ownLook,
+    lookAsked && look !== ownLook,
     framing,
     backdropTag,
     framing.focus ? focusFlag : undefined,
   );
   const jobs: Job[] = [];
   const imported = meta.via?.startsWith("imported ") ?? false;
-  const { split: _count, gutter: _gutter, ...knobs } = framing;
+  const { split: _count, gutter: _gutter, ...flagKnobs } = framing;
   for (const preset of presets) {
     const piece = STILL_PRESETS[preset];
+    const look = lookOf(preset);
+    // Flags over the preset's override over the shot's own knobs.
+    const { look: _look, split: ownSplit, gutter: ownGutter, ...own } = presetFraming(meta, preset);
+    const knobs = { ...own, ...flagKnobs };
+    const gutter = framing.gutter ?? ownGutter ?? 0;
+    const cut = resolveSplit(meta, look, piece, framing.split ?? ownSplit, gutter, WINDOW_FIT, knobs);
+    const count = cut.count > 1 ? cut.count : undefined;
+    const short = cut.fills.findIndex((f) => f < MIN_PIECE_FILL);
+    if (count && short >= 0) {
+      // A piece that is ground with an edge of UI is not worth posting, and
+      // the set cannot drop it without renumbering. Refuse the preset and
+      // name the count that works.
+      const auto = resolveSplit(meta, look, piece, "auto", gutter, WINDOW_FIT, knobs).count;
+      console.warn(
+        `           !  ${preset}: SKIPPED — piece ${short + 1} of ${count} is ` +
+          `${Math.round(cut.fills[short] * 100)}% product (under ${MIN_PIECE_FILL * 100}%); ` +
+          `the product spans ${auto === 1 ? "one piece" : `${auto} pieces`} here — ` +
+          `use split: "auto" (or --split=${auto})`,
+      );
+      continue;
+    }
+    if ((framing.split ?? ownSplit) === "auto")
+      console.log(
+        `split      -> ${preset}: ${cut.count} piece${cut.count === 1 ? "" : "s"} ` +
+          `(${cut.fills.map((f) => `${Math.round(f * 100)}%`).join(" / ")} product)`,
+      );
     const whole = count ? splitCanvas(piece, { count, piece: 0, gutter }).canvas : piece;
     if (look === "cutout") {
-      const lay = cutoutLayout(meta, whole, framing);
+      const lay = cutoutLayout(meta, whole, knobs);
       if (lay.native)
         console.warn(
           `           !  ${preset}: drawn at native size (${lay.img.width}px wide) — ` +
@@ -352,7 +392,7 @@ async function main() {
           `           !  ${preset}: stretched ${lay.scale.toFixed(2)}x past native by \`upscale\` — ` +
             `it will read softer than a native shot`,
         );
-      if (lay.overflows && (framing.fit ?? meta.fit ?? CUTOUT_FIT) <= 1)
+      if (lay.overflows && (knobs.fit ?? CUTOUT_FIT) <= 1)
         console.warn(`           !  ${preset}: the element's shadow runs past the canvas`);
     }
     // Will it read? An imported image's "CSS px" are its pixels, so its text
@@ -364,6 +404,25 @@ async function main() {
         : look === "bleed"
           ? "raise --zoom, or shoot a tighter region"
           : "raise --fit, or shoot on a smaller viewport";
+    // Where the product lands, for the two crop checks a window, cutout and
+    // bleed each fail differently.
+    const box = productBox(meta, look, whole, WINDOW_FIT, knobs);
+    const edges = unintendedEdges(look, box, whole, knobs);
+    if (edges.length)
+      console.warn(
+        `           !  ${preset}: the ${look === "cutout" ? "element" : "window"} reaches the ` +
+          `canvas's ${edges.join("/")} edge and is cropped there — lower \`fit\`` +
+          `${look === "cutout" ? " or change `anchor`" : ""} for this preset (\`presets.${preset}\`)`,
+      );
+    if (look === "bleed") {
+      const gaps = bleedGaps(box, whole, { anchor: knobs.anchor, focus: knobs.focus ?? meta.focus });
+      const sides = Object.entries(gaps).map(([side, g]) => `${Math.round(g * 100)}% at the ${side}`);
+      if (sides.length)
+        console.warn(
+          `           !  ${preset}: the bleed leaves ground where it should run off — ` +
+            `${sides.join(", ")}; use zoom: "fill" here (\`presets.${preset}\`, or --zoom=fill)`,
+        );
+    }
     if (!imported && seen.textScale < MIN_TEXT_SCALE)
       console.warn(
         `           !  ${preset}: app text shows at ${seen.textScale.toFixed(2)}x in a ` +
@@ -376,12 +435,14 @@ async function main() {
 
     const base = outName ?? `${name}-${preset}${suffix}`;
     if (!count) {
-      jobs.push({ preset, out: outPath("still", `${base}.png`) });
+      jobs.push({ preset, look, knobs, out: outPath("still", `${base}.png`) });
       continue;
     }
     for (let i = 0; i < count; i++)
       jobs.push({
         preset,
+        look,
+        knobs,
         piece: { count, piece: i, gutter },
         out: outPath("still", `${base}-${i + 1}of${count}.png`),
       });
@@ -408,8 +469,8 @@ async function main() {
       const inputProps = {
         name,
         preset: job.preset,
-        ...knobs,
-        look,
+        ...job.knobs,
+        look: job.look,
         ...(ground.ground ? { ground: ground.ground } : {}),
         ...(ground.backdrop ? { backdrop: ground.backdrop } : {}),
         ...(job.piece ? { split: job.piece } : {}),

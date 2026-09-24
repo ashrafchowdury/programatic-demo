@@ -88,7 +88,8 @@ Three forms, in the order you should reach for them:
 | Form | Use it when |
 | --- | --- |
 | `css("...")` | usual case. Structural regions (a panel, a sidebar, a card) have no accessible name |
-| `{ x, y, w, h }` | the region is not one element — e.g. a popover *and* the input it opened from |
+| `union(css(a), css(b))` | the region is several elements — a popover *and* the input it opened from. The box holding them all, measured off the page, then padded |
+| `{ x, y, w, h }` | nothing on the page marks it. Last resort: it is read off one account's data |
 | `"Visible name"` | the region really is one named control. Goes through the same ladder clicks use |
 
 A bare name resolves *controls*. It will not find "the sidebar". Do not fight it
@@ -103,6 +104,12 @@ pnpm shot <name> --probe
 That drives the steps, then writes `.diag/shots/<name>.probe.png` — the full
 viewport under a 100px coordinate grid — plus a listing of what was on screen.
 Read the numbers off the image.
+
+Prefer `union()` to a rect even when a rect looks easier. A rect is the layout
+of the account it was read off: agent-slash-command's, taken where the menu had
+more rows, kept a 55px band of empty page above it in another workspace. A
+window capture warns when a band of flat colour past the padding runs in
+from any edge of the crop (40px and 8% of that side or more).
 
 ## Keeping dev chrome and personal data out
 
@@ -125,7 +132,19 @@ export default defineShot({
 ```
 
 A `hide` selector that matches nothing is warned about — a renamed class
-should not silently let a name back in. `clean: false` turns off the default
+should not silently let a name back in.
+
+What leaks in practice, and what the agenta shots hide:
+
+| leak | hide |
+| --- | --- |
+| a greeting with the signed-in name ("Good evening, …") | the greeting line alone — the heading reads fine without it |
+| a "Created by" / owner column | the header *and* the cells (`:nth-child`), so the grid closes up |
+| sidebar session titles — whatever was typed, pasted links, "hi" | every row but the open one: `[data-drag-kind="row"]:not(.font-medium)` |
+
+`hide` is plain CSS, so `:has()` and `:not()` work; Playwright's `:has-text()`
+does not. Look at every preset of every re-shoot before posting — a new
+workspace brings new data. `clean: false` turns off the default
 sheet (to photograph the dev chrome on purpose); `hide` still applies.
 
 ## Choosing the look
@@ -191,14 +210,14 @@ Framing knobs, in the spec or as `--flag=` on `render:still` (the flag wins):
 | knob | applies to | default | meaning |
 | --- | --- | --- | --- |
 | `ground` | all | — | flat colour instead of the backdrop image, `#f3f3f3`, or `transparent` |
-| `split` | all | — | cut into this many pieces side by side, laid out as one picture |
+| `split` | all | — | cut into this many pieces side by side, laid out as one picture; `"auto"` picks per preset |
 | `gutter` | all | 0 | output px left out between pieces — the platform's gap |
 | `fit` | cutout | 0.8 | fraction of the canvas the element may fill — over 1 crops INTO it (up to 2) |
 | `shadow` | cutout | auto | `true` always casts a soft shadow; `false` in the SPEC strips the element's own at capture (re-shoot); `--shadow=false` only drops the cast one |
 | `anchor` | cutout, bleed | center / top-left | `top-left`, `top`, … `bottom-right`, `center` |
 | `inset` | cutout, bleed | 0 / 0.06 | fraction of the canvas's short edge kept clear on the anchored side(s) — the same px on both axes |
 | `zoom` | bleed | 1.3 | how much larger than the fitted window, or `fill` to cover the frame |
-| `focus` | bleed | — | `--focus=x,y`, fractions of the region: centre that point instead of pinning a corner |
+| `focus` | bleed | — | in the spec, `focus: css("…")` — resolved at capture; at render, `--focus=x,y`, fractions of the region: centre that point instead of pinning a corner |
 | `upscale` | cutout | 1 | stretch a small element past native, up to 1.5 — opt-in only |
 
 **Crop into the subject, don't present it whole.** The reference stills run a
@@ -208,6 +227,21 @@ inset: 0.08` frames a cutout wider than the canvas and pins its left edge.
 And give it something to show — an empty input with placeholder text is not
 a picture of anything: type the task and attach the files in `steps` first.
 
+**Framing can differ per preset.** A landscape screen is a fine window on
+`wide` and a speck in `story`. `presets` overrides any framing knob — and the
+look, between window and bleed — for one preset; a render flag still wins:
+
+```ts
+export default defineShot({
+  // ...
+  presets: {
+    portrait: { look: "bleed", zoom: "fill" },
+    story: { look: "bleed", zoom: "fill" },
+    og: { fit: 1.05 },
+  },
+});
+```
+
 **A split is one picture posted as several.** `split: 3` (or `--split=3`)
 lays the still out across three pieces of the preset's size and renders each
 as its own file, `-1of3` … `-3of3`; posted in order they read as one. `gutter`
@@ -216,6 +250,12 @@ continue straight across it — 0 for a swipe carousel, ~8 for a multi-image
 post. Every look works inside a split; the cut is exact because nothing is
 sliced — each piece is the same layout, translated.
 
+A piece that is mostly ground is refused: a preset whose split leaves any
+piece under 30% product is skipped, and the log names the count that works.
+`split: "auto"` (or `--split=auto`) is usually what you want — as many pieces,
+up to three, as the product actually spans on that preset. agents-page's
+window spans 2.6 portrait pieces but 1.2 wide ones; a fixed 3 left wide's
+third piece pure backdrop.
 A cutout **never upscales** unless asked. The capture shoots at the scale
 `fit` asks for; if the element is still too small to fill it, it is drawn at
 native pixels and the log names the viewport that would reach it (a smaller
@@ -242,13 +282,21 @@ variants never overwrite each other. A flag the look ignores (`--fit` on a
 window) is warned about and left out; so is the look when `--look` asks for
 the one the shot already has.
 
-**Read the warnings.** Before rendering, each preset is checked two ways:
-how large the app's text lands once a feed shrinks the image to a 1080px
-column (under 0.7× of its own size — 13px reads as ~9px — it will not read),
-and how much of the frame the product covers (under 45% it is a small
-picture on a lot of ground). The usual fixes: a tighter region,
-`--look=bleed --zoom=fill` for a screen in a tall frame, a higher `fit` for a
-cutout.
+**Read the warnings.** Before rendering, each preset is checked:
+
+- how large the app's text lands once a feed shrinks the image to a 1080px
+  column (under 0.7× of its own size — 13px reads as ~9px — it will not read);
+- how much of the frame the product covers (under 45% it is a small picture
+  on a lot of ground);
+- whether a window or cutout reaches a canvas edge it was not meant to — a
+  cutout at `fit` over 1 runs off the side opposite its anchor on purpose,
+  nothing else should;
+- whether a bleed leaves over 10% ground on a side it should run off;
+- whether any split piece is under 30% product (that preset is skipped).
+
+The usual fixes: a tighter region, a `presets` entry with `look: "bleed",
+zoom: "fill"` for a screen in a tall frame, a lower `fit` on the preset that
+crops.
 
 ## Framing an image you already have
 
@@ -289,6 +337,9 @@ same detail in any frame.
   higher if it fell short — up to the viewport's surface budget (4× at
   1920×1080, more on a smaller viewport). Past that you get a warning, not a
   silent upscale. Shoot a larger region, or a smaller viewport.
+- **Animations are finished before anything is measured**, not only for the
+  screenshot: a popover still sliding in used to be measured mid-flight and
+  photographed where it landed.
 - **It re-runs the whole step list** to raise the scale. Set `scale: 4` in the
   spec once a shot is settled and it only runs once. If the second run finds
   the region more than 2px from where the first did, it warns: the app reached

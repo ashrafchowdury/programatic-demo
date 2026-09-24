@@ -28,4 +28,12 @@ export default defineShot({
   padding: 0,
   look: "bleed",
   anchor: "top-left",
+  // At the default zoom a landscape window stops short of the bottom of a
+  // tall frame — 21% of square, 37% of portrait, 55% of story left as
+  // ground. Fill grows it until it runs off both far sides.
+  presets: {
+    square: { zoom: "fill" },
+    portrait: { zoom: "fill" },
+    story: { zoom: "fill" },
+  },
 });

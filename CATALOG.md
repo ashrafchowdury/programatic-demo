@@ -33,11 +33,13 @@ re-driving the browser.
 | a panel or region, in a window | `look: "window"`, `region: css("…")`, `padding` |
 | a popover / menu / composer alone, with its own shadow | `look: "cutout"`, `region: css("…")` |
 | a popover **and** its submenu, or a menu and the chip it opened from | `look: "cutout"` + `keep: [css("…")]` |
+| a popover **and** the input it opened from, in a window | `region: union(css("…"), css("…"))` |
 | a component cropped into, running off an edge | `look: "cutout"`, `fit: 1.35`, `anchor: "left"` |
 | a screen running off the canvas edges | `look: "bleed"`, `zoom`, `anchor` |
-| a bleed centred on one part of the screen | `look: "bleed"`, `--focus=x,y` (fractions of the region) |
+| a bleed centred on one part of the screen | `look: "bleed"`, `focus: css("…")` (or `--focus=x,y`, fractions of the region) |
 | a landscape screen filling a portrait / story frame | `look: "bleed"`, `zoom: "fill"` |
-| one picture posted as 2–3 images (carousel, multi-image post) | `split: 3`, `gutter: 8` |
+| different framing on one preset — a window on wide, a fill bleed on story | `presets: { story: { look: "bleed", zoom: "fill" } }` |
+| one picture posted as 2–3 images (carousel, multi-image post) | `split: "auto"` (or `split: 3`), `gutter: 8` |
 | a flat ground like the reference stills | `ground: "#f3f3f3"` |
 | a PNG with transparency | `ground: "transparent"` |
 | the app's mobile layout (`/m/…` routes) | `mobile: true` |
@@ -48,7 +50,7 @@ re-driving the browser.
 | --- | --- | --- |
 | <img src="docs/catalog/still-look-window-desktop.jpg" width="300"> | <img src="docs/catalog/still-look-cutout-keep.jpg" width="300"> | <img src="docs/catalog/still-bleed-zoom-1.6.jpg" width="300"> |
 | the crop inside the floating window frame — the original | the element alone: its own shadow, transparent edges, on the ground | the window larger than the canvas, pinned to a corner, running off |
-| `agents-page wide --look=window` | `sessions-filter-menu square` (with `keep`) | `agents-page wide --zoom=1.6` |
+| `agents-page wide --look=window --split=1` | `sessions-filter-menu square` (with `keep`) | `agents-page wide --zoom=1.6` |
 
 A window shot can be reframed as a bleed at render time (`--look=bleed`); a
 cutout is captured differently and is set in the shot.
@@ -141,7 +143,10 @@ the composition so lines continue straight across it.
 | `agents-home-composer square --split=2 --gutter=12 --fit=0.7` | |
 
 `--split=1` renders a splitting shot whole. Use `gutter: 0` for a swipe
-carousel, a few px for a multi-image post.
+carousel, a few px for a multi-image post. A preset whose split leaves any
+piece under 30% product is skipped with the count that works;
+`split: "auto"` picks that count per preset (agents-page: 1 on wide and og,
+2 on square, 3 on portrait and story).
 
 ### Capture
 
@@ -149,19 +154,24 @@ Not visible in a picture, but part of every shot:
 
 | knob | what it does |
 | --- | --- |
-| `region` | a visible name, `css("…")`, or `{ x, y, w, h }`; `pnpm shot <name> --probe` draws a grid to read a rect off |
+| `region` | a visible name, `css("…")`, `union(css("…"), css("…"))`, or `{ x, y, w, h }`; `pnpm shot <name> --probe` draws a grid to read a rect off |
 | `padding` | one number or `{ top, right, bottom, left }` around a window region |
 | `scale` | force the device scale factor; otherwise measured, up to the viewport's surface budget (4× at 1920×1080, 5.8× at 820×1180) |
 | `mobile` | present as a mobile client for apps that route a mobile layout by client hint |
 | `keep` | extra elements isolated with a cutout's region |
-| `hide` | CSS selectors removed before measuring — a row with a real name, an email |
+| `hide` | CSS selectors removed before measuring — a greeting with a real name, an owner column, sidebar session titles |
+| `focus` | a name or `css("…")` resolved at capture: the part of the screen a bleed centres |
+| `presets` | per-preset framing over the shot's own: `{ og: { fit: 1.05 }, story: { look: "bleed", zoom: "fill" } }` |
 | `clean` | `false` keeps framework dev overlays, scrollbars and the caret, which are removed by default |
 | `--out=` | name the output file; otherwise every render-time flag that changed the picture goes in the name (a `DEMO_BACKDROP` that picked the ground too) |
 
 The render warns when a still will not read in a feed: app text under 0.7×
 its own size once the image is shrunk to a 1080px column, or the product
-covering under 45% of the frame. It names the fix — usually
-`--look=bleed --zoom=fill`, or a tighter region.
+covering under 45% of the frame. It also warns when a window or cutout is
+cropped by a canvas edge it was not framed to run off, when a bleed leaves
+over 10% ground on a side it should run off, and — at capture — when a window
+crop has a band of empty page past its padding. Each names the fix — usually
+a `presets` entry with `look: "bleed", zoom: "fill"`, or a tighter region.
 
 ---
 

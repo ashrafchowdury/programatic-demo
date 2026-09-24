@@ -31,4 +31,12 @@ export default defineShot({
   // interesting parts of an app, and css() is the answer to it.
   region: css(".board"),
   padding: 24,
+  // A landscape board in a tall frame is a small window on a lot of ground:
+  // 29% of square, 23% of portrait, 16% of story. There it is framed as a
+  // bleed that fills the frame instead; `wide` and `og` keep the window.
+  presets: {
+    square: { look: "bleed", zoom: "fill" },
+    portrait: { look: "bleed", zoom: "fill" },
+    story: { look: "bleed", zoom: "fill" },
+  },
 });

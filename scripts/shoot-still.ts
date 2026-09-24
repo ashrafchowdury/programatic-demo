@@ -38,14 +38,18 @@ import { alphaBoundsInPage, isolateInPage } from "./lib/isolate";
 import { dumpVisible, findByName } from "./lib/selectors";
 import {
   captureCss,
+  emptyBands,
   isShotRect,
+  isUnion,
   paddingSides,
   RECT_DRIFT_PX,
   rectDrift,
   shotProblem,
   type ShotRect,
+  type ShotRegion,
   type ShotSpec,
 } from "./lib/shot";
+import type { CssTarget } from "./lib/flow";
 import {
   hasStoredSession,
   mobileEmulation,
@@ -65,6 +69,7 @@ import {
   viewportFor,
   type Box,
   type ShotMeta,
+  type Side,
 } from "../src/lib/still";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
@@ -135,25 +140,31 @@ async function resolveRegion(
 ): Promise<{ rect: ShotRect; via: string; locator?: Locator }> {
   const vp = spec.viewport;
   const region = spec.region;
-  if (region === undefined)
+  if (region === undefined) {
+    await settleAnimations(page);
     return { rect: { x: 0, y: 0, w: vp.width, h: vp.height }, via: "viewport" };
+  }
 
-  if (typeof region === "object" && isShotRect(region))
+  if (typeof region === "object" && isShotRect(region)) {
+    await settleAnimations(page);
     return { rect: region, via: `rect ${region.w}x${region.h}` };
+  }
 
-  const locator =
-    typeof region === "string"
-      ? await findByName(page, region, spec.targets)
-      : page.locator(region.css).first();
-  const via = typeof region === "string" ? `name "${region}"` : `css(${region.css})`;
-
-  await locator.scrollIntoViewIfNeeded().catch(() => {});
-  // Let any scroll-triggered animation land before measuring, or the box is
-  // read mid-transition and the crop lands off the element.
-  await page.waitForTimeout(350);
-  const box = await locator.boundingBox();
-  if (!box)
-    throw new Error(`region ${via} resolved but has no bounding box (hidden?)`);
+  const parts = typeof region === "object" && isUnion(region) ? region.union : [region];
+  const boxes: Box[] = [];
+  let locator: Locator | undefined;
+  for (const part of parts) {
+    const found = await measureTarget(page, spec, part);
+    boxes.push(found.box);
+    locator ??= found.locator;
+  }
+  const via = parts.length > 1 ? `union(${parts.map(describeTarget).join(", ")})` : describeTarget(parts[0]);
+  const box = {
+    x: Math.min(...boxes.map((b) => b.x)),
+    y: Math.min(...boxes.map((b) => b.y)),
+    width: Math.max(...boxes.map((b) => b.x + b.width)) - Math.min(...boxes.map((b) => b.x)),
+    height: Math.max(...boxes.map((b) => b.y + b.height)) - Math.min(...boxes.map((b) => b.y)),
+  };
 
   const pad = paddingSides(spec.padding);
   return {
@@ -167,6 +178,87 @@ async function resolveRegion(
     locator,
   };
 }
+
+const describeTarget = (t: string | CssTarget): string =>
+  typeof t === "string" ? `name "${t}"` : `css(${t.css})`;
+
+/** One named or css() element, scrolled in and settled, and its box in viewport CSS px. */
+async function measureTarget(
+  page: Page,
+  spec: ShotSpec,
+  target: string | CssTarget,
+): Promise<{ box: Box; locator: Locator }> {
+  const locator =
+    typeof target === "string"
+      ? await findByName(page, target, spec.targets)
+      : page.locator(target.css).first();
+  await locator.scrollIntoViewIfNeeded().catch(() => {});
+  // Let any scroll-triggered animation land before measuring, or the box is
+  // read mid-transition and the crop lands off the element.
+  await page.waitForTimeout(350);
+  await settleAnimations(page);
+  const box = await locator.boundingBox();
+  if (!box)
+    throw new Error(`region ${describeTarget(target)} resolved but has no bounding box (hidden?)`);
+  return { box, locator };
+}
+
+/**
+ * Finish every running CSS animation and transition, and stop the infinite
+ * ones, BEFORE a box is measured. The screenshot's own `animations:
+ * "disabled"` does the same, but only for the screenshot — a popover still
+ * sliding in when the region was measured came out cropped to where it was
+ * mid-flight, then photographed where it landed. Same rule Playwright uses:
+ * finite ones jump to their end, infinite ones are cancelled.
+ */
+async function settleAnimations(page: Page): Promise<void> {
+  await page
+    .evaluate(() => {
+      for (const a of document.getAnimations()) {
+        const timing = a.effect?.getComputedTiming();
+        if (timing?.iterations === Infinity) a.cancel();
+        else a.finish();
+      }
+    })
+    .catch(() => {});
+}
+
+/**
+ * Device px of flat colour running in from each edge of a PNG: lines whose
+ * every pixel is within 3 levels of that line's first pixel. Decoded in the
+ * page, as alphaBoundsInPage is, so no PNG library is needed. Each scan
+ * stops at the first line with content, and at half the image.
+ */
+const flatRunsInPage = new Function(
+  "base64Png",
+  `return (async () => {
+  const bin = atob(base64Png);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
+  const w = bitmap.width, h = bitmap.height;
+  const ctx = new OffscreenCanvas(w, h).getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(bitmap, 0, 0);
+  bitmap.close();
+  const flat = (d) => {
+    for (let i = 4; i < d.length; i += 4)
+      if (Math.abs(d[i] - d[0]) > 3 || Math.abs(d[i + 1] - d[1]) > 3 || Math.abs(d[i + 2] - d[2]) > 3)
+        return false;
+    return true;
+  };
+  const run = (n, line) => {
+    let k = 0;
+    while (k < n / 2 && flat(line(k))) k++;
+    return k;
+  };
+  return {
+    top: run(h, (k) => ctx.getImageData(0, k, w, 1).data),
+    bottom: run(h, (k) => ctx.getImageData(0, h - 1 - k, w, 1).data),
+    left: run(w, (k) => ctx.getImageData(k, 0, 1, h).data),
+    right: run(w, (k) => ctx.getImageData(w - 1 - k, 0, 1, h).data),
+  };
+})();`,
+) as (base64Png: string) => Promise<Record<Side, number>>;
 
 /**
  * Photograph one element alone: isolate it, measure what it painted, crop to
@@ -299,7 +391,15 @@ const GRID = (step: number) => `
   return true;
 })()`;
 
-type PassResult = { rect: ShotRect; via: string; clipped: boolean; body?: Box };
+type PassResult = {
+  rect: ShotRect;
+  via: string;
+  clipped: boolean;
+  body?: Box;
+  focus?: Box;
+  /** Window captures: empty bands past the padding, reported once, off the final pass. */
+  bands?: ReturnType<typeof emptyBands>;
+};
 
 /** One full browser run: drive the steps, resolve the region, write the PNG. */
 async function runPass(
@@ -406,15 +506,31 @@ async function runPass(
       return { ...cut, via };
     }
 
+    // The part to centre, if the spec names one: its box relative to the crop.
+    let focus: Box | undefined;
+    if (spec.focus !== undefined) {
+      const { box } = await measureTarget(page, spec, spec.focus);
+      focus = { x: box.x - rect.x, y: box.y - rect.y, width: box.width, height: box.height };
+      if (focus.x + focus.width < 0 || focus.y + focus.height < 0 || focus.x > rect.w || focus.y > rect.h)
+        console.warn(`           !  focus ${describeTarget(spec.focus)} lies outside the region`);
+    }
+
     fs.mkdirSync(SHOTS, { recursive: true });
-    await page.screenshot({
+    const png = await page.screenshot({
       path: path.join(SHOTS, `${spec.name}.png`),
       clip: { x: rect.x, y: rect.y, width: rect.w, height: rect.h },
       // A cutout already shoots this way. Finishes CSS animations and
       // transitions instead of catching them mid-frame.
       animations: "disabled",
     });
-    return { rect, via, clipped };
+    // Blank page inside the crop: a rect read off one account's data, or a
+    // page shorter than its viewport. The picture is then partly nothing.
+    const runs = await page.evaluate(flatRunsInPage, png.toString("base64")).catch(() => null);
+    const literal = spec.region === undefined || isShotRect(spec.region as ShotRegion);
+    const bands = runs
+      ? emptyBands(runs, scale, rect, paddingSides(literal ? 0 : spec.padding))
+      : undefined;
+    return { rect, via, clipped, focus, bands };
   } finally {
     await close();
   }
@@ -495,6 +611,8 @@ async function main() {
     ...(spec.split != null ? { split: spec.split } : {}),
     ...(spec.gutter != null ? { gutter: spec.gutter } : {}),
     ...(pass.body ? { body: pass.body } : {}),
+    ...(pass.focus ? { focus: pass.focus } : {}),
+    ...(spec.presets ? { presets: spec.presets } : {}),
   };
   fs.writeFileSync(
     path.join(SHOTS, `${spec.name}.json`),
@@ -544,6 +662,12 @@ async function main() {
             `composition will upscale it. ${advice}`,
     );
   }
+  for (const band of pass.bands ?? [])
+    console.warn(
+      `           !  ${band.px}px of empty page (${Math.round(band.share * 100)}%) at the region's ` +
+        `${band.side} — tighten it: css() and union() follow the content, a rect or the whole ` +
+        `viewport does not`,
+    );
   console.log(`png        -> public/shots/${spec.name}.png`);
 }
 
