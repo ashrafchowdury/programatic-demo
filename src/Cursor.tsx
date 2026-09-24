@@ -92,7 +92,7 @@ export const Cursor: React.FC<{
    *
    * NO DEFAULT HERE ON PURPOSE — the two looks disagree and each states its
    * own in DemoClip. Full-bleed is a reproduction of the reference films, and
-   * neither of them draws a ripple (docs/reel/03-composition.md): Film A shows
+   * neither of them draws a ripple (docs/reel/cursor/03-composition.md): Film A shows
    * no pointer at all, and Film B's pointer clicks with no ripple, because the
    * feedback is the real control's press state, which the capture records for
    * free. The framed look is this repo's own language — backdrop, window
@@ -100,7 +100,13 @@ export const Cursor: React.FC<{
    * cut with the ripple, so it keeps it.
    */
   ripple?: boolean;
-}> = ({ log, timeS, cameraScale, ripple = true }) => {
+  /**
+   * Playback rate of the composition vs the shoot. `timeS` is on the log's
+   * clock; the fade, ripple, squash and hand windows are screen durations, so
+   * cursorAt stretches them by this. 1 for a card's synthetic pointer log.
+   */
+  speed?: number;
+}> = ({ log, timeS, cameraScale, ripple = true, speed = 1 }) => {
   // Before the early returns — hooks cannot be conditional.
   // The design width, not the frame's: identical at 16:9, and at another
   // aspect (src/lib/aspect.ts) the pointer keeps its 16:9 size rather than
@@ -110,7 +116,7 @@ export const Cursor: React.FC<{
   const track = log.cursorTrack;
   if (!track || track.length === 0) return null;
 
-  const state = cursorAt(track, log.clicks, timeS);
+  const state = cursorAt(track, log.clicks, timeS, speed);
   if (!state) return null;
   // Fully faded out while the app's text caret is the subject — skip the
   // subtree entirely rather than compositing an invisible layer every frame.

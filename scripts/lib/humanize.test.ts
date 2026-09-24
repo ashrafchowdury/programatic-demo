@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   CORRECTION_AT,
+  CORRECTION_MS,
   GLIDE_MAX_MS,
   GLIDE_MIN_MS,
   glideEase,
@@ -67,8 +68,8 @@ describe("glideEase", () => {
 
 describe("glideTravelMs", () => {
   it("times the glide on SCREEN: the recording clock is scaled by the rate", () => {
-    assert.ok(Math.abs(glideTravelMs(550, 1) - 1000) < 1e-9);
-    assert.ok(Math.abs(glideTravelMs(550, 1.25) - 1250) < 1e-9);
+    assert.ok(Math.abs(glideTravelMs(700, 1) - 1000) < 1e-9);
+    assert.ok(Math.abs(glideTravelMs(700, 1.25) - 1250) < 1e-9);
     assert.equal(glideTravelMs(10, 1.25), GLIDE_MIN_MS * 1.25);
     assert.equal(glideTravelMs(5000, 1.25), GLIDE_MAX_MS * 1.25);
   });
@@ -137,6 +138,21 @@ describe("planGlide", () => {
         assert.ok(min > 0.01 * peak, `${seed}/${T1}: dips to ${min / peak} of peak`);
       }
     }
+  });
+
+  it("times the default correction for the shoot's playback rate", () => {
+    // CORRECTION_MS is screen time: at 1.5x it must be 1.5x as long on the
+    // recording clock, not the 1.25x it was hard-coded to.
+    const total = (rate?: number) =>
+      planGlide(FROM, FAR, {
+        durationMs: 500,
+        rand: seededRandom("rate"),
+        overshootPx: 26,
+        rate,
+      }).durationMs;
+    assert.equal(total(1.25), CORRECTION_AT * 500 + CORRECTION_MS * 1.25);
+    assert.equal(total(1.5), CORRECTION_AT * 500 + CORRECTION_MS * 1.5);
+    assert.equal(total(), total(1.25));
   });
 
   it("is deterministic for a seed and varies the bow across seeds", () => {

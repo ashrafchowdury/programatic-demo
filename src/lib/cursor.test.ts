@@ -154,3 +154,41 @@ describe("cursorKind", () => {
     assert.equal(cursorKind([noRect], 5.0, inside), "arrow");
   });
 });
+
+describe("pointer timing on the screen clock", () => {
+  // tS is the log's clock, which a render replays at `speed`; every window is
+  // a screen duration, so on the log clock it must be `speed` times longer.
+  const clicks: ClickEvent[] = [{ tMs: 600, x: 300, y: 200, tDownMs: 500 }];
+
+  it("stretches the ripple and squash by the speed", () => {
+    // RIPPLE_S (0.35) on screen is 0.4375 s of log time at 1.25x.
+    assert.equal(cursorAt(track, clicks, 0.5 + 0.4, 1)!.ripple, null);
+    const at125 = cursorAt(track, clicks, 0.5 + 0.4, 1.25)!;
+    assert.ok(at125.ripple !== null && Math.abs(at125.ripple - 0.4 / 0.4375) < 1e-9);
+    // Same screen instant, same progress, whatever the speed.
+    const r1 = cursorAt(track, clicks, 0.5 + 0.1, 1)!.ripple!;
+    const r15 = cursorAt(track, clicks, 0.5 + 0.15, 1.5)!.ripple!;
+    assert.ok(Math.abs(r1 - r15) < 1e-9);
+    // Squash (0.12 s) is over at 0.13 s realtime, still on at 1.25x.
+    assert.equal(cursorAt(track, clicks, 0.5 + 0.13, 1)!.squash, 1);
+    assert.ok(cursorAt(track, clicks, 0.5 + 0.13, 1.25)!.squash < 1);
+  });
+
+  it("stretches the caret fade by the speed", () => {
+    const typing: ClickEvent[] = [
+      { tMs: 500, x: 0, y: 0, tDownMs: 450, typeEndMs: 3000 },
+    ];
+    const speed = 1.25;
+    const halfway = 0.45 + (CURSOR_FADE_S * speed) / 2;
+    assert.ok(Math.abs(cursorOpacity(typing, halfway, speed) - 0.5) < 1e-9);
+    assert.ok(cursorOpacity(typing, 0.45 + CURSOR_FADE_S, speed) > 0.1);
+    assert.ok(cursorOpacity(typing, 0.45 + CURSOR_FADE_S * speed, speed) < 1e-9);
+  });
+
+  it("stretches the fallback hand window by the speed", () => {
+    const noRect: ClickEvent = { tMs: 1600, x: 0, y: 0, tDownMs: 1500 };
+    const past = 1.5 + HAND_HOLD_S + 0.02;
+    assert.equal(cursorKind([noRect], past, { x: 0, y: 0 }, 1), "arrow");
+    assert.equal(cursorKind([noRect], past, { x: 0, y: 0 }, 1.25), "pointer");
+  });
+});

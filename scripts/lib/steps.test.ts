@@ -156,6 +156,19 @@ describe("runSteps", () => {
     ]);
   });
 
+  it("passes a step's settleFirst opt-out through to the action, not as a settle step", async () => {
+    // `settle` is the settle STEP's key; the opt-out must not be read as one.
+    const { ctx, log } = recorder();
+    await runSteps(ctx, [
+      { click: "Save", settleFirst: false },
+      { type: "editor", text: "x", settleFirst: false },
+    ]);
+    assert.deepEqual(log, [
+      'click Save label=Save opts={"settleFirst":false}',
+      'type editor "x" label=editor',
+    ]);
+  });
+
   it("runs a `do` escape hatch and still honours its `after`", async () => {
     const { ctx, log } = recorder();
     await runSteps(ctx, [

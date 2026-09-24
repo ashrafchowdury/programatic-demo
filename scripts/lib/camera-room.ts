@@ -26,7 +26,14 @@ import {
 } from "../../src/lib/click-log";
 import { SHARPNESS_CEILING } from "../../src/lib/crop";
 import { WINDOW_FIT } from "../../src/lib/window";
-import { CLICK_MARGIN, frameFor, GROUP_TIME_GAP, REPOSE_MIN_DS } from "../../src/lib/zoom";
+import {
+  CLICK_MARGIN,
+  contentShare,
+  frameFor,
+  GROUP_TIME_GAP,
+  REFRAME_GAIN,
+  REPOSE_MIN_DS,
+} from "../../src/lib/zoom";
 
 type Vp = { width: number; height: number };
 
@@ -90,10 +97,14 @@ export function earliestPressMs(
 
   if (sameCluster) {
     // settle() in zoom.ts: a click already in shot keeps the pose unless the
-    // next frame is meaningfully tighter.
+    // next frame is meaningfully tighter, or frames the product it now shows
+    // meaningfully better (the page moved under the camera).
+    const ev = { tMs: 0, ...beat };
     if (
       posesNearlyEqual(prev.pose, to) ||
-      (to.scale - prev.pose.scale < REPOSE_MIN_DS && inShot(beat, prev.pose, vp))
+      (to.scale - prev.pose.scale < REPOSE_MIN_DS &&
+        inShot(beat, prev.pose, vp) &&
+        contentShare(ev, to, vp) - contentShare(ev, prev.pose, vp) < REFRAME_GAIN)
     )
       return 0;
     return Math.max(want, hard) + dur(prev.pose, "pan") + settle;

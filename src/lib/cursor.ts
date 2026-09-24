@@ -18,6 +18,16 @@ import {
 } from "./click-log";
 import { clamp, mix } from "./camera";
 
+/**
+ * Every window below — fade, ripple, squash, hand — is a SCREEN duration, but
+ * `tS` and the log's times are on the recording clock, which the render replays
+ * at `speed`. So each is multiplied by `speed` before it is compared, as the
+ * keycap does (keycapAt). Unscaled, a 1.25x render played the 180 ms fade in
+ * 144 ms, the 350 ms ripple in 280 ms and the 120 ms squash in 96 ms, and at
+ * 1.5x each ran a third short. `speed` defaults to 1, where nothing changes.
+ */
+const onScreen = (s: number, speed: number) => s * (speed > 0 ? speed : 1);
+
 /** Which glyph the pointer draws: the arrow, or the hand a click shows. */
 export type CursorKind = "arrow" | "pointer";
 
@@ -57,11 +67,14 @@ export function cursorKind(
   clicks: ClickEvent[],
   tS: number,
   pos: { x: number; y: number },
+  speed = 1,
 ): CursorKind {
+  const lead = onScreen(HAND_LEAD_S, speed);
+  const hold = onScreen(HAND_HOLD_S, speed);
   for (const c of clicks) {
     if (c.tDownMs == null || c.typeEndMs != null) continue;
-    const from = (c.tDepartMs ?? c.tDownMs - HAND_LEAD_S * 1000) / 1000;
-    const to = c.tDownMs / 1000 + HAND_HOLD_S;
+    const from = c.tDepartMs != null ? c.tDepartMs / 1000 : c.tDownMs / 1000 - lead;
+    const to = c.tDownMs / 1000 + hold;
     if (tS < from || tS > to) continue;
     const r = c.rect;
     if (!r) return "pointer";
@@ -82,15 +95,20 @@ export function cursorKind(
  * click lands with a full arrow, squash and ripple, and the arrow leaves
  * during the ~150ms the recorder waits before the first key.
  */
-export function cursorOpacity(clicks: ClickEvent[], tS: number): number {
+export function cursorOpacity(
+  clicks: ClickEvent[],
+  tS: number,
+  speed = 1,
+): number {
+  const fade = onScreen(CURSOR_FADE_S, speed);
   let opacity = 1;
   for (const c of clicks) {
     if (c.typeEndMs == null) continue;
     const press = (c.tDownMs ?? c.tMs) / 1000;
     const to = c.typeEndMs / 1000;
-    if (tS <= press || tS >= to + CURSOR_FADE_S) continue;
-    const fadingOut = clamp(1 - (tS - press) / CURSOR_FADE_S, 0, 1);
-    const fadingIn = clamp((tS - to) / CURSOR_FADE_S, 0, 1);
+    if (tS <= press || tS >= to + fade) continue;
+    const fadingOut = clamp(1 - (tS - press) / fade, 0, 1);
+    const fadingIn = clamp((tS - to) / fade, 0, 1);
     opacity = Math.min(opacity, Math.max(fadingOut, fadingIn));
   }
   return opacity;
@@ -137,23 +155,23 @@ export function cursorAt(
   track: CursorSample[],
   clicks: ClickEvent[],
   tS: number,
+  speed = 1,
 ): CursorState | null {
   const here = samplePath(track, tS);
   if (!here) return null;
 
+  const squashS = onScreen(CLICK_SQUASH_S, speed);
+  const rippleS = onScreen(RIPPLE_S, speed);
   let squash = 1;
   let ripple: number | null = null;
   for (const c of clicks) {
     if (c.tDownMs == null) continue;
     const since = tS - c.tDownMs / 1000;
     if (since < 0) continue;
-    if (since <= CLICK_SQUASH_S) {
-      squash = Math.min(
-        squash,
-        mix(CLICK_SQUASH, 1, clamp(since / CLICK_SQUASH_S, 0, 1)),
-      );
+    if (since <= squashS) {
+      squash = Math.min(squash, mix(CLICK_SQUASH, 1, clamp(since / squashS, 0, 1)));
     }
-    if (since <= RIPPLE_S) ripple = clamp(since / RIPPLE_S, 0, 1);
+    if (since <= rippleS) ripple = clamp(since / rippleS, 0, 1);
   }
 
   return {
@@ -161,7 +179,7 @@ export function cursorAt(
     y: here.y,
     squash,
     ripple,
-    opacity: cursorOpacity(clicks, tS),
-    kind: cursorKind(clicks, tS, here),
+    opacity: cursorOpacity(clicks, tS, speed),
+    kind: cursorKind(clicks, tS, here, speed),
   };
 }

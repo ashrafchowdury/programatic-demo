@@ -63,17 +63,30 @@ export const glideEase = (t: number): number =>
   minJerk(Math.pow(clamp(t, 0, 1), GLIDE_SKEW));
 
 /**
- * Mean glide speed in design px per SCREEN ms (~550 px/s at DESIGN_WIDTH).
+ * Mean glide speed in design px per SCREEN ms (~700 px/s at DESIGN_WIDTH).
  * The reference cursors measure 300-900 px/s on screen.
+ *
+ * Was 0.55. Moving the glide onto the screen clock (below) took the pointer
+ * from the ~690 px/s it had actually been playing at down to 550, and the
+ * 540-670 px throws of the automation forms from 0.5-0.85 s to 1.0-1.3 s on
+ * screen each: gmail-automation's four long throws took 2.3 s more recording
+ * than before, over half of its 20% runtime growth. 0.7 restores the speed the earlier
+ * renders showed (the frame-by-frame reviews never flagged it as fast) while
+ * keeping what the clock fix was for — the 450-1350 ms window is still on
+ * screen, so a short hop no longer plays in 360 ms. Replayed through the
+ * recorder's timing (camera room included): gmail -0.96 s, hourly -0.2 s,
+ * agent-tool -0.5 s; presses mid-move and early zoom-outs stay 0.
  */
-export const GLIDE_PX_PER_MS = 0.55;
+export const GLIDE_PX_PER_MS = 0.7;
 /** The measured on-screen travel window a glide is clamped to, ms. */
 export const GLIDE_MIN_MS = 450;
 export const GLIDE_MAX_MS = 1350;
 
 /**
  * Recording-clock duration of a glide over `designPx` (distance at
- * DESIGN_WIDTH), so that it takes 450-1350 ms ON SCREEN.
+ * DESIGN_WIDTH), so that it takes 450-1350 ms ON SCREEN at playback `rate`.
+ * The recorder passes the rate the shoot is paced for (recordingRate, i.e.
+ * DEMO_SPEED); the default is only for callers with no shoot to ask.
  *
  * Those bounds and the ~550 px/s mean were measured off reference footage, i.e.
  * on screen, but the glide used them on the recording clock, which the render
@@ -120,6 +133,11 @@ export type GlideOpts = {
   overshootPx?: number;
   /** Correction duration, recording ms. Default: see CORRECTION_MS. */
   correctionMs?: number;
+  /**
+   * Playback rate the shoot is paced for, which puts the default correction's
+   * CORRECTION_MS (screen ms) on the recording clock. Default 1.25.
+   */
+  rate?: number;
   /** Viewport to keep the control point and the overshoot inside. */
   bounds?: { width: number; height: number };
 };
@@ -189,7 +207,10 @@ export function planGlide(from: Pt, to: Pt, opts: GlideOpts): GlidePlan {
   const T2 = Math.max(
     1,
     opts.correctionMs ??
-      Math.max(CORRECTION_MS * DEFAULT_PLAYBACK_RATE, CORRECTION_FRAC * T1),
+      Math.max(
+        CORRECTION_MS * (opts.rate ?? DEFAULT_PLAYBACK_RATE),
+        CORRECTION_FRAC * T1,
+      ),
   );
   const c0 = CORRECTION_AT * T1;
   const total = Math.max(T1, c0 + T2);

@@ -9,9 +9,14 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { resolvePlaybackRate, type ClickLog } from "../src/lib/click-log";
+import {
+  resolvePlaybackRate,
+  speedMismatch,
+  type ClickLog,
+} from "../src/lib/click-log";
 import { DEMO_LOOK, isLook, LOOKS } from "../src/lib/look";
 import { isStyle, resolveStylePreset, STYLES } from "../src/lib/style";
+import { demoGeometry } from "../src/lib/demo-duration";
 import { buildCameraTrack } from "../src/lib/zoom";
 import { outPath, outRel } from "./lib/out";
 import {
@@ -40,6 +45,12 @@ function main() {
 
   const out = outPath("demo", `${name}.mp4`);
   const speed = resolvePlaybackRate(process.env.DEMO_SPEED);
+  const log = JSON.parse(fs.readFileSync(json, "utf8")) as ClickLog;
+  // The recorder paces glides, hovers and the camera's room before each press
+  // for the speed it was told (DEMO_SPEED at record time, logged as `speed`).
+  // Rendering at another one still produces a clip — just a mistimed one.
+  const mismatch = speedMismatch(log, speed);
+  if (mismatch) console.warn(`\n  ⚠️  ${mismatch}\n`);
   const concurrency = resolveConcurrency(process.env.DEMO_CONCURRENCY);
   const gl = resolveGl(process.env.DEMO_GL);
   // A name here beats the one recorded in the click log, so a demo can be
@@ -85,11 +96,14 @@ function main() {
     `grammar    -> ${style ?? look ?? DEMO_LOOK} · ${shot.framing} · camera ${camera ? "on" : "OFF"}`,
   );
   if (!camera) {
-    const log = JSON.parse(fs.readFileSync(json, "utf8")) as ClickLog;
-    const keys = buildCameraTrack(log, speed).length;
-    if (keys > 0)
+    // Count zoomed keys, not keys: every track has its two base keys (start
+    // and end) even with no clicks, so "has keys" fired on every flat render.
+    const zooms = buildCameraTrack(log, speed, demoGeometry(log)).filter(
+      (k) => k.pose.scale > 1 + 1e-3,
+    ).length;
+    if (zooms > 0)
       console.warn(
-        `\n  ⚠️  ${name} has a ${keys}-key camera track and this grammar will not run it.\n` +
+        `\n  ⚠️  ${name} has a camera track (${zooms} zoomed keys) and this grammar will not run it.\n` +
           `      The clip will render flat, with no zoom and no backdrop, and nothing\n` +
           `      downstream will fail. Pass --look=framed if that is not what you meant.\n`,
       );

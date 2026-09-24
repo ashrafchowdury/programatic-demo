@@ -2,6 +2,7 @@ import type { Page, Locator } from "playwright";
 import {
   clusterGapMs,
   END_TAIL_S,
+  recordingRate,
   type ClickEvent,
 } from "../../src/lib/click-log";
 import type { TargetOverrides } from "./selectors";
@@ -70,6 +71,13 @@ export type ActionOpts = {
   travelMs?: number;
   /** Pause on the target after arriving, before the click (shoot-ms). A hover. */
   hoverMs?: number;
+  /**
+   * false skips the light settle the recorder runs before every click and
+   * typing beat: up to 600 ms for data requests to go quiet, and a lingering
+   * tooltip cleared off the frame. Opt out where the wait itself would be
+   * filmed as a stall — clicking while a stream is visibly still arriving.
+   */
+  settleFirst?: boolean;
 };
 
 /** Options for `ctx.scroll`. */
@@ -220,6 +228,13 @@ export type Flow = {
   mutates?: string;
   /** Studio backdrop name for this demo. See src/lib/backdrop.ts. */
   backdrop?: string;
+  /**
+   * Pin this flow's capture scale (see scripts/lib/capture-scale.ts) instead
+   * of the default 2 — `1` for a flow the root zoom breaks. A pinned flow may
+   * record below the capture floor without DEMO_ALLOW_SOFT_CAPTURE; the
+   * CAPTURE_SCALE env var still overrides the pin.
+   */
+  captureScale?: number;
   /** The actions to record. Use ctx helpers so clicks are logged for zoom. */
   run: (ctx: FlowContext) => Promise<void>;
 };
@@ -244,6 +259,8 @@ type StepCommon = {
   travelMs?: number;
   /** Pause on the target before clicking (shoot-ms) — a hover. See ActionOpts. */
   hoverMs?: number;
+  /** false skips the recorder's light pre-click settle. See ActionOpts. */
+  settleFirst?: boolean;
 };
 
 /**
@@ -299,6 +316,7 @@ const actionOpts = (s: StepCommon) => ({
   zoomScale: s.zoomScale,
   travelMs: s.travelMs,
   hoverMs: s.hoverMs,
+  settleFirst: s.settleFirst,
 });
 
 /** Drive a step list through the same helpers a hand-written `run` would use. */
@@ -391,11 +409,11 @@ export const BEAT = {
    * the next LEAD. Use after the last click of a cluster when the next beat
    * is a new cluster (on top of SERP_READ / AFTER_OPEN).
    */
-  CLUSTER_GAP: clusterGapMs(),
+  CLUSTER_GAP: clusterGapMs(recordingRate()),
   /** After selecting an option. */
   AFTER_SELECT: 1500,
   /** After a commit / navigation payoff. */
   AFTER_COMMIT: 1000,
-  /** Kept for older flows; the recorder owns the 1s end tail — do not also pause this. */
+  /** Kept for older flows; the recorder owns the end tail (END_TAIL_S, ~4.2s) — do not also pause this. */
   SETTLE: Math.round(END_TAIL_S * 1000),
 } as const;

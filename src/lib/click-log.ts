@@ -156,6 +156,16 @@ export type ClickLog = {
   /** Manual nudge (ms) applied to every click time if video/log drift shows up. */
   offsetMs?: number;
   /**
+   * The playback rate the shoot was PACED for — DEMO_SPEED at record time.
+   *
+   * The recorder times glides, the camera room it leaves before a press and
+   * the cluster gap on the screen clock, i.e. recording ms = screen ms x this.
+   * Rendering at another speed still works, but every one of those plays at
+   * the wrong length, so render warns (see speedMismatch). Absent on logs
+   * written before it was recorded; those were all paced for 1.25.
+   */
+  speed?: number;
+  /**
    * Studio backdrop for this demo, copied from the flow at record time.
    *
    * It lives in the LOG rather than the flow because `pnpm render` never loads
@@ -325,6 +335,54 @@ export function resolvePlaybackRate(raw?: number | string): number {
   if (!Number.isFinite(n) || n <= 0) return DEFAULT_PLAYBACK_RATE;
   return n;
 }
+
+/**
+ * The rate a shoot is being paced for: DEMO_SPEED, through the same resolver
+ * render uses, so a flow recorded and rendered under one DEMO_SPEED agrees with
+ * itself. Recording ms = screen ms x this. Node-only callers (the recorder,
+ * flow.ts); guarded so importing this module into the Remotion bundle is safe.
+ */
+export const recordingRate = (): number =>
+  resolvePlaybackRate(
+    typeof process !== "undefined" ? process.env?.DEMO_SPEED : undefined,
+  );
+
+/**
+ * Seconds into the RENDERED demo at which log time `tMs` plays.
+ *
+ * The one conversion from the click-log clock to the picture's. DemoClip reads
+ * the log at `frame / fps * speed - offsetMs / 1000` (as do zoomAt, the aspect
+ * crop and the demo's frame count), so its inverse is (tMs + offsetMs) / speed.
+ * Written once here because the obvious `tMs / 1000 / speed - offsetMs / 1000`
+ * divides the offset by nothing — right only while offsetMs is 0.
+ */
+export function logMsToDemoS(
+  tMs: number,
+  log: Pick<ClickLog, "offsetMs">,
+  speed: number,
+): number {
+  const k = speed > 0 ? speed : 1;
+  return (tMs + (log.offsetMs ?? 0)) / 1000 / k;
+}
+
+/**
+ * A warning when a log is rendered at a speed other than the one it was shot
+ * for, or null when they agree (or the log predates `speed`). Returned rather
+ * than printed so render and reel can word the surrounding output themselves.
+ */
+export function speedMismatch(
+  log: Pick<ClickLog, "name" | "speed">,
+  speed: number,
+): string | null {
+  if (log.speed == null || Math.abs(log.speed - speed) < 1e-6) return null;
+  return (
+    `${log.name || "this demo"} was shot for ${log.speed}x and is rendering at ` +
+    `${speed}x: glides, scrolls and the camera's room before each press were ` +
+    `timed for ${log.speed}x and will play ${(log.speed / speed).toFixed(2)}x ` +
+    `their intended length. Render with DEMO_SPEED=${log.speed}, or re-record ` +
+    `with DEMO_SPEED=${speed}.`
+  );
+}
 /** Pre-lead establish cushion kept by applyFrontTrim. */
 export const ESTABLISH_CUSHION_S = 1.0;
 /** Conservative zoom-out ceiling used to size CLUSTER_GAP. */
@@ -352,8 +410,15 @@ export const END_TAIL_S =
     (HOLD_MIN_S + TRAIL_CEILING_S + BASE_BEAT_S) * DEFAULT_PLAYBACK_RATE * 10,
   ) / 10;
 
-export const clusterGapMs = (): number =>
-  Math.round((HOLD_MIN_S + TRAIL_CEILING_S) * 1000);
+/**
+ * Recording pause after a cluster so its hold and zoom-out finish before the
+ * next lead-in. HOLD_MIN_S and TRAIL_CEILING_S are SCREEN seconds and the pause
+ * is taken on the recording clock, so it is their sum times the rate the shoot
+ * is paced for — (1.3 + 1.45) x 1.25 = 3.44 s. It was the bare 2.75 s, which
+ * played in 2.2 s at 1.25x: 0.69 s short of the hold + trail it was sized for.
+ */
+export const clusterGapMs = (rate = DEFAULT_PLAYBACK_RATE): number =>
+  Math.round((HOLD_MIN_S + TRAIL_CEILING_S) * rate * 1000);
 
 /**
  * Page render scale. Affects screenshots only — NOT the recorded video.

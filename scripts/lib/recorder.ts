@@ -1,7 +1,7 @@
 import type { Page, Locator, Request } from "playwright";
 import {
-  DEFAULT_PLAYBACK_RATE,
   DESIGN_WIDTH,
+  recordingRate,
   type CursorSample,
   type KeyEvent,
 } from "../../src/lib/click-log";
@@ -77,6 +77,71 @@ const CARET_SAMPLE_MS = 250;
 const LONG_REQUEST_MS = 5000;
 /** Data requests must be quiet this long before a settle calls the page ready. */
 const IDLE_MS = 250;
+/**
+ * Longest the default pre-click settle waits for data requests (recording ms).
+ *
+ * Every click and typing beat waits for the network to go quiet first, unless
+ * it opts out (ActionOpts.settleFirst), so the pointer does not set off across
+ * a page that is still filling in. Capped well under a beat: a full settle()
+ * waits up to 4 s, which as a default would hold every click behind a chatty
+ * app's polling. Measured cost, see preSettle.
+ */
+const PRE_SETTLE_MAX_MS = 600;
+/**
+ * What an app shows while it is still loading: busy regions, skeleton rows,
+ * spinners. settle() waits for every visible one to go before it calls the
+ * page ready — the network going quiet is not enough, because the data lands a
+ * frame or two before React paints it, and a list filmed in that gap is
+ * skeleton rows (new-automation f78-84, gmail f284, hourly 17.0 s).
+ *
+ * Class matches are on whole class tokens or a `skeleton` / `shimmer` prefix
+ * (Ant's .ant-skeleton, Tailwind's animate-pulse, MUI's MuiSkeleton-root), so
+ * an unrelated class that merely contains "loading" in a longer word is not
+ * waited on. A role=progressbar counts only while it is indeterminate (no
+ * aria-valuenow): a determinate bar is content, not loading.
+ */
+const LOADING_SELECTOR = [
+  "[aria-busy=true]",
+  "[data-loading]:not([data-loading=false])",
+  "[role=progressbar]:not([aria-valuenow])",
+  ".skeleton",
+  ".ant-skeleton",
+  ".ant-spin-spinning",
+  ".animate-pulse",
+  "[class^=skeleton]",
+  "[class*=' skeleton']",
+  "[class*=Skeleton-root]",
+  "[class*=shimmer]",
+].join(",");
+/**
+ * JS for page.evaluate: the first visible loading indicator in the viewport as
+ * a short description, or null. A raw string for the same reason as
+ * CURSOR_INIT_SCRIPT.
+ */
+const LOADING_PROBE = `(() => {
+  var vw = innerWidth, vh = innerHeight;
+  var els = document.querySelectorAll(${JSON.stringify(LOADING_SELECTOR)});
+  for (var i = 0; i < els.length; i++) {
+    var e = els[i], r = e.getBoundingClientRect();
+    // A status dot is not a loading state; a skeleton row or spinner is bigger.
+    if (r.width < 8 || r.height < 6) continue;
+    if (r.right <= 0 || r.bottom <= 0 || r.left >= vw || r.top >= vh) continue;
+    var s = getComputedStyle(e);
+    if (s.visibility === 'hidden' || s.display === 'none' || Number(s.opacity) === 0) continue;
+    var c = typeof e.className === 'string' ? e.className.split(/\\s+/).slice(0, 3).join('.') : '';
+    return e.tagName.toLowerCase() + (c ? '.' + c : '') + (e.getAttribute('role') ? '[role=' + e.getAttribute('role') + ']' : '');
+  }
+  return null;
+})()`;
+/**
+ * Longest settle() waits on a loading indicator once the network is quiet
+ * (recording ms). Indicators that never go away — a spinner baked into a
+ * sidebar, a skeleton for a panel that is off to one side — must not hold
+ * every settle to its timeout, so past this the take is filmed as it is and
+ * the indicator named in a warning.
+ */
+const LOADING_MAX_MS = 1500;
+
 /**
  * Only a populated region smaller than this share of the viewport is logged as
  * `content`. On a dense page the content IS the viewport and framing toward
@@ -199,18 +264,43 @@ const sameBox = (
   Math.abs(a.width - b.width) < SAME_RECT_PX &&
   Math.abs(a.height - b.height) < SAME_RECT_PX;
 
+/**
+ * Physical viewport px per LOGICAL px: the root zoom capture-scale.ts applies.
+ *
+ * Not captureScaleOf, which is the viewport against DESIGN_WIDTH (what the px
+ * thresholds were tuned at). A flow authors a point in its own logical
+ * viewport, the one it declares and the app lays out in, and the init script
+ * shims innerWidth to exactly that — so physical / innerWidth is the zoom
+ * whatever the flow's size. 1 when there is no zoom (innerWidth is then the
+ * physical width) or the page cannot answer.
+ */
+async function rootZoomOf(page: Page): Promise<number> {
+  const vp = page.viewportSize();
+  const inner = (await page.evaluate("window.innerWidth").catch(() => 0)) as number;
+  return vp && inner > 0 ? vp.width / inner : 1;
+}
+
 async function boxOf(
   page: Page,
   target: ResolvedTarget,
 ): Promise<{ cx: number; cy: number; rect: Rect; loc?: Locator }> {
   const k = captureScaleOf(page);
   if (isPoint(target)) {
+    // A point is authored in the flow's LOGICAL px — it is where the flow's
+    // author saw the thing, at the viewport the flow declares. The pointer and
+    // the log are PHYSICAL, so map it through the root zoom. Unmapped, every
+    // point landed at 1/scale of its position: model-providers' scroll-over
+    // {x: 1650, y: 520} wheeled at (1650, 520) of a 3840x2160 capture, i.e.
+    // (825, 260) as the flow sees it — over the settings nav, not the drawer.
+    const z = await rootZoomOf(page);
+    const x = target.x * z;
+    const y = target.y * z;
     return {
-      cx: target.x,
-      cy: target.y,
+      cx: x,
+      cy: y,
       rect: {
-        x: target.x - 60 * k,
-        y: target.y - 24 * k,
+        x: x - 60 * k,
+        y: y - 24 * k,
         w: 120 * k,
         h: 48 * k,
       },
@@ -446,8 +536,15 @@ export function buildContext(
   seed: string = baseURL || "demo",
 ): FlowContext {
   const pause = (ms = 700) => page.waitForTimeout(ms);
-  /** Recording ms per screen ms. Glides and scrolls are authored on screen. */
-  const rate = DEFAULT_PLAYBACK_RATE;
+  /**
+   * Recording ms per screen ms. Glides, scrolls and the camera's room before a
+   * press are authored on screen, so they need the speed the shoot will be
+   * rendered at — DEMO_SPEED, through render's own resolver. This was the
+   * 1.25 default, hard-coded: agent-skill, shot for 1.5, got glides and camera
+   * room sized for 1.25 and played them 17% short. The rate is also written
+   * into the click log (`speed`), so render can say when it disagrees.
+   */
+  const rate = recordingRate();
   /** Index of the next seeded action — the "step index" in the seed. */
   let actionIndex = 0;
   const nextRandom = (kind: string) => seededRandom(`${seed}#${kind}${actionIndex++}`);
@@ -475,9 +572,18 @@ export function buildContext(
   const resolve = async (target: Target): Promise<ResolvedTarget> =>
     typeof target === "string" ? await find(target) : target;
 
+  const viewport = () =>
+    page.viewportSize() ?? {
+      width: DESIGN_WIDTH * captureScaleOf(page),
+      height: Math.round((DESIGN_WIDTH * captureScaleOf(page) * 9) / 16),
+    };
+
   // Track the cursor so each glide starts where the last ended (continuous motion,
   // no jumps between actions). Default to viewport center — always on-screen.
-  let last = { x: 960, y: 540 };
+  // The PHYSICAL centre: a fixed (960, 540) was the centre only of a 1920 shoot,
+  // and put the first glide's origin at a quarter of a 3840 capture.
+  const vp0 = viewport();
+  let last = { x: vp0.width / 2, y: vp0.height / 2 };
   let lastDepartMs = 0;
   /** The last zoomable beat and the pose the camera will give it. */
   let framed: FramedBeat | null = null;
@@ -489,12 +595,6 @@ export function buildContext(
     cursor.push(s);
   };
   mark(last.x, last.y);
-
-  const viewport = () =>
-    page.viewportSize() ?? {
-      width: DESIGN_WIDTH * captureScaleOf(page),
-      height: Math.round((DESIGN_WIDTH * captureScaleOf(page) * 9) / 16),
-    };
 
   /**
    * Glide to (x, y), then hold `settleMs` before returning.
@@ -551,8 +651,9 @@ export function buildContext(
         rand: seededRandom(seedKey),
         overshootPx,
         bounds: vp,
+        rate,
       });
-    // ~550 px/s on screen, clamped to the measured 450–1350 ms window, timed on
+    // ~700 px/s on screen, clamped to the measured 450–1350 ms window, timed on
     // the screen clock — unless the caller asks for a deliberate duration.
     let T = explicit ? travelMs : glideTravelMs(dist / gk, rate);
     let path = plan(T);
@@ -691,7 +792,9 @@ export function buildContext(
     label,
     opts,
   ) => {
-    const point = await boxOf(page, await resolve(target));
+    const resolved = await resolve(target);
+    await preSettle(resolved, opts);
+    const point = await boxOf(page, resolved);
     const frameBox = opts?.frame
       ? await boxOf(page, await resolve(opts.frame))
       : point;
@@ -720,7 +823,9 @@ export function buildContext(
     label,
     opts,
   ) => {
-    const { cx, cy, rect, loc } = await boxOf(page, await resolve(selector));
+    const resolved = await resolve(selector);
+    await preSettle(resolved, opts);
+    const { cx, cy, rect, loc } = await boxOf(page, resolved);
     // Same contract as moveAndClick / focus: `frame` decides what the camera
     // holds, the target decides where the pointer goes. Typing used to ignore
     // it, so a field inside a framed panel punched the camera in to the field
@@ -918,6 +1023,107 @@ export function buildContext(
     }
   };
 
+  /**
+   * Is a tooltip on screen, and should the pointer move off what raised it?
+   *
+   * `next` is the element about to be clicked (null for a point target). A
+   * tooltip that belongs to it stays — hovering the next control is the
+   * point. Otherwise a focused button that is not the next target is blurred
+   * (a focus-opened tooltip outlives the hover), and the hovered control is
+   * returned for parking when it is neither the next target nor an open
+   * trigger: moving off a trigger whose menu or submenu is open would close
+   * the very thing the next click is in. Nothing inside a popup is blurred or
+   * parked off, for the same reason.
+   */
+  const TOOLTIP_PROBE = `(next, a) => {
+    var tips = Array.prototype.filter.call(document.querySelectorAll('[role=tooltip]'), function (t) {
+      var r = t.getBoundingClientRect(), s = getComputedStyle(t);
+      return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && Number(s.opacity) > 0.05;
+    });
+    if (!tips.length) return null;
+    var POPUP = 'dialog,[role=dialog],[role=alertdialog],[role=menu],[role=listbox],[data-radix-popper-content-wrapper]';
+    var mine = function (e) { return !!(e && next && (e === next || e.contains(next) || next.contains(e))); };
+    var act = document.activeElement, blurred = false;
+    if (a.blur && act && act !== document.body && !act.isContentEditable &&
+        !/^(input|textarea|select)$/i.test(act.tagName) && !mine(act) &&
+        !act.closest(POPUP) && act.blur) { act.blur(); blurred = true; }
+    var h = document.elementFromPoint(a.x, a.y);
+    h = h && h.closest(a.hoverable);
+    if (!h || mine(h) || h.closest(POPUP) || h.matches('[aria-expanded=true],[data-state=open]'))
+      return { blurred: blurred, park: false };
+    return { blurred: blurred, park: true };
+  }`;
+
+  /**
+   * The light settle before every click and typing beat (audit D14), unless
+   * the action opts out with `settleFirst: false`.
+   *
+   * 1. Data requests quiet, capped at PRE_SETTLE_MAX_MS, so a click does not
+   *    land on a page still filling in from the last one. It cannot stop the
+   *    flash of a panel THIS click opens (gmail-automation's two frames of
+   *    "No apps connected"): that fetch starts after the press, so it needs a
+   *    `settle` step with `ready` after the opening click.
+   * 2. A tooltip left up by the last beat is cleared: blur its focused owner,
+   *    and if the pointer is still hovering some other control, park it off.
+   *
+   * Deliberately NOT the full settle(): no rAF wait and no park on a plain
+   * hover. The glide that follows leaves the hover at once, so a park glide
+   * there would add a second pointer move, and ~0.6 s, to every click.
+   *
+   * Measured. Smoke flow (3 clicks, nothing in flight, no tooltip): 0.9-2.4 ms
+   * a click, and the recording 12.91 s -> 12.82 s (noise). An offline fixture
+   * with a tooltip left up by the last click: a focus-opened one is cleared by
+   * the blur in 65-97 ms; a hover-opened one takes the park glide, ~620 ms,
+   * and is gone before the pointer sets off for the next target.
+   */
+  const preSettle = async (next: ResolvedTarget, opts?: ActionOpts) => {
+    if (opts?.settleFirst === false) return;
+    const t0 = Date.now();
+    for (;;) {
+      const now = Date.now();
+      const busy = [...inflight.values()].some((t) => now - t < LONG_REQUEST_MS);
+      if (!busy && now - lastNetMs >= IDLE_MS) break;
+      if (now - t0 >= PRE_SETTLE_MAX_MS) break; // film a busy app rather than stall
+      await page.waitForTimeout(50);
+    }
+    const at = { x: Math.round(last.x), y: Math.round(last.y), hoverable: HOVERABLE };
+    const anyTip = await page
+      .evaluate(`!!document.querySelector('[role=tooltip]')`)
+      .catch(() => false);
+    if (!anyTip) return;
+    // Only now pay for the next target's handle, and never wait long for it:
+    // it may not have rendered yet, and boxOf does that waiting properly.
+    const handle = isPoint(next)
+      ? null
+      : await (isCss(next) ? page.locator(next.css) : next)
+          .first()
+          .elementHandle({ timeout: 300 })
+          .catch(() => null);
+    type Arg = typeof at & { blur: boolean };
+    const probe = (blur: boolean) =>
+      page
+        .evaluate(
+          new Function("args", `return (${TOOLTIP_PROBE})(args[0], args[1]);`) as (
+            args: [unknown, Arg],
+          ) => { blurred: boolean; park: boolean } | null,
+          [handle, { ...at, blur }] as [unknown, Arg],
+        )
+        .catch(() => null);
+    let res = await probe(true);
+    // A focus-opened tooltip closes on the blur, a frame or two later; only
+    // one that outlives it (a hover tooltip) is worth a park glide.
+    if (res?.blurred) {
+      await page
+        .evaluate(
+          "new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(0))))",
+        )
+        .catch(() => {});
+      res = await probe(false);
+    }
+    await handle?.dispose().catch(() => {});
+    if (res?.park) await parkPointer();
+  };
+
   const settle: FlowContext["settle"] = async (opts = {}) => {
     const t0 = Date.now();
     const timeoutMs = opts.timeoutMs ?? 4000;
@@ -944,6 +1150,17 @@ export function buildContext(
         if (left() === 0) break; // a busy app is filmed rather than failing the take
         await page.waitForTimeout(50);
       }
+      // Quiet network, but the data may not have painted yet: wait out any
+      // skeleton or spinner still on screen (see LOADING_SELECTOR).
+      const until = Date.now() + Math.min(LOADING_MAX_MS, left());
+      let showing: string | null = null;
+      for (;;) {
+        showing = await page.evaluate<string | null>(LOADING_PROBE).catch(() => null);
+        if (!showing || Date.now() >= until) break;
+        await page.waitForTimeout(50);
+      }
+      if (showing)
+        console.warn(`settle: still loading after ${LOADING_MAX_MS}ms (${showing}) — filming it`);
     }
     // Let whatever the data changed actually paint before the next beat.
     await page
