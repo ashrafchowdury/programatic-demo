@@ -40,6 +40,17 @@ function recorder() {
     pause: async (ms = 700) => {
       log.push(`pause ${ms}`);
     },
+    scroll: async (dy: number, o?: { over?: Target; durationMs?: number }) => {
+      log.push(
+        `scroll ${dy} over=${o?.over != null ? show(o.over) : "-"} ms=${o?.durationMs ?? "-"}`,
+      );
+    },
+    settle: async (o?: { ready?: unknown; parkPointer?: boolean }) => {
+      const r = o?.ready;
+      log.push(
+        `settle ready=${r == null ? "-" : typeof r === "function" ? "fn" : show(r as Target)} park=${!!o?.parkPointer}`,
+      );
+    },
   } as unknown as FlowContext;
 
   return { ctx, log };
@@ -112,6 +123,37 @@ describe("runSteps", () => {
     const { ctx, log } = recorder();
     await runSteps(ctx, [{ type: "editor", text: "hello", cluster: "write" }]);
     assert.equal(log[0], 'type editor "hello" label=editor');
+  });
+
+  it("runs a scroll step through ctx.scroll, over a hoisted target", async () => {
+    const { ctx, log } = recorder();
+    await runSteps(ctx, [
+      { hoist: "Providers" },
+      { scroll: 200, over: "Providers", after: 400 },
+      { scroll: -120, durationMs: 300 },
+    ]);
+    assert.deepEqual(log, [
+      "find Providers",
+      "scroll 200 over=<locator> ms=-",
+      "pause 400",
+      "scroll -120 over=- ms=300",
+    ]);
+  });
+
+  it("runs a settle step, resolving a named `ready` like any target", async () => {
+    const { ctx, log } = recorder();
+    const ready = async () => true;
+    await runSteps(ctx, [
+      { settle: { ready: "Gmail", parkPointer: true } },
+      { settle: { ready } },
+      { settle: {}, after: 100 },
+    ]);
+    assert.deepEqual(log, [
+      "settle ready=Gmail park=true",
+      "settle ready=fn park=false",
+      "settle ready=- park=false",
+      "pause 100",
+    ]);
   });
 
   it("runs a `do` escape hatch and still honours its `after`", async () => {

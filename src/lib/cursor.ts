@@ -72,17 +72,24 @@ export function cursorKind(
 }
 
 /**
- * Arrow opacity at `tS`. Fades out once typing starts and back in when it ends,
- * so the handover to the app's blinking text caret is not a hard pop.
+ * Arrow opacity at `tS`. Fades out from the press that focuses the field and
+ * back in when typing ends, so the handover to the app's blinking text caret is
+ * not a hard pop.
+ *
+ * The fade-out STARTS at the press. It used to end at `tMs` (logged after
+ * mouseup), so it began 180ms before — ~100ms before the arrow had even
+ * clicked, and the viewer saw the pointer dissolve on its way in. Now the
+ * click lands with a full arrow, squash and ripple, and the arrow leaves
+ * during the ~150ms the recorder waits before the first key.
  */
 export function cursorOpacity(clicks: ClickEvent[], tS: number): number {
   let opacity = 1;
   for (const c of clicks) {
     if (c.typeEndMs == null) continue;
-    const from = c.tMs / 1000;
+    const press = (c.tDownMs ?? c.tMs) / 1000;
     const to = c.typeEndMs / 1000;
-    if (tS <= from - CURSOR_FADE_S || tS >= to + CURSOR_FADE_S) continue;
-    const fadingOut = clamp((from - tS) / CURSOR_FADE_S, 0, 1);
+    if (tS <= press || tS >= to + CURSOR_FADE_S) continue;
+    const fadingOut = clamp(1 - (tS - press) / CURSOR_FADE_S, 0, 1);
     const fadingIn = clamp((tS - to) / CURSOR_FADE_S, 0, 1);
     opacity = Math.min(opacity, Math.max(fadingOut, fadingIn));
   }

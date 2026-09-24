@@ -85,11 +85,24 @@ describe("cursorOpacity", () => {
   });
 
   it("fades rather than pops at both edges", () => {
-    const out = cursorOpacity(typing, 0.5 - CURSOR_FADE_S / 2);
+    const out = cursorOpacity(typing, 0.45 + CURSOR_FADE_S / 2);
     const back = cursorOpacity(typing, 3.0 + CURSOR_FADE_S / 2);
     for (const v of [out, back]) {
       assert.ok(v > 0 && v < 1, `expected a partial fade, got ${v}`);
     }
+  });
+
+  it("starts the fade at the press, not before it", () => {
+    // Pressed at 450ms: the arrow is whole until then and gone one fade later.
+    assert.equal(cursorOpacity(typing, 0.44), 1);
+    assert.equal(cursorOpacity(typing, 0.45), 1);
+    assert.ok(cursorOpacity(typing, 0.45 + CURSOR_FADE_S) < 1e-9);
+  });
+
+  it("falls back to tMs for a typing beat logged without a press", () => {
+    const old = [{ tMs: 500, x: 1, y: 1, typeEndMs: 3000 }];
+    assert.equal(cursorOpacity(old, 0.5), 1);
+    assert.ok(cursorOpacity(old, 0.5 + CURSOR_FADE_S) < 1e-9);
   });
 
   it("leaves plain clicks alone", () => {

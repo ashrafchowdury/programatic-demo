@@ -39,6 +39,15 @@ export type ClickEvent = {
    * follows the click alone, exactly as before.
    */
   content?: { x: number; y: number; w: number; h: number };
+  /**
+   * Where the text was going while this beat typed, sampled every ~250 ms from
+   * the click to the last keystroke. Same space as `rect`. For a contenteditable
+   * it is the caret itself; for an input or textarea (which expose no caret
+   * geometry) it is the field, so a textarea that grows as it fills still shows
+   * where the text is. Optional and unused by the camera today — logged so a
+   * zoom can follow a growing field instead of letting it type out of frame.
+   */
+  caret?: { tMs: number; x: number; y: number; w: number; h: number }[];
   /** Explicit zoom cluster id. Same id → shared punch / hold / trail. */
   cluster?: string;
   /** When false, this event does not contribute to zoom (still in the video). */
@@ -61,6 +70,12 @@ export type CursorSample = {
   /** Viewport CSS px. */
   x: number;
   y: number;
+  /**
+   * Wheel delta (px, +down) dispatched at this sample, on a `ctx.scroll` beat.
+   * Absent everywhere else. Lets the render tell a scroll — the content moving
+   * under a still pointer — from a still frame.
+   */
+  wheel?: number;
 };
 
 /**

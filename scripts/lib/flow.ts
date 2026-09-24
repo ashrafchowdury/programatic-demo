@@ -3,12 +3,10 @@ import {
   clusterGapMs,
   END_TAIL_S,
   type ClickEvent,
-  type ClickLog,
 } from "../../src/lib/click-log";
 import type { TargetOverrides } from "./selectors";
 
-export type { ClickEvent, ClickLog };
-export type { TargetOverrides };
+export type { ClickEvent };
 
 /** Escape hatch: a raw CSS selector where a visible name will not do. */
 export type CssTarget = { css: string };
@@ -74,6 +72,41 @@ export type ActionOpts = {
   hoverMs?: number;
 };
 
+/** Options for `ctx.scroll`. */
+export type ScrollOpts = {
+  /**
+   * Glide the pointer here first, so the wheel lands on the right scroll
+   * container and the drawn cursor is where the app thinks it is. Omit to
+   * scroll wherever the pointer already is.
+   */
+  over?: Target;
+  /** How long the scroll takes ON SCREEN, ms. Default scales with distance. */
+  durationMs?: number;
+};
+
+/** Options for `ctx.settle`. */
+export type SettleOpts = {
+  /**
+   * What "loaded" looks like: a target that must be visible, or a predicate
+   * polled until it returns true. Waited for before anything else.
+   */
+  ready?: Target | ((page: Page) => Promise<boolean>);
+  /**
+   * Wait for the app's data requests (fetch/XHR) to go quiet. Default true.
+   * Images, fonts and streams do not count — a grid of 1300 icons would
+   * otherwise hold every beat to the timeout.
+   */
+  idle?: boolean;
+  /**
+   * Take the pointer off whatever it is hovering and drop focus from a
+   * clicked button, so a hover style or a focus-opened tooltip is not filmed
+   * lingering over the next beat. The move is a short, logged glide.
+   */
+  parkPointer?: boolean;
+  /** Longest the whole settle may take, ms. Default 4000. */
+  timeoutMs?: number;
+};
+
 /**
  * Helpers handed to a flow. They perform the action AND (for clicks) log it, so
  * a flow reads like a script of user actions and the zoom timing falls out for free.
@@ -124,6 +157,22 @@ export type FlowContext = {
    * no pointer at all.
    */
   pressKey: (chord: string, label?: string) => Promise<void>;
+  /**
+   * Scroll by `dy` px (+ is down) as a person would: glide to `over`, then an
+   * eased run of small wheel ticks, then wait until the content stops moving.
+   *
+   * Calling page.mouse.wheel directly skips all of that: the drawn cursor never
+   * goes where the wheel went, and one 200px tick jumps the content under a
+   * zoomed camera in a single frame.
+   */
+  scroll: (dy: number, opts?: ScrollOpts) => Promise<void>;
+  /**
+   * Wait until the next beat is worth filming: `ready` has appeared, the
+   * data requests have landed, and (with parkPointer) no hover or focus state
+   * is left over from the last click. Use it where a take otherwise films a
+   * loading state or a stale tooltip.
+   */
+  settle: (opts?: SettleOpts) => Promise<void>;
   /** Wait for a URL/selector without moving the cursor (no zoom). */
   page_waitForURL: Page["waitForURL"];
 };
@@ -232,6 +281,10 @@ export type Step =
    * which is what the full-bleed look wants.
    */
   | ({ key: string } & Pick<StepCommon, "label" | "after">)
+  /** Scroll by this many px (+ down), over `over` if given. See ctx.scroll. */
+  | ({ scroll: number } & ScrollOpts & Pick<StepCommon, "after">)
+  /** Wait for data and clear hover/focus before the next beat. See ctx.settle. */
+  | ({ settle: SettleOpts } & Pick<StepCommon, "after">)
   | ({ do: (ctx: FlowContext) => Promise<void> } & Pick<StepCommon, "after">);
 
 /** The label to log for a step, when it did not set one explicitly. */
@@ -269,6 +322,17 @@ export async function runSteps(
     }
     if ("key" in step) {
       await ctx.pressKey(step.key, step.label);
+    } else if ("scroll" in step) {
+      await ctx.scroll(step.scroll, {
+        over: step.over != null ? target(step.over) : undefined,
+        durationMs: step.durationMs,
+      });
+    } else if ("settle" in step) {
+      const ready = step.settle.ready;
+      await ctx.settle({
+        ...step.settle,
+        ready: ready != null && typeof ready !== "function" ? target(ready) : ready,
+      });
     } else if ("do" in step) {
       await step.do(ctx);
     } else if ("click" in step) {
