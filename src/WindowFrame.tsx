@@ -38,13 +38,27 @@ export const useDesignScale = (): number => {
  */
 export const DesignWidthContext = React.createContext<number | null>(null);
 
-/** Centres a camera group in the frame. */
-export const Stage: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+/**
+ * Centres a camera group in the frame.
+ *
+ * `clip` (default on) crops the group to the Stage's own box. Turn it OFF for
+ * anything whose light spills past the window — the rim's 90px blur. The Stage
+ * box is the frame only while nothing transforms it: under a framed push that
+ * scales the panel in (stage: -0.2 over 11 frames) the box shrinks with it and
+ * its edge cut the shadow flat — measured on agent-schedule-stage f42-46, the
+ * shadow stopped dead at y 1420-1436 of 1440 and then reached the frame edge on
+ * f47 when the scale landed on 1, which read as the shadow popping 48-53 px.
+ * The composition's own edge clips everything anyway, so a shadow needs no box.
+ */
+export const Stage: React.FC<{ children: React.ReactNode; clip?: boolean }> = ({
+  children,
+  clip = true,
+}) => (
   <AbsoluteFill
     style={{
       justifyContent: "center",
       alignItems: "center",
-      overflow: "hidden",
+      ...(clip ? { overflow: "hidden" } : {}),
     }}
   >
     {children}
@@ -55,7 +69,7 @@ export const Stage: React.FC<{ children: React.ReactNode }> = ({ children }) => 
  * Window elevation, as a light rim rather than a cast shadow.
  *
  * ---------------------------------------------------------------------------
- * THE BANDING RULE: A SOFT GRADIENT MUST NOT LIVE INSIDE <CameraMotionBlur>.
+ * THE BANDING RULE: A SOFT GRADIENT MUST NOT LIVE INSIDE THE SHUTTER.
  * ---------------------------------------------------------------------------
  * Measured on a still (frame 8, one pixel column just below the window, blue
  * channel):
@@ -63,7 +77,8 @@ export const Stage: React.FC<{ children: React.ReactNode }> = ({ children }) => 
  *   samples={1}  184 195 198 199 205 205 208 ... 235 237   ~1 level/px, smooth
  *   samples={8}  188 189 197 195 204 203 204 ... 232 232   plateaus, steps of 7
  *
- * CameraMotionBlur renders N copies of its subtree and composites them at
+ * The shutter (<ShutterBlur>, and CameraMotionBlur before it) renders N copies
+ * of its subtree and composites them at
  * fractional opacity. Every composite rounds to 8 bits, so a value that should
  * drift by a fraction of a level per pixel is pinned until it can jump a whole
  * step. Any soft falloff inside that tree is destroyed, at any blur radius.
@@ -144,7 +159,7 @@ export const RimLight: React.FC<{ light?: boolean }> = ({ light = false }) => {
  * `children` fill the content area below the chrome — footage in a clip, a
  * screenshot in a still. Only HARD edges live in here (the 1px inset highlight,
  * the titlebar's 1px border), because in a clip this subtree renders inside
- * <CameraMotionBlur>, where every soft falloff bands. See RimLight.
+ * <ShutterBlur>, where every soft falloff bands. See RimLight.
  */
 export const WindowFrame: React.FC<{
   chrome?: boolean;

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { chordGlyphs, type KeyEvent } from "./click-log";
-import { KEYCAP_HOLD_S, keycapAt } from "../KeycapHUD";
+import { KEYCAP_HOLD_S, KEYCAP_IN_S, keycapAt } from "../KeycapHUD";
 
 describe("chordGlyphs", () => {
   it("renders the reference's own chord", () => {
@@ -53,5 +53,29 @@ describe("keycapAt", () => {
     assert.ok(last && last.outP < 0.2, "about to expire should be leaving");
     const mid = keycapAt(keys, 1.5);
     assert.ok(mid && mid.inP === 1 && mid.outP === 1, "mid-hold is fully up");
+  });
+});
+
+describe("keycapAt at playback speed", () => {
+  const keys: KeyEvent[] = [{ tMs: 1000, chord: "Alt+Enter" }];
+
+  it("holds for KEYCAP_HOLD_S of SCREEN time, i.e. speed x on the log clock", () => {
+    const speed = 1.25;
+    const logHold = KEYCAP_HOLD_S * speed;
+    assert.equal(keycapAt(keys, 1 + logHold - 0.01, undefined, speed)?.chord, "Alt+Enter");
+    assert.equal(keycapAt(keys, 1 + logHold + 0.01, undefined, speed), null);
+    // Unscaled, the same log time is already gone: the old 0.88 s pill.
+    assert.equal(keycapAt(keys, 1 + logHold - 0.01), null);
+  });
+
+  it("stretches the entrance ramp by speed too", () => {
+    const speed = 2;
+    const halfIn = (KEYCAP_IN_S * speed) / 2;
+    assert.ok(Math.abs(keycapAt(keys, 1 + halfIn, undefined, speed)!.inP - 0.5) < 1e-9);
+  });
+
+  it("is the old behaviour at speed 1", () => {
+    for (const t of [1.001, 1.05, 1.5, 2.0])
+      assert.deepEqual(keycapAt(keys, t, undefined, 1), keycapAt(keys, t));
   });
 });

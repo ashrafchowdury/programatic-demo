@@ -8,12 +8,14 @@ import {
   useVideoConfig,
 } from "remotion";
 import { Video } from "@remotion/media";
-import { CameraMotionBlur } from "@remotion/motion-blur";
 import { zoomAt, type ClickLog } from "./lib/zoom";
 import { BASE_POSE, poseToCss } from "./lib/camera";
+import { footageFrames } from "./lib/demo-duration";
 import { CHROME_H, WINDOW_FIT } from "./lib/window";
 import { backdropFile, isLightBackdrop, isLightGround } from "./lib/backdrop";
 import { Cursor } from "./Cursor";
+import { ShutterBlur } from "./ShutterBlur";
+import { cornerTravelPx, groupsFor, shutterFraction } from "./lib/shutter";
 import { RimLight, Stage, useDesignScale, WindowFrame } from "./WindowFrame";
 import { pushEnvelope, pushToCss, type PushSpec } from "./lib/push";
 import {
@@ -88,18 +90,21 @@ export type DemoClipProps = {
   /** Colour behind the plate, if the crop leaves any gap. */
   pageBg?: string;
   /**
-   * Draw the synthetic pointer. Defaults on for "framed", OFF for "fullbleed" —
-   * the reference film has no cursor anywhere and announces interaction with a
-   * keycap instead.
+   * Draw the synthetic pointer. Honoured on BOTH paths.
+   *
+   * Framed: absent = the style's `shot.cursor` (on for every windowed style).
+   * Full-bleed: absent = OFF — the reference film has no cursor anywhere and
+   * announces interaction with a keycap instead.
    */
   cursor?: boolean;
   /**
-   * Draw the pointer's click ripple.
+   * Draw the pointer's click ripple. Honoured on BOTH paths.
    *
-   * Defaults ON for "framed" and OFF for "fullbleed". The reference films draw
-   * no ripple and full-bleed reproduces them; framed predates the reference and
-   * every demo cut so far carries one, so flipping it there would silently
-   * restyle the whole back catalogue. See src/Cursor.tsx.
+   * Framed: absent = the style's `shot.ripple` — ON for the zoom-camera
+   * grammar, which predates the reference and whose every demo cut carries one
+   * (flipping it would silently restyle the back catalogue), OFF for the
+   * flat-ground one, whose preset asks for none. Full-bleed:
+   * absent = OFF; the reference films draw no ripple. See src/Cursor.tsx.
    */
   ripple?: boolean;
   /**
@@ -180,23 +185,18 @@ export const Backdrop: React.FC<{ name?: string; ground?: string | null }> = ({
   );
 
 /**
- * Camera pose for this frame, plus the wrapper style that positions the window
- * group under it. Shared by the shadow group and the window group so the two
- * stay locked together despite living on opposite sides of the shutter.
+ * The camera, as a function of frame, for the window group. Shared by the
+ * shadow group, the window group and the shutter's sample-count decision, so
+ * all three read one camera.
  *
- * Must be called inside each of them rather than lifted to DemoClip:
- * CameraMotionBlur re-renders its subtree at offset frames, and only a
- * useCurrentFrame() call *inside* that subtree sees the offset.
- */
-/**
  * `drift` is read HERE and nowhere else, on purpose. ShadowGroup and WindowGroup
  * both go through this hook, so they cannot disagree about the camera. If one
  * group read the prop and the other did not, the shadow would separate from the
  * window by up to a few percent of scale during a long hold — a halo that only
  * appears on drifting clips, so a smoke test would never catch it. The parameter
- * is required rather than defaulted so tsc forces both call sites to change.
+ * is required rather than defaulted so tsc forces every call site to change.
  */
-function useCameraGroup(
+function useCameraAt(
   chrome: boolean,
   log: ClickLog,
   speed: number,
@@ -204,7 +204,6 @@ function useCameraGroup(
   /** The style's shot group, for its float size and whether the camera runs. */
   shot: { windowFit: number | null; zoom: boolean },
 ) {
-  const frame = useCurrentFrame();
   const { fps, height } = useVideoConfig();
   const chromeH = CHROME_H * useDesignScale();
   // Fraction of the WINDOW GROUP (chrome + footage) that the chrome occupies —
@@ -215,12 +214,37 @@ function useCameraGroup(
   // The style's float size, falling back to the constant every framed reel
   // rendered against before `windowFit` was wired through.
   const fit = shot.windowFit ?? WINDOW_FIT;
-  const z = shot.zoom
-    ? zoomAt(frame, fps, log, { chromeFrac, speed, fit, drift })
-    : // A CONSTANT POSE. Not `zoomAt` with the drift zeroed — that still tracks
-      // the pointer and magnifies on every press. This holds the panel at `fit`
-      // for the whole shot, so the only thing that moves it is its own envelope.
-      poseToCss(BASE_POSE, chromeFrac, fit);
+  const poseAt = (frame: number) =>
+    shot.zoom
+      ? zoomAt(frame, fps, log, { chromeFrac, speed, fit, drift })
+      : // A CONSTANT POSE. Not `zoomAt` with the drift zeroed — that still
+        // tracks the pointer and magnifies on every press. This holds the panel
+        // at `fit` for the whole shot, so the only thing that moves it is its
+        // own envelope.
+        poseToCss(BASE_POSE, chromeFrac, fit);
+  return { poseAt, chromeH };
+}
+
+/**
+ * Camera pose for this frame, plus the wrapper style that positions the window
+ * group under it. Shared by the shadow group and the window group so the two
+ * stay locked together despite living on opposite sides of the shutter.
+ *
+ * Must be called inside each of them rather than lifted to DemoClip:
+ * ShutterBlur re-renders its subtree at sample times, and only a
+ * useCurrentFrame() call *inside* that subtree sees them.
+ */
+function useCameraGroup(
+  chrome: boolean,
+  log: ClickLog,
+  speed: number,
+  drift: number | undefined,
+  shot: { windowFit: number | null; zoom: boolean },
+) {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const { poseAt, chromeH } = useCameraAt(chrome, log, speed, drift, shot);
+  const z = poseAt(frame);
 
   const style: React.CSSProperties = {
     width: "100%",
@@ -240,6 +264,33 @@ function useCameraGroup(
 }
 
 /**
+ * The footage, holding its LAST frame once the recording runs out.
+ *
+ * The composition can run past the recording so the camera lands back at base
+ * (src/lib/demo-duration.ts). What <Video> draws past its end is undocumented:
+ * @remotion/media 4.0.506 clamps a late timestamp to the last sample of the
+ * keyframe bank it lands in, and returns `null` — a cleared canvas, a blank
+ * window — when it finds no bank. So the clock is pinned instead: past the
+ * last frame inside the recording, the child sees that frame. No black, no
+ * loop, whatever the decoder does. Reads useCurrentFrame() itself so it nests
+ * under the shutter's and the full-bleed still's own <Freeze>.
+ */
+const HeldFootage: React.FC<{
+  log: ClickLog;
+  speed: number;
+  children: React.ReactNode;
+}> = ({ log, speed, children }) => {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const last = footageFrames(log, speed, fps) - 1;
+  return (
+    <Freeze frame={last} active={frame > last}>
+      {children}
+    </Freeze>
+  );
+};
+
+/**
  * The window's shadow, tracking the camera but drawn outside the shutter.
  * See RimLight for why it cannot live with the window.
  */
@@ -251,7 +302,9 @@ const ShadowGroup: React.FC<DemoClipProps> = (props) => {
   const ground = resolvePreset(props).shot.ground;
   const light = ground ? isLightGround(ground) : isLightBackdrop(backdrop ?? "");
   return (
-    <Stage>
+    // Unclipped: a push that scales the panel scales this box too, and its edge
+    // would cut the shadow's blur flat. See Stage.
+    <Stage clip={false}>
       <div style={style}>
         <RimLight light={light} />
       </div>
@@ -261,12 +314,17 @@ const ShadowGroup: React.FC<DemoClipProps> = (props) => {
 
 /**
  * Window + footage. Must call useCurrentFrame() itself (via useCameraGroup) so
- * CameraMotionBlur can sample neighbouring frames with a real camera pose on
- * each sample.
+ * ShutterBlur can sample neighbouring frames with a real camera pose on each
+ * sample.
  */
 const WindowGroup: React.FC<DemoClipProps> = (props) => {
-  const { name, log, chrome = false, speed = 1, drift, ripple } = props;
+  const { name, log, chrome = false, speed = 1, drift } = props;
   const { shot } = resolvePreset(props);
+  // The style's own pointer settings unless the clip overrides them. The demo
+  // grammar says cursor + ripple, so every demo renders exactly as before; the
+  // flat-ground grammar says no ripple, which its reels asked for and never got.
+  const cursor = props.cursor ?? shot.cursor;
+  const ripple = props.ripple ?? shot.ripple;
   const { z, frame, fps, style } = useCameraGroup(chrome, log, speed, drift, shot);
   const trimBefore = log.trimBeforeMs
     ? round((log.trimBeforeMs / 1000) * fps)
@@ -278,42 +336,95 @@ const WindowGroup: React.FC<DemoClipProps> = (props) => {
     <Stage>
       <div style={style}>
         <WindowFrame chrome={chrome} hostLabel={hostLabel}>
-          <Video
-            src={staticFile(`${name}.mp4`)}
-            trimBefore={trimBefore}
-            playbackRate={speed}
-            objectFit="fill"
-            style={{ width: "100%", height: "100%" }}
-          />
+          <HeldFootage log={log} speed={speed}>
+            <Video
+              src={staticFile(`${name}.mp4`)}
+              trimBefore={trimBefore}
+              playbackRate={speed}
+              objectFit="fill"
+              style={{ width: "100%", height: "100%" }}
+            />
+          </HeldFootage>
           {/*
             Drawn over the footage, inside the camera transform. No-ops on
             logs without a cursorTrack — those have the pointer baked into the
             recording already.
           */}
-          <Cursor
-            log={log}
-            timeS={timeS}
-            cameraScale={z.scale}
-            ripple={ripple ?? true}
-          />
+          {cursor ? (
+            <Cursor
+              log={log}
+              timeS={timeS}
+              cameraScale={z.scale}
+              ripple={ripple}
+            />
+          ) : null}
         </WindowFrame>
       </div>
-      {/*
-        Keyboard hint. Frame-fixed (a Stage sibling, not inside the camera group)
-        so its size stays stable and it never blurs — but KEYCAP_BOTTOM_FRAMED is
-        tuned to land it INSIDE the window's lower edge at the resting framing,
-        not down on the backdrop. No-ops until a flow records a chord.
-      */}
-      {log.keys?.length ? (
-        <KeycapHUD
-          keys={log.keys}
-          timeS={timeS}
-          bottom={KEYCAP_BOTTOM_FRAMED}
-          scale={KEYCAP_SCALE_FRAMED}
-          ground={KEYCAP_GROUND_FRAMED}
-        />
-      ) : null}
     </Stage>
+  );
+};
+
+/**
+ * Keyboard hint for the framed look, drawn OUTSIDE the shutter.
+ *
+ * It used to sit in WindowGroup as a Stage sibling, which kept it off the camera
+ * transform but not out of the shutter: every one of the 8 samples drew it, at
+ * 1/8 opacity with plus-lighter, over a translucent ground — the stacked-soft-
+ * composite banding the rule in src/WindowFrame.tsx forbids. Its own frame clock
+ * is `frame` itself, which the centred shutter's samples average to, so the pill
+ * and the footage agree about when a chord was pressed.
+ *
+ * Frame-fixed, but KEYCAP_BOTTOM_FRAMED is tuned to land it INSIDE the window's
+ * lower edge at the resting framing, not down on the backdrop. No-ops until a
+ * flow records a chord.
+ */
+const FramedKeycap: React.FC<DemoClipProps> = ({ log, speed = 1 }) => {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  if (!log.keys?.length) return null;
+  const timeS = (frame / fps) * speed - (log.offsetMs ?? 0) / 1000;
+  return (
+    <KeycapHUD
+      keys={log.keys}
+      timeS={timeS}
+      speed={speed}
+      bottom={KEYCAP_BOTTOM_FRAMED}
+      scale={KEYCAP_SCALE_FRAMED}
+      ground={KEYCAP_GROUND_FRAMED}
+    />
+  );
+};
+
+/**
+ * The window group under a centred shutter, with as many samples as this
+ * frame's camera speed needs.
+ *
+ * The count is decided HERE, outside the samples, from the camera the samples
+ * will draw: how far the window's fastest corner travels while the shutter is
+ * open. See groupsFor for why it moves in whole groups of 8.
+ */
+const ShutteredWindow: React.FC<DemoClipProps> = (props) => {
+  const { log, chrome = false, speed = 1, drift } = props;
+  const frame = useCurrentFrame();
+  const { width, height } = useVideoConfig();
+  const { poseAt, chromeH } = useCameraAt(
+    chrome,
+    log,
+    speed,
+    drift,
+    resolvePreset(props).shot,
+  );
+  const half = shutterFraction() / 2;
+  const travel = cornerTravelPx(
+    poseAt(Math.max(0, frame - half)),
+    poseAt(frame + half),
+    width,
+    height + (chrome ? chromeH : 0),
+  );
+  return (
+    <ShutterBlur groups={groupsFor(travel)}>
+      <WindowGroup {...props} />
+    </ShutterBlur>
   );
 };
 
@@ -391,13 +502,15 @@ const FullBleedClip: React.FC<DemoClipProps> = ({
   const cropStyle = { ...cropToCss(resolved), ...(clipPath ? { clipPath } : {}) };
 
   const footage = (
-    <Video
-      src={staticFile(`${name}.mp4`)}
-      trimBefore={trimBefore}
-      playbackRate={speed}
-      objectFit="cover"
-      style={{ width: "100%", height: "100%" }}
-    />
+    <HeldFootage log={log} speed={speed}>
+      <Video
+        src={staticFile(`${name}.mp4`)}
+        trimBefore={trimBefore}
+        playbackRate={speed}
+        objectFit="cover"
+        style={{ width: "100%", height: "100%" }}
+      />
+    </HeldFootage>
   );
 
   return (
@@ -422,35 +535,39 @@ const FullBleedClip: React.FC<DemoClipProps> = ({
             footage
           )}
         </AbsoluteFill>
+        {cursor && !freeze ? (
+          /*
+            The crop again, on a layer of its own, INSIDE the push wrapper. The
+            pointer is part of the picture: it has to land on the control it is
+            pressing, so it shares the footage's crop AND its push. It used to
+            sit outside the push like the keycap, and for the 12-15 frames at
+            each end of a shot the UI slid up to 114 px under a pointer that
+            stayed put — an arrow skating off its target. Only the keycap is a
+            caption; only the keycap holds still.
+            Nesting it under the crop is also what makes CURSOR_SCALE_EXP mean
+            what it says. The wrapper multiplies the arrow by k and <Cursor>
+            divides by k^(1 - exp), leaving k^exp — the sub-linear growth the
+            framed look already gets from living inside its camera transform. As
+            a bare sibling the multiply was missing and the arrow SHRANK as the
+            crop tightened.
+          */
+          <AbsoluteFill style={cropStyle}>
+            <Cursor
+              log={log}
+              timeS={timeS}
+              cameraScale={resolved?.k ?? 1}
+              ripple={ripple ?? false}
+            />
+          </AbsoluteFill>
+        ) : null}
       </AbsoluteFill>
-      {cursor && !freeze ? (
-        /*
-          The crop again, on a layer of its own — NOT the push wrapper above.
-          The pointer has to survive two contradictory pulls: it must land on
-          the control it is pressing, which means sharing the footage's crop,
-          but it must not ride the push envelope, for the same reason the keycap
-          below does not.
-          Nesting it under the crop is also what makes CURSOR_SCALE_EXP mean
-          what it says. The wrapper multiplies the arrow by k and <Cursor>
-          divides by k^(1 - exp), leaving k^exp — the sub-linear growth the
-          framed look already gets from living inside its camera transform. As a
-          bare sibling the multiply was missing and the arrow SHRANK as the crop
-          tightened.
-        */
-        <AbsoluteFill style={cropStyle}>
-          <Cursor
-            log={log}
-            timeS={timeS}
-            cameraScale={resolved?.k ?? 1}
-            ripple={ripple ?? false}
-          />
-        </AbsoluteFill>
-      ) : null}
       {/*
         Outside the push wrapper above, deliberately: the reference's keycap
         holds a fixed frame position while the footage slides under it.
       */}
-      {log.keys?.length ? <KeycapHUD keys={log.keys} timeS={timeS} /> : null}
+      {log.keys?.length ? (
+        <KeycapHUD keys={log.keys} timeS={timeS} speed={speed} />
+      ) : null}
     </AbsoluteFill>
   );
 };
@@ -493,8 +610,8 @@ export const DemoClip: React.FC<DemoClipProps> = (props) => {
         {/*
           The shutter, but ONLY when there is a camera to blur.
 
-          CameraMotionBlur renders N copies of its subtree and composites them
-          at fractional opacity, and every composite rounds to 8 bits — the
+          ShutterBlur renders N copies of its subtree and composites them at
+          fractional opacity, and every composite rounds to 8 bits — the
           banding measurement in src/WindowFrame.tsx is the same mechanism. When
           the style's camera is off (`shot.zoom: false`) every one of those 8
           samples is the SAME pose, so the blur cannot smear anything and all it
@@ -503,17 +620,17 @@ export const DemoClip: React.FC<DemoClipProps> = (props) => {
           enter/exit envelope, and that is applied by FramedPush OUTSIDE this
           subtree, so it is unaffected either way.
 
-          Kept on for every camera style: it samples identical poses there too
-          during holds, but a moving camera needs it and toggling `samples`
-          mid-clip remounts <Video>.
+          Kept on through holds for every camera style: it samples identical
+          poses there, but dropping to one sample would change the picture's
+          quantisation and the first moving frame would flash (see groupsFor).
+          The count only grows, a whole group at a time, on fast frames.
         */}
         {shot.zoom ? (
-          <CameraMotionBlur shutterAngle={180} samples={8}>
-            <WindowGroup {...props} chrome={chrome} />
-          </CameraMotionBlur>
+          <ShutteredWindow {...props} chrome={chrome} />
         ) : (
           <WindowGroup {...props} chrome={chrome} />
         )}
+        <FramedKeycap {...props} />
       </FramedPush>
     </AbsoluteFill>
   );

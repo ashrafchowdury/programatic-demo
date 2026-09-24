@@ -45,7 +45,14 @@ export const KEYCAP_SCALE_FRAMED = 0.68;
 /** Translucent ground for the framed look, vs the full-bleed solid black. */
 export const KEYCAP_GROUND_FRAMED = "rgba(10, 10, 10, 0.66)";
 
-/** How long a chord stays up once pressed, in seconds. */
+/**
+ * How long a chord stays up once pressed, in ON-SCREEN seconds.
+ *
+ * All three timings here are screen time, like the camera's holds: `timeS` is
+ * on the click log's clock, which a 1.25x render plays 25% fast, so keycapAt
+ * stretches them by `speed` on that clock. Before it did, a 1.25x demo held
+ * each chord 0.88 s and ramped it in 104 ms — a different pill per DEMO_SPEED.
+ */
 export const KEYCAP_HOLD_S = 1.1;
 /**
  * Entrance/exit of the pill itself, in seconds.
@@ -64,6 +71,11 @@ export type KeycapHUDProps = {
   timeS: number;
   holdS?: number;
   /**
+   * Playback rate of the composition vs the shoot (DemoClip's `speed`). The
+   * timings above are screen seconds; this converts them onto `timeS`'s clock.
+   */
+  speed?: number;
+  /**
    * Distance from the frame bottom in design px. Defaults to the full-bleed
    * KEYCAP_BOTTOM; the framed look passes KEYCAP_BOTTOM_FRAMED to sit it at the
    * bottom of the frame.
@@ -75,21 +87,31 @@ export type KeycapHUDProps = {
   ground?: string;
 };
 
-/** The chord on screen at `timeS`, with its own progress, or null. */
+/**
+ * The chord on screen at `timeS`, with its own progress, or null.
+ *
+ * `timeS` and each key's `tMs` are on the click log's clock; `holdS` and the
+ * in/out ramps are on-screen seconds, so they are multiplied by `speed` here.
+ */
 export function keycapAt(
   keys: KeyEvent[],
   timeS: number,
   holdS = KEYCAP_HOLD_S,
+  speed = 1,
 ): { chord: string; inP: number; outP: number } | null {
+  const k = speed > 0 ? speed : 1;
+  const hold = holdS * k;
+  const inS = KEYCAP_IN_S * k;
+  const outS = KEYCAP_OUT_S * k;
   // Last chord whose window contains timeS: chords pressed in quick succession
   // should replace each other rather than stack.
   for (let i = keys.length - 1; i >= 0; i--) {
     const key = keys[i];
     const startS = key.tMs / 1000;
-    const endS = startS + holdS;
+    const endS = startS + hold;
     if (timeS < startS || timeS >= endS) continue;
-    const inP = KEYCAP_IN_S > 0 ? (timeS - startS) / KEYCAP_IN_S : 1;
-    const outP = KEYCAP_OUT_S > 0 ? (endS - timeS) / KEYCAP_OUT_S : 1;
+    const inP = inS > 0 ? (timeS - startS) / inS : 1;
+    const outP = outS > 0 ? (endS - timeS) / outS : 1;
     return {
       chord: key.chord,
       inP: Math.min(1, Math.max(0, inP)),
@@ -103,6 +125,7 @@ export const KeycapHUD: React.FC<KeycapHUDProps> = ({
   keys,
   timeS,
   holdS = KEYCAP_HOLD_S,
+  speed = 1,
   bottom = KEYCAP_BOTTOM,
   scale = 1,
   ground = KEYCAP_GROUND,
@@ -110,7 +133,7 @@ export const KeycapHUD: React.FC<KeycapHUDProps> = ({
   // Hook before the early return: React counts hooks per render, and a frame
   // with no chord on screen would otherwise call one fewer than a frame with.
   const k = useDesignScale();
-  const active = keycapAt(keys, timeS, holdS);
+  const active = keycapAt(keys, timeS, holdS, speed);
   if (!active) return null;
 
   // `settle` runs 1 -> 0, so 1 - settle is the arrival and settle is the exit.
