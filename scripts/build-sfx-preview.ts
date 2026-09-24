@@ -10,28 +10,36 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { SFX_SPECS, type SfxId } from "./lib/sfx-synth";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const DIR = path.join(ROOT, "public", "audio", "sfx");
 
-type Meta = {
-  id: string;
-  tier: 1 | 2;
-  trigger: string;
-  character: string;
-  gain: number;
-};
+/** One manifest.json row — only the fields this page reads. */
+type Row = { id: SfxId; detector: string; trigger: string; gain: number };
+
+/**
+ * What a card shows. `tier` and `character` are not in the manifest: tier 1 is
+ * whatever its detector auto-places off the click log, and the character line
+ * comes from the synth spec that made the sound.
+ */
+type Meta = Row & { tier: 1 | 2; character: string };
 
 function main() {
   const out = process.argv[2];
   if (!out) throw new Error("usage: build-sfx-preview.ts <out.html>");
 
-  const manifest: Meta[] = JSON.parse(
+  const manifest: Row[] = JSON.parse(
     fs.readFileSync(path.join(DIR, "manifest.json"), "utf8"),
   );
   const sounds = manifest.map((m) => {
     const b64 = fs.readFileSync(path.join(DIR, `${m.id}.wav`)).toString("base64");
-    return { ...m, uri: `data:audio/wav;base64,${b64}` };
+    const meta: Meta = {
+      ...m,
+      tier: m.detector.startsWith("auto") ? 1 : 2,
+      character: SFX_SPECS[m.id]?.character ?? "",
+    };
+    return { ...meta, uri: `data:audio/wav;base64,${b64}` };
   });
 
   fs.writeFileSync(out, page(sounds));
@@ -97,19 +105,20 @@ footer code{font-family:var(--mono);color:var(--muted);font-size:12px}
   <header>
     <p class="kicker">Reel · interaction SFX</p>
     <h1>Sound palette</h1>
-    <p class="lede">The stock set of interaction sounds for demo reels — each one synthesized,
-      so a parameter tweak re-renders it. Click any card to hear it; the waveform is the real
-      decoded signal.</p>
-    <div class="note">These are <b>drafts for your ear to judge</b>. I spec them by trigger and
-      synthesis parameters — frequency, envelope, duration — but I can't audition them. Tell me
-      which land and which to reshape (“click's too sharp”, “whoosh too long”) and I'll re-tune.</div>
+    <p class="lede">The stock set of interaction sounds for demo reels — each one synthesized
+      from scratch, so there is no third-party licence and a parameter tweak re-renders it.
+      Click any card to hear it; the waveform is the real decoded signal.</p>
+    <div class="note">Specified by numbers — frequency, envelope, length, loudness matched to
+      the samples they replaced — and <b>not yet auditioned</b>. Say which land and which to
+      reshape (“click's too sharp”, “pop too long”) and the voice in
+      <code>scripts/lib/sfx-synth.ts</code> gets re-tuned.</div>
   </header>
   <div id="t1"></div>
   <div id="t2"></div>
   <footer>
-    Regenerate with <code>pnpm exec tsx scripts/gen-sfx.ts</code>. The through-line: a click and
-    the thing it opens are two sounds — <code>click-primary</code> then <code>pop-open</code> ~120ms
-    later — which is what makes an interaction read as real instead of a flat tick.
+    Regenerate with <code>pnpm exec tsx scripts/gen-sfx.ts</code>. The through-line: an input and
+    the thing it opens are two sounds — <code>key</code> or <code>typing</code>, then <code>pop</code>
+    ~120ms later — which is what makes an interaction read as real instead of a flat tick.
   </footer>
 </div>
 <script>

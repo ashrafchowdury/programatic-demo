@@ -35,12 +35,15 @@ Write every card before shooting anything. Per card:
 - **Match the footage.** Never claim what the clip contradicts — copy that says
   "no mouse" over a clip that clicks a menu reads as a lie. Write the card to
   what the pointer actually does.
-- **Length depends on the look.** *Framed* runs 96px type: **4–6 words**, read in
-  ~1.5s, with the hero word marked `==like this==` because headlines are normal
-  weight. *Full-bleed* runs 72px (cap height 52px on an 86px line pitch):
-  **7–15 words**, full explanatory sentences, and **no emphasis markup at all**
-  — measured, the reference's five cards use one ink at one weight throughout,
-  and a 4-word card fills only ~41% of frame width where its cards fill 63–78%.
+- **Length depends on the style** (§3 — pick it before you write). *classic*
+  runs 96px type: **4–6 words**, read in ~1.5s, with the hero word marked
+  `==like this==` because headlines are normal weight. *proof* runs 72px (cap
+  height 52px on an 86px line pitch): **7–15 words**, full explanatory
+  sentences, and **no emphasis markup at all** — measured, the reference's five
+  cards use one ink at one weight throughout, and a 4-word card fills only ~41%
+  of frame width where its cards fill 63–78%. *ledger* (98px) also drops
+  emphasis but lets card length follow the copy; *stage* (82px, typed a
+  character at a time) keeps emphasis — its closing card is built around a pill.
 - Card before a clip = what it shows. Card after = the payoff it earned.
 
 ## 2. Shoot the clips
@@ -89,13 +92,38 @@ path like a person deciding, not a script hitting one target:
 
 ## 3. Cut the reel
 
+### Pick a style
+
+`style` on the reel names the whole grammar — how cards write on and leave, how
+footage is framed, whether there is a window, a camera, a cursor ripple, a
+dissolve. Every number in a preset is measured off a reference film
+(`src/lib/style.ts`, `docs/reel/`); CATALOG.md shows each one as pictures.
+**Absent, a reel is cut in `proof`.**
+
+| style | footage | cards | pick it when |
+| --- | --- | --- | --- |
+| `classic` | window on a backdrop, chrome, click-driven zoom camera | hold 1.2s, leave on a 4% scale ramp | the old framed film; the product needs its window |
+| `proof` (default) | full-bleed, no window, no camera; you author `crop` + `push` per clip | cut in mid-reveal, 2.07s hold after the last word, 3.2–3.3s each | a metronomic launch film (Cursor "Agent UX improvements") |
+| `ledger` | full-bleed (`isolate` framing), static crop, 6-frame dissolves | still, length follows the copy | calmer, longer shots of one panel (monid) |
+| `stage` | windowed panel on flat cream, no zoom, scale-in / cut mid-exit | flat ground, typed per character, 0.6s hold | a panel that floats and leaves on motion (Replit) |
+
+A card may set its own `style` to differ from the reel's.
+
+**`look` is legacy.** It predates styles and is only read when `style` is
+absent: `look: "framed"` resolves to `classic`, `look: "fullbleed"` to `proof`.
+Write `style` in new reels. The one rejected pair is `style: "classic"` with
+`look: "fullbleed"`. The default used to be `classic`; a reel that names neither
+field changed film when it moved, so pin `style` on any reel that must not.
+
+### Cut
+
 - **Pick a tonal strategy and hold it.** Two work, measured; mixing them does not.
-  - *Matched* (default): `light` for a light-theme app, `plain` (dark) for the
+  - *Matched*: `light` for a light-theme app, `plain` (dark) for the
     sign-off, keeping one dark passage before the close for punctuation. A dark
     card over light footage makes that cut a ~157-level luma slam; a light card
     lands it at ~50.
-  - *Slam* (`look: "fullbleed"`): dark cards against light footage at **every**
-    cut. The reference film for this look runs ~200-level deltas nine times in
+  - *Slam* (`proof`'s grammar): dark cards against light footage at **every**
+    cut. The reference film for this grammar runs ~200-level deltas nine times in
     44s and is the better film for it — the tonal ping-pong IS the structure.
     It only works at a metronomic cut rate; one dark card dropped into an
     otherwise light reel still reads as an accident. See
@@ -110,16 +138,13 @@ path like a person deciding, not a script hitting one target:
   left-aligned summary — `headline` becomes the wordmark beside the mark, and
   the items reveal one every 16 frames.
 
-### The full-bleed look
+### Framing full-bleed clips (`proof`, `ledger`)
 
-`look: "fullbleed"` on the reel switches the whole film to the language measured
-off Cursor's "Agent UX improvements": footage full-bleed with no window, no
-backdrop and no zoom camera; cards cut into mid-reveal and held 2.07s after
-their last word; every shot arriving and leaving on a push envelope. The default
-(`"framed"`) is unchanged and renders byte-identically.
-
-Under it, per clip you author the framing yourself, because nothing in the click
-log predicts which component matters:
+Under the full-bleed styles you author each clip's framing yourself, because
+nothing in the click log predicts which component matters. `crop` is ignored
+by the windowed styles (`classic`, `stage`). `ledger` and `stage` carry their
+motion on the shots and supply every clip's arrival themselves; an authored
+`push` overrides it, so leave `push` off there unless you mean to:
 
 ```ts
 { clip: { fromS: 1.8, toS: 6.2,
@@ -158,7 +183,7 @@ overlap the range of the clip before it — it does not play, so it cannot read 
 a jump cut backwards — but it may not hold a state that clip had already passed.
 
 **Bookends run LIGHT.** `background: "light"` on the logo cards, which under
-full-bleed is the reference's warm `#edece5`. This is structure, not taste: a
+`proof` is the reference's warm `#edece5`. This is structure, not taste: a
 reel goes `logo · card · clip · card · … · recap · logo`, cards and recap are
 dark and clips are light, so dark bookends make the logo->card and recap->logo
 cuts vanish — measured at 2 and 1 levels of luma step where every other cut is
@@ -237,7 +262,7 @@ use this number to decide whether a **bookend** is alive; look at the frames, or
 measure the element's own bounding box. It answers "is the film restless", not
 "is this element animating".
 
-Targets from the full-bleed reference, if that is the look you are cutting:
+Targets from the full-bleed reference, if you are cutting `proof`:
 mean shot **3.2-4.0s**, cut rate **~15/min**, moving frames **<= 25%**, last word
 at cut **-62 frames**, dissolves **zero**.
 
@@ -251,8 +276,9 @@ pnpm render <flow>            # → out/demo/<flow>.mp4
 pnpm reel <flow>              # cut cards+clips → out/reel/<flow>.mp4
 ```
 
-Reel-level: `look` ("framed" | "fullbleed"), `audio`, `sfx`, `duck`,
-`loudnessLUFS`.
+Reel-level: `style` ("classic" | "proof" | "ledger" | "stage"; default
+`proof`), `audio`, `sfx`, `duck`, `loudnessLUFS`, `hud`, `chips`. `look`
+("framed" | "fullbleed") is legacy — read only when `style` is absent.
 
 Cards author as JSON or TS (`intros/<name>.json` | reel cards). Markup:
 `*bold*` `_italic_` `==highlight==` `==word|#hex==` `{chip}`.

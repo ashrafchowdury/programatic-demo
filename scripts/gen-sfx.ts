@@ -1,42 +1,49 @@
 /**
- * Regenerate the one *synthesized* reel SFX — `confirm.wav` — into public/audio/sfx/
- * with the system ffmpeg. The rest of the palette (click, typing, pop, key, error)
- * are supplied samples, not generated; see public/audio/sfx/README.md for their
- * provenance. This script only (re)writes confirm.wav, so it never clobbers the
- * provided files.
+ * Regenerate the whole reel SFX palette into public/audio/sfx/ — every sound
+ * synthesized from scratch by scripts/lib/sfx-synth.ts, so the files are
+ * original works with no third-party licence. Deterministic: a re-run with no
+ * code change writes byte-identical files.
  *
- *   pnpm exec tsx scripts/gen-sfx.ts
+ *   pnpm exec tsx scripts/gen-sfx.ts            # all six
+ *   pnpm exec tsx scripts/gen-sfx.ts click pop  # just these
  *
- * confirm = a warm two-note resolve (C5 + a staggered G5) that reads as "done" —
- * the payoff cue. Tweak a number and re-run.
+ * Lengths and loudness are pinned to the files they replaced (see SFX_SPECS), so a
+ * regenerate never moves a reel's timing or its tuned SFX gains. Tweak a voice
+ * in sfx-synth.ts and re-run; `build-sfx-preview.ts` makes a listen-through.
  */
-import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import {
+  encodeWav,
+  gainToDb,
+  renderSfx,
+  SAMPLE_RATE,
+  SFX_IDS,
+  truePeak,
+  type SfxId,
+} from "./lib/sfx-synth";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const DIR = path.join(ROOT, "public", "audio", "sfx");
 
 function main() {
+  const asked = process.argv.slice(2);
+  const bad = asked.filter((a) => !(SFX_IDS as readonly string[]).includes(a));
+  if (bad.length)
+    throw new Error(`unknown sfx: ${bad.join(", ")} (have ${SFX_IDS.join(", ")})`);
+  const ids = (asked.length ? asked : SFX_IDS) as readonly SfxId[];
+
   fs.mkdirSync(DIR, { recursive: true });
-  execFileSync(
-    "ffmpeg",
-    [
-      "-y",
-      "-f", "lavfi", "-i", "sine=frequency=523:duration=0.3",
-      "-f", "lavfi", "-i", "sine=frequency=784:duration=0.3",
-      "-filter_complex",
-      "[0:a]afade=t=in:d=0.01,afade=t=out:st=0.16:d=0.14,volume=0.6[c];" +
-        "[1:a]adelay=45|45,afade=t=out:st=0.2:d=0.12,volume=0.45[g];" +
-        "[c][g]amix=inputs=2:normalize=0,lowpass=f=6000[out]",
-      "-map", "[out]",
-      "-ar", "48000",
-      "-ac", "2",
-      path.join(DIR, "confirm.wav"),
-    ],
-    { stdio: "ignore" },
-  );
-  console.log(`sfx        -> ${path.relative(ROOT, DIR)}/confirm.wav`);
+  for (const id of ids) {
+    const mono = renderSfx(id);
+    const file = path.join(DIR, `${id}.wav`);
+    fs.writeFileSync(file, encodeWav(mono));
+    const dur = (mono.length / SAMPLE_RATE).toFixed(3);
+    const tp = gainToDb(truePeak(mono)).toFixed(1);
+    console.log(
+      `sfx        -> ${path.relative(ROOT, file).padEnd(30)} ${dur}s  ${tp} dBTP`,
+    );
+  }
 }
 
 main();

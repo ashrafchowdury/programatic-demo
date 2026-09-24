@@ -47,9 +47,11 @@ plus that footage; a **still** is a photograph of one part of the screen.
 
 Things that follow from this, and are not obvious:
 
-- **A reel depends on a demo.** `pnpm reel <name>` cuts frame ranges out of
-  `out/demo/<name>.mp4`, so the demo must be rendered first. A demo never
-  depends on a reel.
+- **A reel depends on a demo.** `pnpm reel <name>` re-renders each clip range
+  from the `DemoClip` composition over `public/<name>.mp4` (and its click log);
+  it reads `out/demo/<name>.mp4` only for its frame count, and refuses to run
+  without it, so the demo must be rendered first. A demo never depends on a
+  reel.
 - **A still depends on neither.** It drives the app itself and never touches
   the video pipeline. Do not look for a click log; there isn't one.
 - **The name is shared on purpose.** `out/demo/agent-skill.mp4` and
@@ -76,8 +78,9 @@ pnpm lint            # eslint + tsc --noEmit, covers src/ scripts/ flows/
 ```
 
 Demo: `pnpm record:live <name>` → `pnpm convert <name>` → `pnpm render <name>`.
-Reel: author `reels/<name>.ts` (cards + clip ranges), then `pnpm reel <name>`
-(cards render, demo clips are cut in, all concatenated).
+Reel: author `reels/<name>.ts` (a `style`, cards + clip ranges), then
+`pnpm reel <name>` (cards render, clip ranges re-render from the demo footage,
+all concatenated).
 Still: author `shots/<name>.ts` (steps + the region to keep + a `look`:
 `window`, `cutout` or `bleed`), then `pnpm still <name> [preset|--all]`.
 `pnpm shot <name> --probe` writes a coordinate grid to `.diag/shots/` for
