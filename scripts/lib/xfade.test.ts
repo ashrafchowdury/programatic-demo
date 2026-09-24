@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  buildXfadeArgs,
   buildXfadeFilter,
   dissolvedFrameCount,
   dissolvedStarts,
@@ -164,5 +165,31 @@ describe("MIN_JOIN_F", () => {
 
   it("leaves a real dissolve alone", () => {
     assert.deepEqual(joinable([6, 6]), [6, 6]);
+  });
+});
+
+describe("buildXfadeArgs (R1)", () => {
+  const args = buildXfadeArgs(["/a.mp4", "/b.mp4"], [60, 60], 30, [6], "/out.mp4");
+  const flag = (k: string) => args[args.indexOf(k) + 1];
+
+  it("encodes 4:2:0 h264 at the segments' CRF, not ffmpeg's defaults", () => {
+    // Without these the pass wrote High 4:4:4 Predictive at CRF 23.
+    assert.equal(flag("-c:v"), "libx264");
+    assert.equal(flag("-crf"), "16");
+    assert.equal(flag("-pix_fmt"), "yuv420p");
+  });
+
+  it("tags BT.709 on all three axes", () => {
+    assert.equal(flag("-colorspace"), "bt709");
+    assert.equal(flag("-color_primaries"), "bt709");
+    assert.equal(flag("-color_trc"), "bt709");
+    assert.equal(flag("-color_range"), "tv");
+  });
+
+  it("wires every part as an input and the filter's [v] as the output", () => {
+    assert.deepEqual(args.slice(0, 5), ["-y", "-i", "/a.mp4", "-i", "/b.mp4"]);
+    assert.equal(flag("-filter_complex"), buildXfadeFilter([60, 60], 30, [6]));
+    assert.equal(flag("-map"), "[v]");
+    assert.equal(args[args.length - 1], "/out.mp4");
   });
 });

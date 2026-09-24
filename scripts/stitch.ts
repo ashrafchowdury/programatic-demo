@@ -21,13 +21,14 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { compareStreams, type FileProbe } from "./lib/stitch";
+import { VIDEO_ENCODE_ARGS } from "./lib/encode";
 import { outPath, outPathOf } from "./lib/out";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const REMOTION_BIN = path.join(ROOT, "node_modules", ".bin", "remotion");
 
 const PROBE_KEYS =
-  "stream=codec_type,codec_name,profile,level,width,height,pix_fmt,r_frame_rate,nb_frames";
+  "stream=codec_type,codec_name,profile,level,width,height,pix_fmt,r_frame_rate,nb_frames,color_space";
 
 function probe(file: string): FileProbe {
   const out = execFileSync(
@@ -97,18 +98,10 @@ function main() {
       "0",
       "-i",
       list,
-      ...(reencode
-        ? [
-            "-c:v",
-            "libx264",
-            "-crf",
-            "16",
-            "-preset",
-            "medium",
-            "-pix_fmt",
-            "yuv420p",
-          ]
-        : ["-c", "copy"]),
+      // A re-encode carries the segments' own settings AND their BT.709 tags;
+      // without the tags it would ship untagged, which players read as a hue
+      // shift. See scripts/lib/encode.ts.
+      ...(reencode ? VIDEO_ENCODE_ARGS : ["-c", "copy"]),
       "-movflags",
       "+faststart",
       out,

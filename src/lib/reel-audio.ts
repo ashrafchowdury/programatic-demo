@@ -17,7 +17,9 @@ import {
   type ReelAnchor,
   type ReelAudioPiece,
   type ReelDuck,
+  SFX_KINDS,
   type ReelSegment,
+  type ReelSfx,
   type SfxKind,
 } from "./reel";
 
@@ -87,6 +89,9 @@ export type ResolvedPiece = {
   crossfadePrevS: number;
 };
 
+/** Delivery sample rate. Every piece is resampled to it and the mux writes it. */
+export const SAMPLE_RATE = 48000;
+
 const clamp = (v: number, lo: number, hi: number): number =>
   Math.min(hi, Math.max(lo, v));
 
@@ -141,19 +146,64 @@ export function resolvePiece(
   };
 }
 
+/** One beat that lands inside a playing clip: where it is, and which clip. */
+export type CueHit = {
+  /** Segment index of the clip the beat plays in. */
+  segment: number;
+  /** When it sounds, in seconds of the rendered demo. */
+  demoS: number;
+  /** Seconds into that clip. */
+  intoS: number;
+  label?: string;
+};
+
 /**
- * Reel-second of every click-log beat that falls inside a clip, for auto-SFX.
+ * Every beat a cue fires on, per PLAYING clip — the hit list clickReelTimes
+ * places and sfxProblem checks, so the two cannot disagree about what counts.
  *
  * A beat at `tMs` on the shoot clock lands at demo-second `(tMs/1000)/speed -
- * offset`; a clip covering `[fromS,toS)` puts it at `segmentStart + (demoSec -
- * fromS)` in reel time. The cold-open clip is skipped — it replays footage a
- * later clip also covers, so its beats would fire twice.
+ * offset`; a clip covering `[fromS,toS)` plays it `demoSec - fromS` in. The
+ * cold-open clip is skipped — it replays footage a later clip also covers, so
+ * its beats would fire twice.
  *
  * FROZEN clips are skipped too. A `freeze` clip holds ONE frame for its whole
  * length, so nothing in it is ever pressed — but its `{fromS,toS}` still spans
- * live footage, and scanning it would put a click on a motionless picture. The
- * harness reel misses this by 0.21s today: its still covers demo 12.5-15.6s and
- * the last press lands at 12.29s. A re-trim or a re-shoot closes that gap.
+ * live footage, and scanning it would put a click on a motionless picture.
+ */
+export function cueHits(
+  segments: ReelSegment[],
+  log: ClickLog,
+  speed: number,
+  kind: SfxKind,
+  labels?: string[],
+): CueHit[] {
+  const cold = coldOpenIndex(segments);
+  const offsetS = (log.offsetMs ?? 0) / 1000;
+  const hits: CueHit[] = [];
+  for (let i = 0; i < segments.length; i++) {
+    if (i === cold) continue;
+    const seg = segments[i];
+    if (!isClip(seg)) continue;
+    if (seg.clip.freeze) continue;
+    const { fromS, toS } = seg.clip;
+    for (const beat of log.clicks) {
+      if (!beatMatches(beat, kind, labels)) continue;
+      const demoS = beatTimeMs(beat, kind, labels) / 1000 / speed - offsetS;
+      if (demoS >= fromS && demoS < toS)
+        hits.push({ segment: i, demoS, intoS: demoS - fromS, label: beat.label });
+    }
+  }
+  return hits;
+}
+
+/**
+ * Reel-second of every click-log beat that falls inside a clip, for auto-SFX.
+ *
+ * `overlaps` is the join list the PICTURE was cut with (see
+ * segmentBoundsSeconds). It has to be the same list: this used to rebuild the
+ * bounds without it, so in a dissolving reel every tick landed the sum of the
+ * joins before it late — 33 ms on the first dissolve, 333 ms by the end of
+ * agent-schedule. Omit it only for a reel that hard-cuts throughout.
  */
 export function clickReelTimes(
   segments: ReelSegment[],
@@ -163,26 +213,128 @@ export function clickReelTimes(
   speed: number,
   kind: SfxKind,
   labels?: string[],
+  overlaps: number[] = [],
 ): number[] {
-  const bounds = segmentBoundsSeconds(counts, fps);
+  const bounds = segmentBoundsSeconds(counts, fps, overlaps);
+  return cueHits(segments, log, speed, kind, labels)
+    .map((h) => bounds.startS[h.segment] + h.intoS)
+    .sort((a, b) => a - b);
+}
+
+const s2 = (x: number): string => x.toFixed(2);
+
+/** Every clip's range, for an error that has to say where the footage is. */
+function clipRanges(segments: ReelSegment[]): string {
   const cold = coldOpenIndex(segments);
+  return segments
+    .map((seg, i) => {
+      if (!isClip(seg)) return null;
+      const tag = i === cold ? " cold open" : seg.clip.freeze ? " freeze" : "";
+      return `#${i} [${s2(seg.clip.fromS)}-${s2(seg.clip.toS)})${tag}`;
+    })
+    .filter((r): r is string => r != null)
+    .join(", ");
+}
+
+/**
+ * The first SFX cue that would place NOTHING, as a sentence — or null.
+ *
+ * A cue that resolves to zero beats does not fail anywhere downstream: the mux
+ * simply has one fewer piece and the film ships without its payoff sound. It
+ * takes very little — a re-trimmed range, a re-shoot that moves the press, a
+ * clip turned into a `freeze` (never scanned), or reading the log's shoot-clock
+ * seconds as demo seconds and forgetting the playback rate. So an empty cue is
+ * an error, and the message says where the label actually is (in DEMO seconds,
+ * speed applied) against every clip range.
+ *
+ * Pure: needs the click log, not the render, so it runs before any segment is
+ * drawn.
+ */
+export function sfxProblem(
+  segments: ReelSegment[],
+  sfx: ReelSfx | undefined,
+  log: ClickLog,
+  speed: number,
+): string | null {
+  if (!sfx) return null;
   const offsetS = (log.offsetMs ?? 0) / 1000;
-  const times: number[] = [];
-  for (let i = 0; i < segments.length; i++) {
-    if (i === cold) continue;
-    const seg = segments[i];
-    if (!isClip(seg)) continue;
-    if (seg.clip.freeze) continue;
-    const { fromS, toS } = seg.clip;
-    const segStart = bounds.startS[i];
-    for (const beat of log.clicks) {
-      if (!beatMatches(beat, kind, labels)) continue;
-      const demoSec = beatTimeMs(beat, kind, labels) / 1000 / speed - offsetS;
-      if (demoSec >= fromS && demoSec < toS)
-        times.push(segStart + (demoSec - fromS));
-    }
+  for (const kind of SFX_KINDS) {
+    const cue = sfx[kind];
+    if (!cue) continue;
+    if (cueHits(segments, log, speed, kind, cue.atLabels).length > 0) continue;
+    const ranges = clipRanges(segments);
+    if (!cue.atLabels || cue.atLabels.length === 0)
+      return (
+        `\`sfx.${kind}\` matches no beat in any playing clip, so it would place ` +
+        `no sound. Clips: ${ranges}.`
+      );
+    const where = cue.atLabels.map((want) => {
+      const found = log.clicks
+        .filter((b) => labelHit(b, [want]))
+        .map(
+          (b) =>
+            `"${b.label}" at demo ${s2((b.tDownMs ?? b.tMs) / 1000 / speed - offsetS)}s`,
+        );
+      return found.length
+        ? `"${want}" -> ${found.join(", ")}`
+        : `"${want}" -> no beat in the click log has that label`;
+    });
+    return (
+      `\`sfx.${kind}\` (atLabels ${JSON.stringify(cue.atLabels)}) falls in no ` +
+      `playing clip, so it would place no sound. ${where.join("; ")}. ` +
+      `Clips: ${ranges} (cold-open and freeze clips place no sound).`
+    );
   }
-  return times.sort((a, b) => a - b);
+  return null;
+}
+
+/** Words too common to say what a clip is about. */
+const FILLER = new Set(["the", "and", "then", "with", "for", "into", "its", "it", "a", "an", "to", "of", "on", "in"]);
+
+/**
+ * One line per clip whose `label` shares no word with any beat it plays.
+ *
+ * ADVISORY, not an error: a clip label is prose ("set the hour") and beat
+ * labels are the recorder's ("pick 08"), so a clean clip can still miss. But
+ * the miss is also what a clip cut from the wrong range looks like, so each
+ * line prints the beats it DOES play, which is enough to tell the two apart
+ * at a glance.
+ *
+ * Freeze clips are skipped (they play no beats by design), as are clips with
+ * no label.
+ */
+export function clipLabelWarnings(
+  segments: ReelSegment[],
+  log: ClickLog,
+  speed: number,
+): string[] {
+  const offsetS = (log.offsetMs ?? 0) / 1000;
+  const words = (s: string): string[] =>
+    s
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((w) => w.length > 1 && !FILLER.has(w));
+  const out: string[] = [];
+  segments.forEach((seg, i) => {
+    if (!isClip(seg) || seg.clip.freeze || !seg.clip.label) return;
+    const { fromS, toS, label } = seg.clip;
+    const inRange = log.clicks.filter((b) => {
+      const t = (b.tDownMs ?? b.tMs) / 1000 / speed - offsetS;
+      return b.label && t >= fromS && t < toS;
+    });
+    const want = words(label);
+    const hit = inRange.some((b) =>
+      words(b.label!).some((w) => want.some((x) => w.includes(x) || x.includes(w))),
+    );
+    if (hit) return;
+    const plays = inRange.length
+      ? inRange.map((b) => `"${b.label}"`).join(", ")
+      : "no labelled beat";
+    out.push(
+      `clip #${i} "${label}" [${s2(fromS)}-${s2(toS)}) plays ${plays} — check the range`,
+    );
+  });
+  return out;
 }
 
 /** A typed span shorter than this is a keystroke, not a "typing a string" run. */
@@ -258,7 +410,7 @@ function unitChain(
   place: boolean,
 ): string {
   const steps = [
-    "aresample=48000",
+    `aresample=${SAMPLE_RATE}`,
     "aformat=sample_fmts=fltp:channel_layouts=stereo",
   ];
   if (p.pad) steps.push("apad");
@@ -348,9 +500,13 @@ export function buildAudioMux(
   const chains = chainParts.join(";");
 
   // loudnorm BEFORE apad — it must analyse the audio, not the trailing silence.
+  // The aresample after it is load-bearing: loudnorm runs its true-peak limiter
+  // at 4x oversampling and hands back 192 kHz, which the encoder then kept as
+  // 96 kHz AAC — measured on four of the five reels with sound. Every piece is
+  // already 48 kHz going in (unitChain), so this only undoes loudnorm's change.
   const norm =
     opts.loudnessLUFS != null
-      ? `loudnorm=I=${n(opts.loudnessLUFS)}:TP=-1.5:LRA=11,`
+      ? `loudnorm=I=${n(opts.loudnessLUFS)}:TP=-1.5:LRA=11,aresample=${SAMPLE_RATE},`
       : "";
 
   const beds = streams.filter((s) => s.role === "bed");
@@ -398,6 +554,10 @@ export function buildAudioMux(
     "aac",
     "-b:a",
     "192k",
+    // Belt and braces for the aresample above: delivery is 48 kHz whatever
+    // any filter in the graph decides. scripts/reel.ts asserts it on the output.
+    "-ar",
+    String(SAMPLE_RATE),
     "-shortest",
     "-movflags",
     "+faststart",

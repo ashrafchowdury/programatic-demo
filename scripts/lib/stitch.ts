@@ -21,6 +21,7 @@ export type StreamProbe = {
   height?: number;
   pix_fmt?: string;
   r_frame_rate?: string;
+  color_space?: string;
 };
 
 export type FileProbe = { streams: StreamProbe[] };
@@ -34,6 +35,10 @@ const MATCHED_KEYS = [
   "height",
   "pix_fmt",
   "r_frame_rate",
+  // Not a packet-level incompatibility — the concat succeeds — but a BT.601
+  // part beside a BT.709 one plays with a hue shift at the cut, and the file
+  // can carry only one tag for both.
+  "color_space",
 ] as const;
 
 const videoOf = (probe: FileProbe): StreamProbe | undefined =>

@@ -5,10 +5,14 @@ import {
   AUDIO_FILTERS,
   buildAudioMux,
   clickReelTimes,
+  clipLabelWarnings,
+  cueHits,
   missingAudioFilters,
   resolveAnchor,
   resolvePiece,
+  SAMPLE_RATE,
   segmentBoundsSeconds,
+  sfxProblem,
 } from "./reel-audio";
 
 describe("resolvePiece", () => {
@@ -203,7 +207,20 @@ describe("loudness (F9)", () => {
     const off = buildAudioMux([p], ["/a.mp3"], "/v.mp4");
     assert.doesNotMatch(off.filter, /loudnorm/);
     const on = buildAudioMux([p], ["/a.mp3"], "/v.mp4", { loudnessLUFS: -14 });
-    assert.match(on.filter, /loudnorm=I=-14:TP=-1\.5:LRA=11,apad\[aout\]/);
+    assert.match(
+      on.filter,
+      /loudnorm=I=-14:TP=-1\.5:LRA=11,aresample=48000,apad\[aout\]/,
+    );
+  });
+
+  it("delivers 48 kHz: resamples after loudnorm and pins -ar (R2)", () => {
+    // loudnorm oversamples to 192 kHz and hands that on; the AAC encoder then
+    // wrote 96 kHz. Four of five reels with sound shipped that way.
+    const on = buildAudioMux([p], ["/a.mp3"], "/v.mp4", { loudnessLUFS: -14 });
+    const ar = on.mapArgs.indexOf("-ar");
+    assert.ok(ar >= 0);
+    assert.equal(on.mapArgs[ar + 1], String(SAMPLE_RATE));
+    assert.equal(SAMPLE_RATE, 48000);
   });
 });
 
@@ -422,5 +439,144 @@ describe("crossfade (F10)", () => {
     // group [0,1] -> [s0]; piece 2 -> [a2]; final amix of the two streams.
     assert.match(filter, /acrossfade=d=1/);
     assert.match(filter, /\[s0\]\[a2\]amix=inputs=2/);
+  });
+});
+
+describe("clickReelTimes in a dissolving reel (R3)", () => {
+  // card(1s) clip[0,2) card(1s) clip[2,4), joined by 6-frame dissolves.
+  const segments = [
+    { card: { name: "x", headline: "A" } },
+    { clip: { fromS: 0, toS: 2 } },
+    { card: { name: "x", headline: "B" } },
+    { clip: { fromS: 2, toS: 4 } },
+  ];
+  const counts = [30, 60, 30, 60];
+  const overlaps = [6, 6, 6];
+  const log = {
+    name: "x",
+    viewport: { width: 1920, height: 1080 },
+    durationMs: 4000,
+    // One press at the very first frame of each clip.
+    clicks: [
+      { tMs: 0, tDownMs: 0, x: 0, y: 0 },
+      { tMs: 2000, tDownMs: 2000, x: 0, y: 0 },
+    ],
+  };
+
+  it("lands each press on its clip's DISSOLVED start", () => {
+    const bounds = segmentBoundsSeconds(counts, 30, overlaps);
+    const t = clickReelTimes(segments, counts, 30, log, 1, "click", undefined, overlaps);
+    // A press on a clip's first frame sounds exactly where that clip begins.
+    assert.deepEqual(t, [bounds.startS[1], bounds.startS[3]]);
+    // 1s - 6f = 0.8s; 4s - 18f = 3.4s.
+    assert.deepEqual(t.map((x) => Number(x.toFixed(6))), [0.8, 3.4]);
+  });
+
+  it("drifts late by the sum of the joins when the overlaps are left out", () => {
+    // What the mux did before: 200 ms late on the first clip, 600 ms on the
+    // second — the drift grows with every dissolve.
+    const late = clickReelTimes(segments, counts, 30, log, 1, "click");
+    const right = clickReelTimes(segments, counts, 30, log, 1, "click", undefined, overlaps);
+    assert.deepEqual(
+      late.map((x, i) => Number((x - right[i]).toFixed(6))),
+      [0.2, 0.6],
+    );
+  });
+});
+
+describe("sfxProblem — cues that would place nothing (R4)", () => {
+  const log = {
+    name: "x",
+    viewport: { width: 1920, height: 1080 },
+    durationMs: 30000,
+    clicks: [
+      { tMs: 2000, tDownMs: 1900, label: "Add schedule", x: 0, y: 0 },
+      { tMs: 14000, tDownMs: 13900, label: "Claude Code", x: 0, y: 0 },
+      { tMs: 22950, tDownMs: 22856, label: "Create schedule", x: 0, y: 0 },
+    ],
+  };
+  const segments = [
+    { card: { name: "x", headline: "A" } },
+    { clip: { fromS: 1, toS: 10 } },
+    { clip: { fromS: 12.5, toS: 15.6, freeze: true } },
+    { clip: { fromS: 17.6, toS: 19.9, label: "create it" } },
+  ];
+
+  it("passes when every cue hits a playing clip", () => {
+    assert.equal(
+      sfxProblem(segments, { confirm: { src: "c.wav", atLabels: ["Add schedule"] } }, log, 1),
+      null,
+    );
+  });
+
+  it("names the cue, the label, where it is and the clip ranges when it misses", () => {
+    // The press is at 22.86s, the last clip ends at 19.9s.
+    const m = sfxProblem(
+      segments,
+      { confirm: { src: "c.wav", atLabels: ["Create schedule"] } },
+      log,
+      1,
+    );
+    assert.ok(m);
+    assert.match(m, /sfx\.confirm/);
+    assert.match(m, /"Create schedule" at demo 22\.86s/);
+    assert.match(m, /#3 \[17\.60-19\.90\)/);
+  });
+
+  it("counts a label inside a freeze clip as a miss, and says freeze", () => {
+    // A press inside the held still plays no sound.
+    const m = sfxProblem(segments, { confirm: { src: "c.wav", atLabels: ["claude code"] } }, log, 1);
+    assert.ok(m);
+    assert.match(m, /#2 \[12\.50-15\.60\) freeze/);
+  });
+
+  it("says when no beat carries the label at all", () => {
+    const m = sfxProblem(segments, { error: { src: "e.wav", atLabels: ["Nope"] } }, log, 1);
+    assert.match(m ?? "", /no beat in the click log has that label/);
+  });
+
+  it("flags a detector cue with nothing to detect", () => {
+    const m = sfxProblem(segments, { typing: { src: "t.wav" } }, log, 1);
+    assert.match(m ?? "", /sfx\.typing` matches no beat/);
+  });
+
+  it("agrees with cueHits, which is what the mux places from", () => {
+    assert.equal(cueHits(segments, log, 1, "confirm", ["Create schedule"]).length, 0);
+    assert.equal(cueHits(segments, log, 1, "confirm", ["Add schedule"]).length, 1);
+  });
+});
+
+describe("clipLabelWarnings (R4)", () => {
+  const log = {
+    name: "x",
+    viewport: { width: 1920, height: 1080 },
+    durationMs: 30000,
+    clicks: [
+      { tMs: 9600, tDownMs: 9507, label: "Daily", x: 0, y: 0 },
+      { tMs: 17180, tDownMs: 17091, label: "write the message", x: 0, y: 0 },
+    ],
+  };
+
+  it("is quiet when the label shares a word with a beat in range", () => {
+    const segs = [{ clip: { fromS: 8, toS: 11, label: "make it daily" } }];
+    assert.deepEqual(clipLabelWarnings(segs, log, 1), []);
+  });
+
+  it("warns, listing what the clip actually plays, when nothing matches", () => {
+    const segs = [{ clip: { fromS: 17.6, toS: 19.9, label: "create it" } }];
+    // tDownMs 17.091 is BEFORE 17.6, so the clip plays no labelled beat.
+    assert.deepEqual(clipLabelWarnings(segs, log, 1), [
+      'clip #0 "create it" [17.60-19.90) plays no labelled beat — check the range',
+    ]);
+    const wide = [{ clip: { fromS: 17, toS: 19.9, label: "create it" } }];
+    assert.match(clipLabelWarnings(wide, log, 1)[0], /plays "write the message"/);
+  });
+
+  it("skips freeze clips and unlabelled clips", () => {
+    const segs = [
+      { clip: { fromS: 17, toS: 19.9, label: "create it", freeze: true } },
+      { clip: { fromS: 20, toS: 21 } },
+    ];
+    assert.deepEqual(clipLabelWarnings(segs, log, 1), []);
   });
 });

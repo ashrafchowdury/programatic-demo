@@ -23,3 +23,23 @@ Config.setChromiumOpenGlRenderer(
 Config.setVideoImageFormat("png");
 Config.setOverwriteOutput(true);
 Config.overrideBundlerConfig(enableTailwind);
+// BT.709, tagged. Remotion 4's "default" matrixes RGB->YUV as BT.601 and writes
+// no tags, while browsers, QuickTime and every upload path read untagged HD as
+// BT.709. Measured on a flat #f0f05a pill (the Agenta mark), decoded the way a
+// player does: BT.601/untagged showed #f2e753 (Y'CbCr 207/62/139); BT.709 shows
+// #f0f05a exactly (213/62/134). Every later ffmpeg pass (xfade, the overlays, a
+// re-encoding stitch) re-states it via scripts/lib/encode.ts BT709_ARGS.
+Config.setColorSpace("bt709");
+// ...and make the tags stick. Remotion passes -color_primaries/-color_trc, but
+// its own `zscale` sets only the matrix on the frames, and the frame properties
+// win: the file came out bt709/unknown/unknown. Naming primaries and transfer
+// on the zscale (in == out, so no conversion — tags only) fixes that for every
+// codec, ProRes overlays included. Anything else passes through untouched.
+const ZSCALE_709 = "zscale=matrix=709:matrixin=709:range=limited";
+Config.overrideFfmpegCommand(({ args }) =>
+  args.map((a) =>
+    a === ZSCALE_709
+      ? `${a}:primaries=709:primariesin=709:transfer=709:transferin=709`
+      : a,
+  ),
+);

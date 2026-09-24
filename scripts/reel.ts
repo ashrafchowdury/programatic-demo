@@ -31,7 +31,13 @@ import { chipProblem } from "../src/lib/chips";
 import { hudSteps } from "../src/lib/hud";
 import { resolvePreset, type StylePreset } from "../src/lib/style";
 import type { PushSpec } from "../src/lib/push";
-import { buildXfadeFilter, dissolvedFrameCount, joinable } from "./lib/xfade";
+import { buildXfadeArgs, dissolvedFrameCount, joinable } from "./lib/xfade";
+import {
+  DELIVERY_PROBE_KEYS,
+  deliveryProblems,
+  overlayArgs,
+  type DeliveryStream,
+} from "./lib/encode";
 import {
   clipFrames,
   isCard,
@@ -44,9 +50,12 @@ import {
 import {
   buildAudioMux,
   clickReelTimes,
+  clipLabelWarnings,
   missingAudioFilters,
   resolvePiece,
+  SAMPLE_RATE,
   segmentBoundsSeconds,
+  sfxProblem,
   type ResolvedPiece,
 } from "../src/lib/reel-audio";
 import { compareStreams, type FileProbe } from "./lib/stitch";
@@ -58,7 +67,7 @@ const REMOTION_BIN = path.join(ROOT, "node_modules", ".bin", "remotion");
 const FPS = 30;
 
 const PROBE_KEYS =
-  "stream=codec_type,codec_name,profile,level,width,height,pix_fmt,r_frame_rate,nb_frames";
+  "stream=codec_type,codec_name,profile,level,width,height,pix_fmt,r_frame_rate,nb_frames,color_space";
 
 function probe(file: string): FileProbe {
   const out = execFileSync(
@@ -76,6 +85,16 @@ function probe(file: string): FileProbe {
     { encoding: "utf8" },
   );
   return JSON.parse(out) as FileProbe;
+}
+
+/** The finished file's streams, for deliveryProblems. System ffprobe, like the passes. */
+function probeDelivery(file: string): DeliveryStream[] {
+  const out = execFileSync(
+    "ffprobe",
+    ["-v", "error", "-show_entries", DELIVERY_PROBE_KEYS, "-of", "json", file],
+    { encoding: "utf8" },
+  );
+  return (JSON.parse(out) as { streams: DeliveryStream[] }).streams;
 }
 
 const frameCount = (p: FileProbe): number | null => {
@@ -119,6 +138,10 @@ const SOURCES = {
   card: [
     "src/Intro.tsx",
     "src/lib/intro.ts",
+    // The colour space is set there, not in any source file: a segment cached
+    // under BT.601 would otherwise concat beside BT.709 ones and shift hue at
+    // every cut. Listed on both sides for the same reason.
+    "remotion.config.ts",
     "src/lib/camera.ts",
     "src/lib/click-log.ts",
     "src/lib/push.ts",
@@ -137,6 +160,7 @@ const SOURCES = {
   // paths push in on lib/push, tint from lib/look, and pick a backdrop image
   // through lib/backdrop.
   clip: [
+    "remotion.config.ts",
     "src/DemoClip.tsx",
     "src/lib/backdrop.ts",
     "src/KeycapHUD.tsx",
@@ -222,6 +246,12 @@ async function main() {
     throw new Error(
       `reels/${name}.ts has name "${reel.name}" — it must match the file name.`,
     );
+  // Before any render: a cue that places nothing ships a silent payoff with no
+  // other symptom. Needs only the click log, so it costs nothing to ask now.
+  const silent = sfxProblem(reel.segments, reel.sfx, log, speed);
+  if (silent) throw new Error(`reels/${name}.ts: ${silent}`);
+  for (const w of clipLabelWarnings(reel.segments, log, speed))
+    console.warn(`  ⚠️  reels/${name}.ts: ${w}`);
 
   const workDir = path.join(ROOT, ".diag", "reel", name);
   fs.mkdirSync(workDir, { recursive: true });
@@ -412,22 +442,9 @@ async function main() {
     // System ffmpeg: the bundled Remotion build is filter-whitelisted and has
     // no xfade, the same reason the audio mux uses the system binary.
     requireFfmpegVideo();
-    const inputs = parts.flatMap((f) => ["-i", f]);
-    execFileSync(
-      "ffmpeg",
-      [
-        "-y",
-        ...inputs,
-        "-filter_complex",
-        buildXfadeFilter(counts, FPS, joins),
-        "-map",
-        "[v]",
-        "-movflags",
-        "+faststart",
-        videoOnly,
-      ],
-      { stdio: "inherit" },
-    );
+    execFileSync("ffmpeg", buildXfadeArgs(parts, counts, FPS, joins, videoOnly), {
+      stdio: "inherit",
+    });
   } else {
     execFileSync(
       REMOTION_BIN,
@@ -477,7 +494,8 @@ async function main() {
   // quieter object of the two.
   const chipSrc = overlayChips(reel, preset, hudSrc, workDir, runtimeS);
 
-  if (hasAudio)
+  const withAudio =
+    hasAudio &&
     muxAudio(
       reel,
       chipSrc,
@@ -490,6 +508,20 @@ async function main() {
     );
 
   if (!hasAudio && chipSrc !== videoOnly) fs.copyFileSync(chipSrc, out);
+
+  // Assert the FILE, not the recipe. Every segment passed its checks while the
+  // xfade pass turned the film into 4:4:4 at 96 kHz; only the output shows that.
+  const v0 = probes[0].streams.find((st) => st.codec_type === "video");
+  const bad = deliveryProblems(probeDelivery(out), {
+    width: v0?.width ?? 0,
+    height: v0?.height ?? 0,
+    fps: FPS,
+    sampleRate: withAudio ? SAMPLE_RATE : null,
+  });
+  if (bad.length)
+    throw new Error(
+      `${path.relative(ROOT, out)} is not a deliverable film:\n  ${bad.join("\n  ")}`,
+    );
 
   reportLoudness(reel, hasAudio ? out : null);
 
@@ -515,7 +547,7 @@ function muxAudio(
   log: ClickLog,
   speed: number,
   overlaps: number[] = [],
-): void {
+): boolean {
   requireFfmpegAudio();
   // The bounds must be the DISSOLVED ones, or every tick fires progressively
   // later than the footage it belongs to. See scripts/lib/xfade.ts.
@@ -559,6 +591,9 @@ function muxAudio(
         speed,
         kind,
         cue.atLabels,
+        // The same joins as `bounds` above. Without them every tick landed the
+        // sum of the dissolves before it late — 33-333 ms on agent-schedule.
+        overlaps,
       ))
         add({
           src: cue.src,
@@ -573,7 +608,7 @@ function muxAudio(
   if (resolved.length === 0) {
     // Nothing audible resolved — ship the silent cut unchanged.
     fs.copyFileSync(videoOnly, out);
-    return;
+    return false;
   }
   const { inputs, filter, mapArgs } = buildAudioMux(resolved, paths, videoOnly, {
     loudnessLUFS: reel.loudnessLUFS,
@@ -589,6 +624,7 @@ function muxAudio(
       (reel.duck ? " · ducked" : "") +
       (reel.loudnessLUFS != null ? ` @ ${reel.loudnessLUFS} LUFS` : ""),
   );
+  return true;
 }
 
 /** Fail with the fix, not a stack trace, when the system ffmpeg is too minimal. */
@@ -672,24 +708,8 @@ function overlayHud(
   const out = path.join(workDir, `${reel.name}.hud.mp4`);
   execFileSync(
     "ffmpeg",
-    [
-      "-y",
-      "-i",
-      videoOnly,
-      "-i",
-      mov,
-      "-filter_complex",
-      "[0:v][1:v]overlay=format=auto[v]",
-      "-map",
-      "[v]",
-      "-crf",
-      "16",
-      "-pix_fmt",
-      "yuv420p",
-      "-movflags",
-      "+faststart",
-      out,
-    ],
+    // Codec, CRF, 4:2:0 and BT.709 tags — see scripts/lib/encode.ts.
+    overlayArgs(videoOnly, mov, out),
     { stdio: "inherit" },
   );
   console.log(`hud        -> ${steps.length} step(s) composited`);
@@ -748,24 +768,7 @@ function overlayChips(
   const out = path.join(workDir, `${reel.name}.chips.mp4`);
   execFileSync(
     "ffmpeg",
-    [
-      "-y",
-      "-i",
-      src,
-      "-i",
-      mov,
-      "-filter_complex",
-      "[0:v][1:v]overlay=format=auto[v]",
-      "-map",
-      "[v]",
-      "-crf",
-      "16",
-      "-pix_fmt",
-      "yuv420p",
-      "-movflags",
-      "+faststart",
-      out,
-    ],
+    overlayArgs(src, mov, out),
     { stdio: "inherit" },
   );
   console.log(`chips      -> ${chips.length} composited`);

@@ -26,6 +26,7 @@
  * Runs on the SYSTEM ffmpeg — the bundled Remotion build is filter-whitelisted
  * and has no `xfade`, the same reason the audio mux uses the system binary.
  */
+import { VIDEO_ENCODE_ARGS } from "./encode";
 
 /**
  * The shortest join xfade can actually perform: one frame.
@@ -119,4 +120,32 @@ export function buildXfadeFilter(
     label = out;
   }
   return parts.join(";");
+}
+
+/**
+ * The whole ffmpeg invocation for a dissolving join, `parts` -> `out`.
+ *
+ * The encode flags are the point of building it here: the pass used to name no
+ * codec, CRF or pixel format, and came out H.264 High 4:4:4 at CRF 23 with no
+ * colour tags. See scripts/lib/encode.ts.
+ */
+export function buildXfadeArgs(
+  parts: string[],
+  counts: number[],
+  fps: number,
+  overlaps: number[],
+  out: string,
+): string[] {
+  return [
+    "-y",
+    ...parts.flatMap((f) => ["-i", f]),
+    "-filter_complex",
+    buildXfadeFilter(counts, fps, overlaps),
+    "-map",
+    "[v]",
+    ...VIDEO_ENCODE_ARGS,
+    "-movflags",
+    "+faststart",
+    out,
+  ];
 }
