@@ -751,6 +751,7 @@ describe("every preset field has a reader", () => {
     { path: "shot.ripple", re: /shot\.ripple\b/ },
     { path: "shot.enter", re: /shot\.enter\b/ },
     { path: "join", re: /preset\.join\b/ },
+    { path: "sequence.overlapExitF", re: /sequence\.overlapExitF\b/ },
     { path: "hud.kind", re: /hud\.kind\b/ },
     { path: "annotation", re: /preset\.annotation\b/ },
     { path: "source.loudnessLUFS", re: /source\?\.loudnessLUFS\b/ },

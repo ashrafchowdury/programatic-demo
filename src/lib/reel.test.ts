@@ -15,6 +15,9 @@ import {
   resolveClipRange,
   resolveReel,
   segmentJoins,
+  overlapJoins,
+  nudgeCard,
+  segmentFrameCounts,
   clipFrames,
   coldOpenIndex,
   defineReel,
@@ -245,6 +248,20 @@ describe("audioProblem", () => {
     assert.equal(audioProblem([{ src: "a.mp3", start: 5 }]), null);
   });
 
+  it("does not bound a start by the DEMO's length in reelProblem (review 2)", () => {
+    // reelProblem's total is the demo's frame count, which is no bound on a
+    // reel either way: cut shorter, a start the demo allows can be past the
+    // film's end; with cards, the film outruns its 2 s demo and a start at
+    // 2.5 s is fine — and was rejected. The cut checks against its own
+    // runtime instead (audioPlacementProblem).
+    const reel = {
+      name: "x",
+      segments: [{ card: { name: "x", headline: "H" } }, { clip: { fromS: 0, toS: 2 } }],
+      audio: [{ src: "a.mp3", start: 2.5 }],
+    };
+    assert.equal(reelProblem(reel, 60), null);
+  });
+
   it("flows through reelProblem for a reel with audio", () => {
     const reel = {
       name: "x",
@@ -360,11 +377,26 @@ const LOG = {
 
 describe("beat anchors (R7)", () => {
   it("places a beat on its press, on the DEMO clock (speed and offset applied)", () => {
-    // 2575 ms on the shoot clock at 1.25x is 2.06 s of demo, less the 0.2 s
-    // offset. Reading tMs (2700) or forgetting the speed is the old 25% error.
+    // (2575 + 200) ms on the shoot clock at 1.25x is 2.22 s of demo — the
+    // offset is applied BEFORE the speed, as DemoClip reads the log. Reading
+    // tMs (2700) or forgetting the speed is the old 25% error; subtracting the
+    // offset after dividing (1.86, which this test used to assert) is the
+    // review-2 one.
     const hit = findBeat("Add provider", LOG, 1.25);
     assert.ok("s" in hit);
-    assert.ok(Math.abs(hit.s - 1.86) < 1e-9, String(hit.s));
+    assert.ok(Math.abs(hit.s - 2.22) < 1e-9, String(hit.s));
+  });
+
+  it("agrees with the picture's clock at a non-zero offset and speed", () => {
+    // DemoClip reads the log at frame/fps * speed - offsetMs/1000. Invert that
+    // for a press at 4000 ms with offsetMs 500 at 1.25x: (4.0 + 0.5) / 1.25 =
+    // 3.6 s. The old t/speed - offset put it at 2.7 s, 0.9 s early.
+    const log = { ...LOG, offsetMs: 500, clicks: [{ label: "Go", tMs: 4100, tDownMs: 4000 }] } as ClickLog;
+    const hit = findBeat("Go", log, 1.25);
+    assert.ok("s" in hit);
+    assert.ok(Math.abs(hit.s - 3.6) < 1e-9, String(hit.s));
+    const logT = hit.s * 1.25 - 0.5;
+    assert.ok(Math.abs(logT - 4.0) < 1e-9, "round-trips through DemoClip's mapping");
   });
 
   it("matches labels exactly, ignoring case", () => {
@@ -376,13 +408,13 @@ describe("beat anchors (R7)", () => {
     const r = findBeat("open cadence", LOG, 1);
     assert.ok("problem" in r);
     assert.match(r.problem, /ambiguous — 2 beats/);
-    assert.match(r.problem, /#1 at 4\.80s, #2 at 8\.75s/);
+    assert.match(r.problem, /#1 at 5\.20s, #2 at 9\.15s/);
     assert.match(r.problem, /"open cadence#2"/);
   });
 
   it("takes the n-th occurrence with #n", () => {
     const r = findBeat("open cadence#2", LOG, 1);
-    assert.ok("s" in r && Math.abs(r.s - 8.75) < 1e-9);
+    assert.ok("s" in r && Math.abs(r.s - 9.15) < 1e-9);
     assert.match(
       (findBeat("open cadence#3", LOG, 1) as { problem: string }).problem,
       /occurs 2 time/,
@@ -403,8 +435,8 @@ describe("beat anchors (R7)", () => {
       1,
     );
     assert.ok(!("problem" in r));
-    assert.ok(Math.abs(r.fromS - (2.375 - 0.4)) < 1e-9, String(r.fromS));
-    assert.ok(Math.abs(r.toS - (12.375 + 0.3)) < 1e-9, String(r.toS));
+    assert.ok(Math.abs(r.fromS - (2.775 - 0.4)) < 1e-9, String(r.fromS));
+    assert.ok(Math.abs(r.toS - (12.775 + 0.3)) < 1e-9, String(r.toS));
   });
 
   it("frames one action from a single beat plus a tail", () => {
@@ -608,5 +640,72 @@ describe("aspect + opening pose (R6, R10)", () => {
     const seg = r.reel.segments[0];
     assert.ok(isClip(seg));
     assert.deepEqual(seg.clip.open?.at, { x: 0.5, y: 0.5 });
+  });
+});
+
+describe("overlapJoins — exits that overlap the next entry (R10)", () => {
+  const card = (headline: string) => ({ card: { name: "x", headline } });
+  const clip = { clip: { fromS: 0, toS: 3 } };
+
+  it("overlaps a stage shot's exit into the next card, and nothing else", () => {
+    // Stage cards do not move; its shots leave by a 1520px push. So only the
+    // clip -> card boundary has an exit to overlap.
+    const stage = STYLE_PRESETS.stage;
+    const segs = [card("a"), clip, card("b"), card("c")];
+    const { joins, blends } = overlapJoins(segs, segmentJoins(segs, stage.join), stage);
+    const f = Math.min(stage.sequence.overlapExitF, 11);
+    assert.ok(f > 0, "stage overlaps");
+    assert.deepEqual(joins, [0, f, 0]);
+    assert.deepEqual(blends, ["fade", "overlap", "fade"]);
+  });
+
+  it("honours a segment's own cut, and a frozen or push-less shot", () => {
+    const stage = STYLE_PRESETS.stage;
+    const segs = [clip, { ...card("b"), join: "cut" as const }, { clip: { fromS: 4, toS: 5, freeze: true } }, card("c")];
+    assert.deepEqual(overlapJoins(segs, [0, 0, 0], stage).joins, [0, 0, 0]);
+    // An authored push with no `out` switches the style's exit off.
+    const still = [{ clip: { fromS: 0, toS: 3, push: {} } }, card("d")];
+    assert.deepEqual(overlapJoins(still, [0], stage).joins, [0]);
+  });
+
+  it("is off in every other style", () => {
+    for (const name of ["classic", "proof", "ledger"] as const) {
+      const p = STYLE_PRESETS[name];
+      assert.equal(p.sequence.overlapExitF, 0, name);
+      const segs = [card("a"), clip, card("b")];
+      const joins = segmentJoins(segs, p.join);
+      assert.deepEqual(overlapJoins(segs, joins, p).joins, joins, name);
+    }
+  });
+});
+
+describe("nudgeCard — beat snapping by the hold (R9)", () => {
+  const reel = { name: "x", style: "stage" as const };
+  const card = { name: "x", headline: "Then close the week." };
+
+  it("lengthens or shortens a card by exactly the frames asked", () => {
+    const base = segmentFrameCounts({ ...reel, segments: [{ card }] }, 30)[0];
+    for (const d of [-2, -1, 1, 2]) {
+      const out = nudgeCard(reel, card, d, 30);
+      assert.ok(out, String(d));
+      assert.equal(segmentFrameCounts({ ...reel, segments: [{ card: out! }] }, 30)[0], base + d);
+    }
+    assert.equal(nudgeCard(reel, card, 0, 30), card);
+  });
+
+  it("refuses a shortening the hold cannot give", () => {
+    assert.equal(nudgeCard(reel, card, -300, 30), null);
+  });
+
+  it("requires a bed to snap to", () => {
+    const segs = [{ clip: { fromS: 0, toS: 2 } }];
+    assert.match(String(reelProblem({ name: "x", segments: segs, snapToBeats: true }, 90)), /role: "bed"/);
+    assert.equal(
+      reelProblem(
+        { name: "x", segments: segs, snapToBeats: true, audio: [{ src: "a.mp3", role: "bed" }] },
+        90,
+      ),
+      null,
+    );
   });
 });

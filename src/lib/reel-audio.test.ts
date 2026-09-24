@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { ClickEvent } from "./click-log";
 import {
+  audioPlacementProblem,
   AUDIO_FILTERS,
   buildAudioMux,
   clickReelTimes,
@@ -578,5 +579,83 @@ describe("clipLabelWarnings (R4)", () => {
       { clip: { fromS: 20, toS: 21 } },
     ];
     assert.deepEqual(clipLabelWarnings(segs, log, 1), []);
+  });
+});
+
+describe("the log -> demo clock at a non-zero offset (review 2)", () => {
+  // DemoClip draws a press at tMs on frame ((tMs + offsetMs) / 1000 / speed) *
+  // fps. The SFX used t / speed - offset, which at offsetMs 500 and 1.25x put
+  // every tick, label warning and sfxProblem location 0.9 s early.
+  const segments = [
+    { card: { name: "x", headline: "A" } },
+    { clip: { fromS: 3, toS: 5 } },
+  ];
+  const log = {
+    name: "x",
+    viewport: { width: 1920, height: 1080 },
+    durationMs: 8000,
+    offsetMs: 500,
+    clicks: [{ tMs: 4100, tDownMs: 4000, label: "Save", x: 0, y: 0 }],
+  };
+
+  it("places the tick on the frame the picture presses", () => {
+    // (4000 + 500) / 1000 / 1.25 = 3.6 demo s, 0.6 s into the clip, which
+    // starts at reel 1.0 after a 30-frame card.
+    const [t] = clickReelTimes(segments, [30, 60], 30, log, 1.25, "click");
+    assert.ok(Math.abs(t - 1.6) < 1e-9, String(t));
+    // The old mapping (2.7 demo s) fell before the clip and placed nothing.
+    assert.equal(sfxProblem(segments, { click: { src: "c.wav" } }, log, 1.25), null);
+  });
+
+  it("reports a label's demo second on the same clock", () => {
+    const off = { ...log, clicks: [{ ...log.clicks[0], tDownMs: 1000, tMs: 1100 }] };
+    const msg = sfxProblem(segments, { confirm: { src: "c.wav", atLabels: ["Save"] } }, off, 1.25);
+    // (1000 + 500) / 1.25 = 1.20, not 0.30.
+    assert.match(String(msg), /"Save" at demo 1\.20s/);
+    assert.deepEqual(
+      clipLabelWarnings([{ clip: { fromS: 1, toS: 1.5, label: "save it" } }], off, 1.25),
+      [],
+    );
+  });
+});
+
+describe("audio placement against the REEL, not the demo (review 2)", () => {
+  // card 0-1, clip 1-3, card 3-4: a 4 s reel cut from a longer demo.
+  const bounds = segmentBoundsSeconds([30, 60, 30], 30);
+
+  it("rejects a start past the reel's end, however long the demo is", () => {
+    // reelProblem used to bound `start` by the DEMO's length, so on a 30 s
+    // demo a start at 5 s passed, clamped to the 4 s end, and the bed was
+    // dropped with no message — a silent reel.
+    assert.match(
+      String(audioPlacementProblem([{ src: "bed.mp3", start: 5 }], 4, bounds)),
+      /starts at 5\.00s, at or after the reel ends \(4\.00s\)/,
+    );
+    assert.equal(audioPlacementProblem([{ src: "bed.mp3", start: 1 }], 4, bounds), null);
+  });
+
+  it("resolves anchors the way the mux does", () => {
+    // The last segment's END is the reel's end: nothing can start there.
+    assert.match(
+      String(audioPlacementProblem([{ src: "a.mp3", start: { segment: 2, edge: "end" } }], 4, bounds)),
+      /at or after the reel ends/,
+    );
+    assert.match(
+      String(audioPlacementProblem([{ src: "a.mp3", start: 2, end: { segment: 1 } }], 4, bounds)),
+      /ends at or before it starts/,
+    );
+    assert.match(
+      String(audioPlacementProblem([{ src: "a.mp3", duration: 0 }], 4, bounds)),
+      /duration: 0/,
+    );
+  });
+
+  it("throws on a zero-length piece instead of letting the mux drop it", () => {
+    // A trim past the end of the file leaves nothing to play.
+    assert.throws(
+      () => resolvePiece({ src: "bed.mp3", trim: { fromS: 70 } }, 20, 60),
+      /resolves to zero length/,
+    );
+    assert.throws(() => resolvePiece({ src: "bed.mp3", start: 25 }, 20, 60), /zero length/);
   });
 });

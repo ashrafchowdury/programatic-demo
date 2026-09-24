@@ -49,6 +49,7 @@ import {
   clampView,
   coverScale,
   cropPoint,
+  cropRect,
   followAt,
   footageBounds,
   isNativeAspect,
@@ -60,7 +61,17 @@ import {
 } from "./lib/aspect";
 import { openAt, openFrames, openPose, type ResolvedOpen } from "./lib/open";
 
-const round = (n: number) => Math.round(n);
+/**
+ * Where the footage starts, in frames of SOURCE time at the composition fps —
+ * fractional on purpose. The recorder measures trimBeforeMs to the ms and
+ * every click time is relative to it; rounding it to a whole 30fps frame put
+ * the footage up to 16.7ms off the cursor, ripples and camera (measured on the
+ * 20 logs in public/: mean 7.6ms, max 13.3ms). <Video> takes a fractional
+ * trimBefore: @remotion/media seeks to t * rate + trimBefore / fps, and the
+ * <OffthreadVideo> fallback's Sequence offset is linear in it too.
+ */
+const trimFrames = (log: ClickLog, fps: number): number | undefined =>
+  log.trimBeforeMs ? (log.trimBeforeMs / 1000) * fps : undefined;
 
 export type DemoClipProps = {
   name: string;
@@ -76,7 +87,7 @@ export type DemoClipProps = {
   /**
    * Slow push inside long holds, 0..1. Off unless a reel storyboard asks.
    *
-   * scripts/render.ts does not pass it, so out/<name>.mp4 is unaffected — see
+   * scripts/render.ts does not pass it, so out/demo/<name>.mp4 is unaffected — see
    * driftPose in src/lib/zoom.ts, which returns its argument by reference when
    * this is unset.
    */
@@ -227,11 +238,13 @@ function useCameraAt(
         // own envelope.
         poseToCss(BASE_POSE, chromeFrac, fit);
   if (!open) return { poseAt: styleAt, chromeH };
-  // The opening, eased into the style's own camera. Clamped at the window's
-  // EFFECTIVE scale, the rule frameFor holds the track's keyframes to, so an
-  // opening on a control in a corner lands where the camera would put it.
+  // The opening, eased into the style's own camera. CENTRED on its target
+  // within the render's own pan clamp (poseToCss: panLimit on the pose scale),
+  // not the keyframes' tighter effective-scale rule, which put a corner control
+  // on the frame's corner. The window shows content at fit * S of the frame,
+  // which is what the target's margin is judged against. See openPose.
   const running0 = cssToPose(styleAt(open.first), chromeFrac, fit);
-  const start = openPose(open.pose, running0, (s) => fit * s);
+  const start = openPose(open.pose, running0, { viewScale: (s) => fit * s });
   const frames = openFrames(open.pose, start, running0, log.viewport, speed, fps);
   const poseAt = (frame: number) =>
     frame - open.first >= frames
@@ -367,9 +380,7 @@ const WindowGroup: React.FC<DemoClipProps> = (props) => {
     shot,
     openOf(props),
   );
-  const trimBefore = log.trimBeforeMs
-    ? round((log.trimBeforeMs / 1000) * fps)
-    : undefined;
+  const trimBefore = trimFrames(log, fps);
   const hostLabel = name.replace(/-/g, ".");
   const timeS = (frame / fps) * speed - (log.offsetMs ?? 0) / 1000;
 
@@ -397,6 +408,7 @@ const WindowGroup: React.FC<DemoClipProps> = (props) => {
               timeS={timeS}
               cameraScale={z.scale}
               ripple={ripple}
+              speed={speed}
             />
           ) : null}
         </WindowFrame>
@@ -532,8 +544,14 @@ const FullBleedClip: React.FC<DemoClipProps> = (props) => {
     // point wherever the crop put it. poseToCss's clamp keeps the frame edge
     // inside the picture. A layer only when there is an opening, so every clip
     // without one renders exactly as it did.
+    const resolved = resolveCrop(crop);
     const start = openPose(
-      { ...open, scale: open.scale / k, at: cropPoint(open.at, resolveCrop(crop)) },
+      {
+        ...open,
+        scale: open.scale / k,
+        at: cropPoint(open.at, resolved),
+        ...(open.rect ? { rect: cropRect(open.rect, resolved) } : {}),
+      },
       BASE_POSE,
     );
     const frames = openFrames(open, start, BASE_POSE, log.viewport, speed, fps);
@@ -594,9 +612,7 @@ const CroppedFootage: React.FC<
   cameraScale,
 }) => {
   const { fps } = useVideoConfig();
-  const trimBefore = log.trimBeforeMs
-    ? round((log.trimBeforeMs / 1000) * fps)
-    : undefined;
+  const trimBefore = trimFrames(log, fps);
   const resolved = resolveCrop(crop);
   // The clip-path rides on the SAME layers as the transform, and both the
   // footage and the pointer get it: an arrow travelling outside the framed
@@ -654,6 +670,7 @@ const CroppedFootage: React.FC<
             timeS={timeS}
             cameraScale={cameraScale}
             ripple={ripple ?? false}
+            speed={speed}
           />
         </AbsoluteFill>
       ) : null}
@@ -815,9 +832,7 @@ const AspectWindow: React.FC<DemoClipProps> = (props) => {
   const { light } = resolveGround({ ground: shot.ground, ownBackdrop: props.backdrop });
   const cursor = props.cursor ?? shot.cursor;
   const ripple = props.ripple ?? shot.ripple;
-  const trimBefore = log.trimBeforeMs
-    ? round((log.trimBeforeMs / 1000) * fps)
-    : undefined;
+  const trimBefore = trimFrames(log, fps);
   const timeS = (frame / fps) * speed - (log.offsetMs ?? 0) / 1000;
   const panel: React.CSSProperties = {
     position: "absolute",
@@ -851,6 +866,7 @@ const AspectWindow: React.FC<DemoClipProps> = (props) => {
                   timeS={timeS}
                   cameraScale={s * view.scale}
                   ripple={ripple}
+                  speed={speed}
                 />
               ) : null}
             </PlateView>

@@ -130,6 +130,16 @@ export function cropPoint(p: Point, crop?: ResolvedCrop): Point {
   };
 }
 
+/** A footage box (viewport fractions) -> its box on the plate, through the crop. */
+export function cropRect(
+  r: { x: number; y: number; w: number; h: number },
+  crop?: ResolvedCrop,
+): { x: number; y: number; w: number; h: number } {
+  const a = cropPoint({ x: r.x, y: r.y }, crop);
+  const b = cropPoint({ x: r.x + r.w, y: r.y + r.h }, crop);
+  return { x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y };
+}
+
 /**
  * The footage's extent on the plate: the crop's image of [0,1]^2, cut to the
  * plate. A pan can leave a strip of `pageBg` at one edge of a native cut; the
@@ -395,4 +405,25 @@ export function followReport(
     if (Math.abs(p.x - c.x) > spec.half.x || Math.abs(p.y - c.y) > spec.half.y) out++;
   }
   return { outside: n ? out / n : 0, peakPx: peak };
+}
+
+/**
+ * Where plate point `q` (plate fractions) lands in the output frame, as frame
+ * fractions, under `view` — the inverse reading of plateTransform: the plate is
+ * centred in the frame (and in a centred window box, which shares that centre),
+ * scaled `s * view.scale`, and slid so (cx, cy) sits on the centre. What places
+ * an overlay chip against the moving crop without rendering it.
+ */
+export function aspectFramePoint(
+  q: Point,
+  view: View,
+  plate: Size,
+  s: number,
+  frame: Size,
+): Point {
+  const m = s * view.scale;
+  return {
+    x: 0.5 + ((q.x - view.cx) * plate.width * m) / frame.width,
+    y: 0.5 + ((q.y - view.cy) * plate.height * m) / frame.height,
+  };
 }

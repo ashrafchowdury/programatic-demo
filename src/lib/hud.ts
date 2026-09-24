@@ -20,8 +20,8 @@
  * Pure: no Remotion, no ffmpeg, no fs. HudOverlay.tsx draws these, and
  * scripts/reel.ts composites them.
  */
-import type { ClickEvent, ClickLog } from "./click-log";
-import { isClip, type ReelSegment } from "./reel";
+import { logMsToDemoS, type ClickEvent, type ClickLog } from "./click-log";
+import { coldOpenIndex, isClip, type ReelSegment } from "./reel";
 import { segmentBoundsSeconds } from "./reel-audio";
 
 export type HudStep = {
@@ -93,7 +93,7 @@ function clipRuns(
  * Derive the step list from the click log, in reel time.
  *
  * Same mapping the SFX use — a beat at `tMs` lands at demo-second
- * `(tMs/1000)/speed - offset`, and a clip covering `[fromS,toS)` puts it at
+ * `logMsToDemoS(tMs)`, the picture's own clock, and a clip covering `[fromS,toS)` puts it at
  * `segmentStart + (demoSec - fromS)`. Frozen clips and the cold open are
  * skipped for the same reasons they are there: a still has nothing happening on
  * it, and the cold open replays footage a later clip covers.
@@ -112,17 +112,17 @@ export function hudSteps(
   skipLabels: string[] = [],
 ): HudStep[] {
   const bounds = segmentBoundsSeconds(counts, fps, overlaps);
-  const offsetS = (log.offsetMs ?? 0) / 1000;
   const found: { label: string; startS: number }[] = [];
+  const cold = coldOpenIndex(segments);
 
   for (let i = 0; i < segments.length; i++) {
     const seg = segments[i];
-    if (!isClip(seg)) continue;
+    if (!isClip(seg) || i === cold) continue;
     if (seg.clip.freeze) continue;
     const { fromS, toS } = seg.clip;
     for (const beat of log.clicks) {
       if (!isStepworthy(beat, skipLabels)) continue;
-      const demoSec = (beat.tDownMs ?? beat.tMs) / 1000 / speed - offsetS;
+      const demoSec = logMsToDemoS(beat.tDownMs ?? beat.tMs, log, speed);
       if (demoSec < fromS || demoSec >= toS) continue;
       found.push({
         label: beat.label as string,

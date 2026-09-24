@@ -4,6 +4,12 @@
  *   pnpm reel <name>                 reels/<name>.ts -> out/reel/<name>.mp4
  *   pnpm reel <name> --style=stage   the same cut in another grammar
  *                                    -> out/reel/<name>.stage.mp4
+ *                                    It overrides EVERYTHING — the reel's
+ *                                    style and look and every card's own —
+ *                                    because it is an A/B tool; fields the
+ *                                    new grammar cannot honour (crops, chips
+ *                                    in a style with no chip look) warn and
+ *                                    drop instead of failing.
  *   pnpm reel <name> --aspect=9:16   the same cut, vertical: a moving crop of
  *                                    the footage that follows the clicks
  *                                    -> out/reel/<name>.9x16.mp4 (also 1:1)

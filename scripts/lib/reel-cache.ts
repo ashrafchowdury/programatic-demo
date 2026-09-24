@@ -23,7 +23,14 @@
  *     them. Footage (public/<demo>.mp4 + its click log) is NOT here; it is
  *     hashed per demo by footageDigest, so a card cache survives a re-shoot.
  *  3. ENVIRONMENT: every `process.env.X` the code reads, plus DEMO_GL (a
- *     renderer flag that changes pixels — see scripts/lib/remotion.ts).
+ *     renderer flag that changes pixels — see scripts/lib/remotion.ts). Read
+ *     from the shell AND from .env: the Remotion CLI hands .env to the bundle
+ *     itself, and `pnpm reel` never loads it into process.env, so hashing the
+ *     shell alone let a .env edit serve the old render.
+ *  4. THE RENDER COMMAND: scripts/lib/remotion.ts (CRF, pixel format, GL
+ *     flags) and scripts/lib/encode.ts are hashed as leaves, and so is the
+ *     lockfile — package.json's ranges say which Remotion was asked for, the
+ *     lockfile says which one renders.
  *
  * Over-inclusion is the safe failure: a type-only import or a commented-out
  * literal costs one needless re-render, never a stale film.
@@ -31,6 +38,7 @@
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { parse as parseDotenv } from "dotenv";
 
 const ROOT = path.resolve(import.meta.dirname, "..", "..");
 
@@ -163,14 +171,30 @@ export function sourceSet(
   };
 }
 
-/** Hash of a SourceSet's contents (bytes, not names) and the env it reads. */
-export function sourceSetDigest(set: SourceSet, env: NodeJS.ProcessEnv = process.env): string {
+/**
+ * The values `.env` provides, parsed by the same dotenv the recording scripts
+ * load (`import "dotenv/config"`). Empty when there is no .env.
+ */
+export function dotenvValues(file = path.join(ROOT, ".env")): Record<string, string> {
+  return fs.existsSync(file) ? parseDotenv(fs.readFileSync(file)) : {};
+}
+
+/**
+ * Hash of a SourceSet's contents (bytes, not names) and the env it reads —
+ * each variable from BOTH the shell and `.env`, kept apart rather than merged,
+ * so the digest does not have to know which of the two wins inside Remotion.
+ */
+export function sourceSetDigest(
+  set: SourceSet,
+  env: NodeJS.ProcessEnv = process.env,
+  fileEnv: Record<string, string> = dotenvValues(),
+): string {
   const h = createHash("sha1");
   for (const f of [...set.code, ...set.assets]) {
     h.update(path.relative(ROOT, f));
     h.update(fs.readFileSync(f));
   }
-  for (const k of set.env) h.update(`${k}=${env[k] ?? ""}\n`);
+  for (const k of set.env) h.update(`${k}=${env[k] ?? ""}|${fileEnv[k] ?? ""}\n`);
   return h.digest("hex").slice(0, 10);
 }
 
@@ -183,12 +207,33 @@ export const SEGMENT_ENTRIES = {
 } as const;
 export type SegmentKind = keyof typeof SEGMENT_ENTRIES;
 
-const LEAVES = ["src/Root.tsx", "src/index.ts", "remotion.config.ts"];
+/**
+ * Hashed, never walked. The render flags live in scripts/lib/remotion.ts
+ * (`--crf=16`, the ProRes 4444 `--pixel-format` of an overlay layer, `--gl`)
+ * and scripts/lib/encode.ts; neither is imported by a composition, so the walk
+ * from src/ never reached them and a CRF change served old segments.
+ */
+export const LEAVES = [
+  "src/Root.tsx",
+  "src/index.ts",
+  "remotion.config.ts",
+  "scripts/lib/remotion.ts",
+  "scripts/lib/encode.ts",
+];
 
-/** The installed renderer, by the versions package.json pins. */
+/**
+ * The installed renderer: the ranges package.json asks for, and the lockfile
+ * that resolves them. A `^` range alone cannot tell 4.0.506 from 4.0.507.
+ */
 function dependencyVersions(): unknown {
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
-  return pkg.dependencies ?? {};
+  const lock = path.join(ROOT, "pnpm-lock.yaml");
+  return {
+    deps: pkg.dependencies ?? {},
+    lock: fs.existsSync(lock)
+      ? createHash("sha1").update(fs.readFileSync(lock)).digest("hex").slice(0, 10)
+      : null,
+  };
 }
 
 const memo = new Map<SegmentKind, string>();

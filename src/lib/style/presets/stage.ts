@@ -170,7 +170,19 @@ export const stage: StyleOverride = {
   },
   // ⧗ The reference has no cuts to vary and its cards do not travel: a section
   // ends by the frame emptying, not by a directional exit. Nothing to carry.
-  sequence: { exitCycle: [], continuity: null },
+  sequence: {
+    exitCycle: [],
+    continuity: null,
+    // THE SEAM, OVERLAPPED. Cut after it, the 1520px exit above ends on bare
+    // cream: at frames=11 the panel still shows 51% of its height three frames
+    // from the end, 30% two from the end, and 0% on the last (pushOut over the
+    // 0.84-fit panel) — so every clip -> card cut landed on an empty frame
+    // before the next card's first word. Overlapping the last 3 exit frames
+    // with the next segment's first 3 puts the typing on screen while the
+    // panel clears, as the reference's next element arrives into the vacancy.
+    // Measured before/after on a smoke reel: see the note on overlapJoins.
+    overlapExitF: 3,
+  },
   // "Replit Replit X.mp4" — see REFERENCE_FILMS.
   source: { loudnessLUFS: -14.0 },
   targets: {

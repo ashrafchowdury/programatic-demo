@@ -1,17 +1,20 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  aspectFramePoint,
   aspectMagnification,
   aspectSize,
   aspectSlug,
   aspectUpscale,
   clampView,
   cropPoint,
+  cropRect,
   followAt,
   followReport,
   followTrack,
   footageBounds,
   isAspect,
+  plateTransform,
   visibleHalf,
 } from "./aspect";
 import type { ClickLog } from "./click-log";
@@ -120,5 +123,42 @@ describe("followTrack", () => {
   it("holds the centre with no clicks", () => {
     const f = followTrack({ ...log, clicks: [], cursorTrack: undefined }, spec);
     assert.equal(followAt(f, 90).x, 0.5);
+  });
+});
+
+describe("aspectFramePoint", () => {
+  const plate = NATIVE;
+  const frame = { width: 1440, height: 2560 };
+  const s = 2560 / 1440;
+
+  it("puts the view's centre on the frame's centre", () => {
+    const p = aspectFramePoint({ x: 0.3, y: 0.6 }, { scale: 1.2, cx: 0.3, cy: 0.6 }, plate, s, frame);
+    assert.ok(Math.abs(p.x - 0.5) < 1e-12 && Math.abs(p.y - 0.5) < 1e-12);
+  });
+
+  it("agrees with plateTransform, which draws the plate", () => {
+    // plateTransform slides the plate by tx and scales it about its centre; a
+    // plate point q then sits at centre + tx + (q - 0.5) * plate * m.
+    const view = { scale: 1.1, cx: 0.7, cy: 0.45 };
+    const [tx, ty, m] = plateTransform(view, plate, s).match(/-?[\d.]+(e-?\d+)?/g)!.map(Number);
+    const q = { x: 0.85, y: 0.2 };
+    const want = {
+      x: 0.5 + (tx + (q.x - 0.5) * plate.width * m) / frame.width,
+      y: 0.5 + (ty + (q.y - 0.5) * plate.height * m) / frame.height,
+    };
+    const got = aspectFramePoint(q, view, plate, s, frame);
+    assert.ok(Math.abs(got.x - want.x) < 1e-9, `${got.x} vs ${want.x}`);
+    assert.ok(Math.abs(got.y - want.y) < 1e-9, `${got.y} vs ${want.y}`);
+  });
+});
+
+describe("cropRect", () => {
+  it("maps both corners through the crop", () => {
+    const crop = { k: 2, cx: 0.5, cy: 0.5, dx: 0.1, dy: 0 };
+    const r = cropRect({ x: 0.5, y: 0.5, w: 0.1, h: 0.1 }, crop);
+    const want = { x: 0.6, y: 0.5, w: 0.2, h: 0.2 };
+    for (const k of ["x", "y", "w", "h"] as const) assert.ok(Math.abs(r[k] - want[k]) < 1e-9, k);
+    const id = cropRect({ x: 0.1, y: 0.2, w: 0.3, h: 0.4 });
+    assert.ok(Math.abs(id.w - 0.3) < 1e-12 && id.x === 0.1 && Math.abs(id.h - 0.4) < 1e-12);
   });
 });

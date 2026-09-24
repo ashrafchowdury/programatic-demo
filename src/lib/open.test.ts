@@ -1,20 +1,52 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { BASE_POSE, panLimit } from "./camera";
-import { openAt, openFrames, openPose, openProblem } from "./open";
+import { beatRect, OPEN_MARGIN, openAt, openFrames, openPose, openProblem } from "./open";
 
 const VP = { width: 1920, height: 1080 };
 /** Agenta's Create button: bottom-right corner of the footage. */
 const CREATE = { x: 1866 / 1920, y: 1050 / 1080 };
 
 describe("openPose", () => {
-  it("clamps a corner target where the zoom camera would frame it", () => {
-    // agent-skill's own track holds Create at cx = cy = 0.66526 at S 1.737
-    // with fit 0.86 — the framing rule on the EFFECTIVE scale. An opening on
-    // the same button must land on the same pose, or the match cut jumps.
-    const p = openPose({ scale: 1.736842, at: CREATE }, BASE_POSE, (s) => 0.86 * s);
-    assert.ok(Math.abs(p.cx - 0.66526) < 1e-4, String(p.cx));
-    assert.ok(Math.abs(p.cy - 0.66526) < 1e-4, String(p.cy));
+  /** The window camera's framing: pose scale S shows content at 0.86 * S. */
+  const WINDOW = { viewScale: (s: number) => 0.86 * s };
+  /** Create's recorded rect: 1804,1014 124x72 — past the footage's corner. */
+  const CREATE_RECT = { x: 1804 / 1920, y: 1014 / 1080, w: 124 / 1920, h: 72 / 1080 };
+
+  it("centres the target as far as the render's pan clamp allows", () => {
+    // The old rule clamped on the EFFECTIVE scale (cx = 0.66526), the zoom
+    // camera's keyframe rule, which left Create on the frame's corner, half
+    // cut off. The render clamp is panLimit on the pose scale: 0.5 + 0.2126.
+    const p = openPose({ scale: 1.736842, at: CREATE, rect: CREATE_RECT }, BASE_POSE, WINDOW);
+    assert.equal(p.scale, 1.736842);
+    assert.ok(Math.abs(p.cx - (0.5 + panLimit(1.736842))) < 1e-9, String(p.cx));
+    // Create's centre now lands 0.888 across the frame, not on its edge.
+    const frameX = 0.5 + (CREATE.x - p.cx) * 0.86 * p.scale;
+    assert.ok(frameX < 0.9 && frameX > 0.85, String(frameX));
+  });
+
+  it("centres exactly when the clamp does not bind", () => {
+    const p = openPose({ scale: 1.5, at: { x: 0.6, y: 0.45 } }, BASE_POSE, WINDOW);
+    assert.equal(p.cx, 0.6);
+    assert.equal(p.cy, 0.45);
+  });
+
+  it("steps down to the largest scale that keeps the target inside with a margin", () => {
+    // A wide control asked for at 3x: its 0.4-wide box needs the frame's
+    // half-width less the margin, 0.45 / s, to reach 0.2 — so s <= 2.25.
+    const rect = { x: 0.3, y: 0.45, w: 0.4, h: 0.1 };
+    const p = openPose({ scale: 3, at: { x: 0.5, y: 0.5 }, rect }, BASE_POSE);
+    assert.ok(p.scale <= 2.25 + 1e-9 && p.scale > 2.24, String(p.scale));
+    assert.ok((0.5 - OPEN_MARGIN) / p.scale >= 0.2 - 1e-9);
+  });
+
+  it("never has to shrink for a corner target on the window path", () => {
+    // Past the window edge the render clamp shows backdrop: at the clamp the
+    // frame's far edge is 1 + (1 / (2 * 0.86) - 0.5) / S of the picture, and
+    // less the margin that is still 1 + 0.023 / S — beyond the footage at any
+    // scale. So Create keeps the full asked-for scale, even at the maximum.
+    const p = openPose({ scale: 4, at: CREATE, rect: CREATE_RECT }, BASE_POSE, WINDOW);
+    assert.equal(p.scale, 4);
   });
 
   it("only ever pushes in", () => {
@@ -26,6 +58,14 @@ describe("openPose", () => {
     const p = openPose({ scale: 2, at: { x: 1, y: 0 } }, BASE_POSE);
     assert.equal(p.cx, 0.5 + panLimit(2));
     assert.equal(p.cy, 0.5 - panLimit(2));
+  });
+});
+
+describe("beatRect", () => {
+  it("reads the control's box in footage fractions", () => {
+    const r = beatRect({ tMs: 0, x: 10, y: 10, rect: { x: 192, y: 108, w: 96, h: 54 } }, VP);
+    assert.deepEqual(r, { x: 0.1, y: 0.1, w: 0.05, h: 0.05 });
+    assert.equal(beatRect({ tMs: 0, x: 10, y: 10 }, VP), undefined);
   });
 });
 

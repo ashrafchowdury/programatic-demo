@@ -54,7 +54,16 @@ export type ClipOpen = {
 };
 
 /** After resolveReel: `at` is a point. What DemoClip receives. */
-export type ResolvedOpen = { scale: number; at: Point; settleS?: number };
+export type ResolvedOpen = {
+  scale: number;
+  at: Point;
+  /**
+   * The target control's box in footage fractions, when `at` named a beat that
+   * recorded one. openPose keeps it wholly in shot, with a margin.
+   */
+  rect?: { x: number; y: number; w: number; h: number };
+  settleS?: number;
+};
 
 /** Why an authored `open` cannot be honoured, or null. */
 export function openProblem(open: unknown): string | null {
@@ -93,23 +102,90 @@ export function beatPoint(
 }
 
 /**
+ * Frame share kept between the opening's target and the frame edge. A button
+ * flush against the edge reads as cut off even when every pixel is in shot:
+ * agent-skill's Create sat on the bottom-right corner, its rect running 8px
+ * past the footage, and opened "half cut off" (round-3 review).
+ */
+export const OPEN_MARGIN = 0.05;
+
+/** How a framing turns a pose scale into what the frame shows. */
+export type OpenFraming = {
+  /**
+   * The magnification the PAN CLAMP is judged at — the render's own clamp,
+   * poseToCss's panLimit on the pose scale. Default: the scale itself.
+   */
+  clampScale?: (s: number) => number;
+  /**
+   * Content magnification relative to the frame: 1 shows the whole picture.
+   * The window camera's is fit * s (the window sits at `fit` of the frame).
+   * Default: the scale itself.
+   */
+  viewScale?: (s: number) => number;
+};
+
+/** Step between the scales openPose tries when the target does not fit. */
+const FIT_STEP = 0.01;
+
+/** A beat's control box in footage fractions, or undefined when it has none. */
+export function beatRect(
+  beat: ClickLog["clicks"][number],
+  vp: ClickLog["viewport"],
+): ResolvedOpen["rect"] {
+  const r = beat.rect;
+  if (!r) return undefined;
+  const W = vp.width || 1;
+  const H = vp.height || 1;
+  return { x: r.x / W, y: r.y / H, w: r.w / W, h: r.h / H };
+}
+
+/**
  * The opening as a camera pose over a framing whose own pose is `running`.
  *
- * `edgeScale` is the magnification the pan clamp is judged at: the window's
- * EFFECTIVE scale (fit * S) for the zoom camera — the rule frameFor holds its
- * own keyframes to, so an opening on a corner control lands exactly where the
- * camera would have put it — and the pose scale itself elsewhere. Never below
- * `running.scale`: an opening only pushes in.
+ * CENTRED on the target, as far as the pan clamp allows. It used to be clamped
+ * where the zoom camera's KEYFRAMES are (the framing rule on the window's
+ * effective scale), which put a corner control on the frame's corner — the
+ * camera's choice for a hold, and the wrong one for a match cut, whose whole
+ * point is that the control the card punched into is the subject. The render
+ * clamp (`clampScale`, the pose scale) is looser: it shows as much backdrop past
+ * the window edge as the base shot does, which is enough to bring a corner
+ * button in off the edge.
+ *
+ * When even that clamp leaves the target's box (`rect`) closer than
+ * OPEN_MARGIN to the frame edge, the scale steps down to the largest at which
+ * it is fully inside with the margin — never below `running.scale`: an opening
+ * only pushes in.
  */
 export function openPose(
   open: ResolvedOpen,
   running: CameraPose,
-  edgeScale: (s: number) => number = (s) => s,
+  framing: OpenFraming = {},
 ): CameraPose {
-  const scale = Math.max(open.scale, running.scale);
-  const lim = panLimit(edgeScale(scale));
-  const clampC = (c: number) => Math.min(0.5 + lim, Math.max(0.5 - lim, c));
-  return { scale, cx: clampC(open.at.x), cy: clampC(open.at.y) };
+  const clampScale = framing.clampScale ?? ((s: number) => s);
+  const viewScale = framing.viewScale ?? ((s: number) => s);
+  const poseAt = (scale: number): CameraPose => {
+    const lim = panLimit(clampScale(scale));
+    const clampC = (c: number) => Math.min(0.5 + lim, Math.max(0.5 - lim, c));
+    return { scale, cx: clampC(open.at.x), cy: clampC(open.at.y) };
+  };
+  const fits = (p: CameraPose): boolean => {
+    const r = open.rect;
+    if (!r) return true;
+    const v = viewScale(p.scale);
+    // Half the frame in content units, less the margin.
+    const h = (0.5 - OPEN_MARGIN) / v;
+    const x0 = Math.max(0, r.x);
+    const y0 = Math.max(0, r.y);
+    const x1 = Math.min(1, r.x + r.w);
+    const y1 = Math.min(1, r.y + r.h);
+    return x0 >= p.cx - h && x1 <= p.cx + h && y0 >= p.cy - h && y1 <= p.cy + h;
+  };
+  const top = Math.max(open.scale, running.scale);
+  for (let s = top; s > running.scale; s -= FIT_STEP) {
+    const p = poseAt(s);
+    if (fits(p)) return p;
+  }
+  return poseAt(running.scale);
 }
 
 /** Frames the opening takes to hand over: authored, or the camera's own. */

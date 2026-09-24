@@ -243,3 +243,40 @@ describe("skipLabels", () => {
     assert.equal(hudSteps(SEGMENTS, COUNTS, FPS, log(beats), 1, TOTAL, [], [""]).length, 3);
   });
 });
+
+describe("hudSteps on the picture's clock (review 2)", () => {
+  it("applies offsetMs before the speed, as DemoClip does", () => {
+    // (4000 + 500) / 1000 / 1.25 = 3.6 demo s -> 1.6 s into a clip [2,4) that
+    // starts at reel 4. t / speed - offset gave 2.7 -> reel 4.7.
+    const steps = hudSteps(
+      SEGMENTS,
+      COUNTS,
+      FPS,
+      { ...log([{ tMs: 4100, tDownMs: 4000, label: "Save", x: 0, y: 0 }]), offsetMs: 500 },
+      1.25,
+      TOTAL,
+    );
+    assert.equal(steps.length, 1);
+    assert.ok(Math.abs(steps[0].startS - 5.6) < 1e-9, String(steps[0].startS));
+  });
+
+  it("skips the cold open, which replays footage a later clip covers", () => {
+    // clip[1,2) cold open, card, clip[0.5,4): the beat at 1.5 plays in both.
+    // Counting the cold open numbered it twice and put step 1 on the tease.
+    const segs: ReelSegment[] = [
+      { clip: { fromS: 1, toS: 2 } },
+      { card: { name: "x", headline: "A" } },
+      { clip: { fromS: 0.5, toS: 4 } },
+    ];
+    const steps = hudSteps(
+      segs,
+      [30, 30, 105],
+      FPS,
+      log([{ tMs: 1500, tDownMs: 1500, label: "Add provider", x: 0, y: 0 }]),
+      1,
+      5.5,
+    );
+    assert.equal(steps.length, 1);
+    assert.equal(steps[0].startS, 3);
+  });
+});

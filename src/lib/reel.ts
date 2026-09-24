@@ -18,10 +18,11 @@
 import {
   introDurationInFrames,
   introProblem,
+  introTiming,
   type IntroStoryboard,
 } from "./intro";
-import type { ReelChip } from "./chips";
-import type { ClickLog } from "./click-log";
+import type { ReelChipInput } from "./chips";
+import { FPS, logMsToDemoS, type ClickLog } from "./click-log";
 import { DEMO_LOOK, LOOKS, type ReelLook } from "./look";
 import {
   resolveStyle,
@@ -30,11 +31,12 @@ import {
   type ReelStyle,
   type ShotJoin,
   type ShotStyle,
+  type StylePreset,
 } from "./style";
 import type { PushSpec } from "./push";
 import type { CropSpec } from "./crop";
 import { isAspect, ASPECTS, type Aspect } from "./aspect";
-import { beatPoint, openProblem, type ClipOpen, type ResolvedOpen } from "./open";
+import { beatPoint, beatRect, openProblem, type ClipOpen, type ResolvedOpen } from "./open";
 
 /** Re-exported so `look` can be authored and validated from one import. */
 export { DEMO_LOOK, LOOKS, type ReelLook };
@@ -307,17 +309,24 @@ export type Reel = {
   sfx?: ReelSfx;
   /** Duck `bed` pieces under `lead`/`sfx`. Absent = off. */
   duck?: boolean | ReelDuck;
+  /**
+   * Land every cut out of a card on a beat of the bed: each card's length is
+   * nudged by at most ±2 frames toward the nearest onset in the `role: "bed"`
+   * audio (src/lib/beats.ts). Absent = off. `--check` reports the hits.
+   */
+  snapToBeats?: boolean;
   /** Step-HUD tuning. Only read when the style draws one. */
   hud?: ReelHud;
   /**
-   * Floating annotation chips, in REEL seconds. Only drawn when the style
-   * defines an `annotation` look.
+   * Floating annotation chips, each anchored to a segment (`from: { segment,
+   * atS }` or `{ segment, beat }`), cut to that shot's visible span and riding
+   * its push. Only drawn when the style defines an `annotation` look.
    *
    * AUTHORED, unlike the step HUD, which is derived from the click log. A chip
    * names something the footage does not say out loud, so no recording carries
    * it — see src/lib/chips.ts.
    */
-  chips?: ReelChip[];
+  chips?: ReelChipInput[];
   /** Visual treatment of the footage. Absent = "framed", i.e. unchanged. */
   look?: ReelLook;
   /**
@@ -408,7 +417,7 @@ export function coldOpenIndex(segments: ReelSegment[]): number {
 export function reelProblem(
   value: unknown,
   totalFrames?: number,
-  fps = 30,
+  fps = FPS,
   opts: { framing?: boolean } = {},
 ): string | null {
   if (typeof value !== "object" || value === null) return "not an object";
@@ -487,12 +496,10 @@ export function reelProblem(
     }
   }
   if (reel.audio !== undefined) {
-    const problem = audioProblem(
-      reel.audio,
-      totalFrames,
-      fps,
-      reel.segments.length,
-    );
+    // Shape only. `totalFrames` is the DEMO's length, not the reel's, so it
+    // cannot bound where a piece starts: the cut checks that with
+    // audioPlacementProblem once its own runtime is known.
+    const problem = audioProblem(reel.audio, undefined, fps, reel.segments.length);
     if (problem) return problem;
   }
   if (
@@ -532,6 +539,11 @@ export function reelProblem(
       }
     }
   }
+  if (reel.snapToBeats !== undefined) {
+    if (typeof reel.snapToBeats !== "boolean") return "`snapToBeats` must be a boolean";
+    if (reel.snapToBeats && !(reel.audio ?? []).some((p) => p?.role === "bed"))
+      return "`snapToBeats` needs an audio piece with `role: \"bed\"` to find beats in";
+  }
   if (reel.duck !== undefined && typeof reel.duck !== "boolean") {
     if (typeof reel.duck !== "object" || reel.duck === null)
       return "`duck` must be a boolean or an object";
@@ -542,13 +554,6 @@ export function reelProblem(
   return null;
 }
 
-/**
- * Shape check for `reel.audio`, mirroring reelProblem's return-a-string style.
- * Exported so it can be unit-tested on its own. `totalFrames` bounds a piece's
- * start to inside the reel when known — a piece that begins after the reel ends
- * is inaudible and almost always a typo; an overrun past the END is fine (the
- * mux truncates it), so it is not checked here.
- */
 /** A `start`/`end` value: seconds >= 0, or a `{ segment }` anchor. */
 function anchorOrSecondsProblem(
   v: unknown,
@@ -571,10 +576,18 @@ function anchorOrSecondsProblem(
   return `${label} must be a number of seconds or a { segment } anchor`;
 }
 
+/**
+ * Shape check for `reel.audio`, mirroring reelProblem's return-a-string style.
+ * Exported so it can be unit-tested on its own. `totalFrames` is the REEL's
+ * length when known (never the demo's) and bounds a numeric start to inside it
+ * — a piece that begins after the reel ends is inaudible and almost always a
+ * typo; an overrun past the END is fine (the mux truncates it), so it is not
+ * checked here. reel-audio.ts's audioPlacementProblem also resolves anchors.
+ */
 export function audioProblem(
   value: unknown,
   totalFrames?: number,
-  fps = 30,
+  fps = FPS,
   segmentCount?: number,
 ): string | null {
   if (!Array.isArray(value)) return "`audio` must be an array";
@@ -683,13 +696,18 @@ export function framingMessage(
 // Beat anchors
 // ---------------------------------------------------------------------------
 
-/** A click-log beat's press, in seconds of the rendered demo. */
+/**
+ * A click-log beat's press, in seconds of the rendered demo — the frame the
+ * picture draws it on (logMsToDemoS). This was `t / speed - offset`, which
+ * disagreed with the picture by offset x (1 + 1/speed) whenever offsetMs was
+ * not 0: 900 ms early at 500 ms and 1.25x.
+ */
 export function beatDemoS(
   beat: { tMs: number; tDownMs?: number },
   log: Pick<ClickLog, "offsetMs">,
   speed: number,
 ): number {
-  return (beat.tDownMs ?? beat.tMs) / 1000 / speed - (log.offsetMs ?? 0) / 1000;
+  return logMsToDemoS(beat.tDownMs ?? beat.tMs, log, speed);
 }
 
 const s2 = (x: number): string => x.toFixed(2);
@@ -829,14 +847,17 @@ export function resolveReel(
       const bad = openProblem(open);
       if (bad) return { problem: `segment ${i + 1} (clip) ${bad}` };
       let at = { x: 0.5, y: 0.5 };
+      let rect: ResolvedOpen["rect"];
       if (typeof open.at === "string") {
         const hit = findBeatEvent(open.at, log, speed);
         if ("problem" in hit) return { problem: `segment ${i + 1} (clip) open.at: ${hit.problem}` };
         at = beatPoint(hit.beat, log.viewport);
+        // The control's box too, so the opening can keep all of it in shot.
+        rect = beatRect(hit.beat, log.viewport);
       } else if (open.at) {
         at = open.at;
       }
-      resolvedOpen = { ...open, at };
+      resolvedOpen = { ...open, at, ...(rect ? { rect } : {}) };
     }
     segments.push({
       ...seg,
@@ -876,6 +897,62 @@ export function segmentJoins(
   });
 }
 
+/** How a join with frames > 0 blends: a cross-fade, or an exit overlap. */
+export type JoinBlend = "fade" | "overlap";
+
+/** A segment's exit as it will RENDER, when it travels; undefined otherwise. */
+function renderedExit(
+  seg: ReelSegmentInput,
+  preset: StylePreset,
+): { axis: string; dist: number; frames: number } | undefined {
+  let exit: { axis: string; dist?: number; frames?: number } | undefined;
+  if (isCard(seg)) {
+    // A recap or chip card does not travel on the push envelope.
+    if (seg.card.items?.length || seg.card.chip !== undefined) return undefined;
+    const own = seg.card.exit;
+    const style = preset.card.exit.kind === "push" ? preset.card.exit : undefined;
+    exit = own
+      ? { axis: own.axis, dist: own.dist ?? style?.dist, frames: own.frames ?? style?.frames }
+      : style;
+  } else if (isClip(seg)) {
+    if (seg.clip.freeze) return undefined;
+    const push = seg.clip.push;
+    const shot = preset.shot.exit.kind === "push" ? preset.shot.exit : undefined;
+    // The `shots`-layer default scripts/lib/reel-cut.ts supplies (presetShotPush).
+    exit = push ? push.out : preset.motionLayer === "shots" ? shot : undefined;
+  }
+  if (!exit || exit.axis === "none" || !exit.dist || !exit.frames) return undefined;
+  return { axis: exit.axis, dist: exit.dist, frames: exit.frames };
+}
+
+/**
+ * `joins` with every CUT after a directional exit turned into an overlap of
+ * `sequence.overlapExitF` frames (capped at the exit's own length), and the
+ * blend of every boundary. See SequenceStyle.overlapExitF.
+ *
+ * Only cuts become overlaps: an authored or style dissolve keeps its fade, and
+ * a segment that says `join: "cut"` keeps its cut — that is the opt-out. The
+ * overlap lives in the SAME join list a dissolve does, so the runtime, the
+ * segment bounds, the SFX and the HUD all account for it without knowing.
+ */
+export function overlapJoins(
+  segments: ReelSegmentInput[],
+  joins: number[],
+  preset: StylePreset,
+): { joins: number[]; blends: JoinBlend[] } {
+  const f = preset.sequence.overlapExitF;
+  const blends: JoinBlend[] = joins.map(() => "fade");
+  if (!(f > 0)) return { joins, blends };
+  const out = joins.map((j, i) => {
+    if (j > 0 || segments[i + 1]?.join === "cut") return j;
+    const exit = renderedExit(segments[i], preset);
+    if (!exit) return j;
+    blends[i] = "overlap";
+    return Math.min(f, exit.frames);
+  });
+  return { joins: out, blends };
+}
+
 /**
  * The storyboard a card renders with: the reel's look/style unless the card
  * overrides them, and the DEMO's name, because a card takes its size from
@@ -892,6 +969,31 @@ export function reelCard(
     ...card,
     name: reelDemo(reel),
   };
+}
+
+/**
+ * `card` re-timed to render exactly `frames` longer (or shorter), by its
+ * `holdS` — or null when it has no hold to give.
+ *
+ * Every card's length is linear in its hold once the hold is authored (an
+ * authored hold opts out of the style's floors, see introTiming), so the hold
+ * is solved for, not searched: the length at hold 0, plus the difference,
+ * aimed at the middle of the target frame so ceil() cannot tip it over. The
+ * result is checked, never trusted.
+ */
+export function nudgeCard(
+  reel: Pick<Reel, "name" | "demo" | "look" | "style">,
+  card: IntroStoryboard,
+  frames: number,
+  fps: number,
+): IntroStoryboard | null {
+  if (frames === 0) return card;
+  const target = introDurationInFrames(reelCard(reel, card), fps) + frames;
+  const zeroS = introTiming(reelCard(reel, { ...card, holdS: 0 })).totalS;
+  const holdS = Number(((target - 0.5) / fps - zeroS).toFixed(4));
+  if (!(holdS >= 0)) return null;
+  const out = { ...card, holdS };
+  return introDurationInFrames(reelCard(reel, out), fps) === target ? out : null;
 }
 
 /** Frames each segment will render to, without rendering it. */

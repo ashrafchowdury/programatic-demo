@@ -259,6 +259,9 @@ export const BASE: StylePreset = {
       y: { dist: 56, frames: 14 },
       scale: { dist: 0.07, frames: 12 },
     },
+    // OFF: every grammar but stage cuts after its exits play out. See
+    // SequenceStyle.overlapExitF.
+    overlapExitF: 0,
   },
   source: null,
   targets: null,

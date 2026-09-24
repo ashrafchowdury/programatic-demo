@@ -35,6 +35,7 @@ import {
   type CardRender,
   type ChipTiming,
   type IntroChip,
+  withChipTone,
   type IntroLook,
   type IntroStoryboard,
   type StyledToken,
@@ -472,7 +473,7 @@ const ChipSentence: React.FC<{
           {parts.before.map((tok, i) => unit(tok, i, `b${i}`, i))}
         </div>
         <div style={{ position: "relative", visibility: chipP > 0 ? "visible" : "hidden" }}>
-          <Chip label={chip.label} look={look} k={k} />
+          <Chip label={chip.label} look={withChipTone(look, chip.tone)} k={k} />
           {parts.tail ? (
             <span
               style={{ ...type, position: "absolute", left: "100%", top: "50%", transform: "translateY(-50%)" }}
@@ -509,7 +510,7 @@ const ChipSentence: React.FC<{
           visibility: chipP > 0 ? "visible" : "hidden",
         }}
       >
-        <Chip label={chip.label} look={look} k={k} />
+        <Chip label={chip.label} look={withChipTone(look, chip.tone)} k={k} />
       </div>
       <div
         style={{

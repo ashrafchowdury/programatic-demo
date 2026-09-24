@@ -16,7 +16,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ClickLog } from "../../src/lib/click-log";
-import { chipProblem } from "../../src/lib/chips";
+import { chipProblem, type ReelChip } from "../../src/lib/chips";
 import { hudSteps } from "../../src/lib/hud";
 import type { ResolvedReel } from "../../src/lib/reel";
 import type { StylePreset } from "../../src/lib/style";
@@ -97,8 +97,8 @@ export function hudLayer(
 }
 
 /** Every chip problem, before anything renders. */
-export function chipsProblem(reel: ResolvedReel, runtimeS: number): string | null {
-  for (const c of reel.chips ?? []) {
+export function chipsProblem(chips: ReelChip[], runtimeS: number): string | null {
+  for (const c of chips) {
     const problem = chipProblem(c, runtimeS);
     if (problem) return problem;
   }
@@ -107,24 +107,30 @@ export function chipsProblem(reel: ResolvedReel, runtimeS: number): string | nul
 
 /**
  * The annotation-chip layer, or null when the style has no chip look or the
- * reel authored none. Chips ride ON TOP of the HUD: both are transparent, so
+ * reel authored none. `chips` are resolved (scripts/lib/reel-cut.ts): reel
+ * seconds, cut to their shots, placed for the aspect. Chips ride ON TOP of the HUD: both are transparent, so
  * the order only matters where they overlap, and a step line is the smaller,
  * quieter object of the two.
  */
 export function chipsLayer(
-  reel: ResolvedReel,
+  chips: ReelChip[],
   preset: StylePreset,
   runtimeS: number,
   workDir: string,
   keep: Set<string>,
   frame?: OverlayFrame,
 ): OverlayLayer | null {
-  const chips = reel.chips ?? [];
   const style = preset.annotation;
-  if (!style || chips.length === 0) return null;
+  if (chips.length === 0) return null;
+  if (!style) {
+    // reel-cut's prepare already refused this, or warned under --style; say
+    // it again where the layer is skipped so the log shows why nothing drew.
+    console.log(`chips      -> ${chips.length} authored; this style has no annotation look, none drawn`);
+    return null;
+  }
   // Validated before rendering. A chip placed outside the frame or past the end
   // of the film renders nothing at all, which is a silent way to lose one.
-  const problem = chipsProblem(reel, runtimeS);
+  const problem = chipsProblem(chips, runtimeS);
   if (problem) throw new Error(problem);
   const props = {
     chips,

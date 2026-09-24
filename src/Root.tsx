@@ -9,6 +9,7 @@ import { StillShot, type StillShotProps } from "./StillShot";
 import {
   DEFAULT_PLAYBACK_RATE,
   EMPTY_LOG,
+  FPS,
   resolvePlaybackRate,
   type ClickLog,
 } from "./lib/click-log";
@@ -31,8 +32,6 @@ import {
 } from "./lib/still";
 import { resolveGround, stillBackdropFile } from "./lib/backdrop";
 import smokeIntro from "../intros/smoke";
-
-const FPS = 30;
 
 // Default clip shown in Studio when no --props are passed. Override with
 // remotion render DemoClip --props='{"name":"agent-demo"}' (or slash-commands).
@@ -100,21 +99,23 @@ export const RemotionRoot: React.FC = () => {
         }}
       />
       {/*
-        Title card, rendered separately and concatenated onto the demo by
-        scripts/stitch.ts. It is NOT sequenced inside DemoClip: zoomAt and
-        Cursor both map frame -> time with t=0 at the first demo frame, so
-        frames prepended there would desync the camera track and the pointer.
+        Title card. `pnpm intro <name>` renders it as a one-card reel
+        (scripts/intro.ts -> out/reel/<name>.intro.mp4) through the reel
+        pipeline; the old render-intro + stitch path that glued a card onto a
+        whole demo is retired — a reel with a card segment and a clip segment
+        does that now. It is NOT sequenced inside DemoClip: zoomAt and Cursor
+        both map frame -> time with t=0 at the first demo frame, so frames
+        prepended there would desync the camera track and the pointer.
 
         The storyboard arrives whole through props because intros/*.ts are
-        per-account files loaded by dynamic import in scripts/render-intro.ts —
-        a static registry here would not survive a clone without them. This
+        per-account files loaded by dynamic import in scripts/intro.ts — a
+        static registry here would not survive a clone without them. This
         default is the one committed example, so Studio always opens on a card.
 
         The log fetch below is deliberately a copy of the one above rather than
         a shared helper: the DemoClip block is the demo's contract, and leaving
         it untouched is worth more than saving six lines. compositionSize() is
-        duplicated for the same reason, is pinned by a test, and is re-checked
-        against the real files by scripts/stitch.ts before it concatenates.
+        duplicated for the same reason and is pinned by a test.
       */}
       {/*
         The step HUD. Rendered ALONE on a transparent ground and composited onto
@@ -193,8 +194,8 @@ export const RemotionRoot: React.FC = () => {
         height={1080}
         defaultProps={{ intro: smokeIntro } satisfies IntroProps}
         calculateMetadata={async ({ props }) => {
-          // Only the viewport is used here — the card shows no footage. It has
-          // to match the demo's aspect exactly or the concat cannot -c copy.
+          // Only the viewport is used here — the card shows no footage. It
+          // takes the demo's aspect so a card cut next to its clips matches.
           let log: ClickLog = EMPTY_LOG;
           try {
             const res = await fetch(

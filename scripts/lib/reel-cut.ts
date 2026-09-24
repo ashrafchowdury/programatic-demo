@@ -25,48 +25,83 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
+  DESIGN_WIDTH,
+  FPS,
+  LEAD_FALLBACK_S,
   OUTPUT_WIDTH,
   resolvePlaybackRate,
+  speedMismatch,
   type ClickLog,
 } from "../../src/lib/click-log";
 import {
+  aspectFramePoint,
   aspectMagnification,
   aspectSize,
   aspectUpscale,
+  cachedFollow,
+  clampView,
+  coverScale,
+  cropPoint,
+  cropRect,
+  followAt,
+  footageBounds,
   isNativeAspect,
+  visibleHalf,
   type Aspect,
+  type Point,
 } from "../../src/lib/aspect";
+import {
+  chipCovers,
+  chipSizePx,
+  dodgeRects,
+  pullInside,
+  resolveChips,
+  type FrameRect,
+  type ReelChip,
+} from "../../src/lib/chips";
 import { cropUpscale, resolveCrop, SHARPNESS_CEILING } from "../../src/lib/crop";
 import { demoDurationInFrames, demoGeometry, demoSize } from "../../src/lib/demo-duration";
 import { compositionSize } from "../../src/lib/intro";
 import type { PushSpec } from "../../src/lib/push";
+import { openPose } from "../../src/lib/open";
 import { WINDOW_FIT } from "../../src/lib/window";
 import { zoomAt } from "../../src/lib/zoom";
 import {
+  beatDemoS,
   clipFrames,
   coldOpenIndex,
   framingMessage,
   ignoredClipFields,
   isCard,
   isClip,
+  nudgeCard,
+  overlapJoins,
   pacing,
   reelCard,
   reelDemo,
   reelProblem,
+  findBeatEvent,
   resolveReel,
   segmentFrameCounts,
   segmentJoins,
   SFX_KINDS,
+  type JoinBlend,
   type Reel,
+  type ReelSegment,
   type ResolvedReel,
 } from "../../src/lib/reel";
+import { snapCardCuts, type BeatCut } from "../../src/lib/beats";
 import {
+  audioPlacementProblem,
   clickReelTimes,
   clipLabelWarnings,
+  resolvePiece,
   SAMPLE_RATE,
   segmentBoundsSeconds,
   sfxProblem,
+  type SegmentBounds,
 } from "../../src/lib/reel-audio";
+import { bedOnsets } from "./beats";
 import {
   applySequence,
   resolveStyle,
@@ -78,6 +113,7 @@ import { deliveryProblems } from "./encode";
 import {
   compareStreams,
   frameCount,
+  mediaDurationS,
   probe,
   probeDelivery,
   requireFilters,
@@ -87,10 +123,9 @@ import { chipsLayer, chipsProblem, hudLayer } from "./overlays";
 import { missingAudio, muxAudio, reelHasAudio, reportLoudness } from "./reel-audio-mux";
 import { digest, footageDigest, segmentSourceDigest } from "./reel-cache";
 import { REMOTION_BIN, renderComposition } from "./remotion";
-import { buildFinishArgs, dissolvedFrameCount } from "./xfade";
+import { buildFinishArgs, dissolvedFrameCount, groundLuma } from "./xfade";
 
 const ROOT = path.resolve(import.meta.dirname, "..", "..");
-const FPS = 30;
 
 export type CutOptions = {
   /** Where the reel came from, for messages: "reels/harness.ts". */
@@ -112,7 +147,7 @@ export type CutOptions = {
   aspect?: Aspect;
 };
 
-type Prepared = {
+export type Prepared = {
   reel: ResolvedReel;
   demo: string;
   preset: StylePreset;
@@ -122,20 +157,49 @@ type Prepared = {
   /** Predicted frames per segment; the render must agree. */
   counts: number[];
   joins: number[];
+  /** How each join with frames blends: a dissolve's fade, or an exit overlap. */
+  blends: JoinBlend[];
+  /** Each card cut against the bed's beats, when the reel snaps to them. */
+  beats: BeatCut[] | null;
   /** Fields each clip sets that its framing ignores, by segment index. */
   ignored: Map<number, string[]>;
   /** A non-native aspect to crop to, or undefined for the footage's own. */
   aspect: Aspect | undefined;
+  /** Chips in reel time, cut to their shots and placed for this aspect. */
+  chips: ReelChip[];
+  /** What chip resolution clipped or moved, and what it could not clear. */
+  chipNotes: { info: string[]; warn: string[] };
 };
 
 const s2 = (x: number): string => x.toFixed(2);
 
+/**
+ * `authored` cut in `style` instead: `--style=`.
+ *
+ * Drops the legacy `look` too — naming a grammar is an instruction, and
+ * `classic` + `fullbleed` would otherwise be rejected. And it overrides EVERY
+ * level, cards included: `--style` is an A/B tool ("this film, in that
+ * grammar"), and a card that pinned its own style used to keep it, so the
+ * comparison silently mixed two grammars (review 2).
+ */
+export function restyle(authored: Reel, style: ReelStyle): Reel {
+  return {
+    ...authored,
+    style,
+    look: undefined,
+    segments: authored.segments.map((seg) => {
+      if (!isCard(seg) || (seg.card.style === undefined && seg.card.look === undefined))
+        return seg;
+      const { style: _style, look: _look, ...card } = seg.card;
+      return { ...seg, card };
+    }),
+  };
+}
+
 /** Everything that can be known before a frame renders — and every check. */
 function prepare(authored: Reel, opts: CutOptions): Prepared {
   const src = opts.source;
-  // A style override also drops the legacy `look`: naming a grammar is an
-  // instruction, and `classic` + `fullbleed` would otherwise be rejected.
-  const styled: Reel = opts.style ? { ...authored, style: opts.style, look: undefined } : authored;
+  const styled: Reel = opts.style ? restyle(authored, opts.style) : authored;
   const base: Reel = opts.aspect ? { ...styled, aspect: opts.aspect } : styled;
   const demo = reelDemo(base);
 
@@ -147,6 +211,10 @@ function prepare(authored: Reel, opts: CutOptions): Prepared {
     );
   const log = JSON.parse(fs.readFileSync(logPath, "utf8")) as ClickLog;
   const speed = resolvePlaybackRate(process.env.DEMO_SPEED);
+  // Every clip re-renders the demo at `speed`, so a log paced for another rate
+  // plays its glides and camera room at the wrong length here too.
+  const paced = speedMismatch(log, speed);
+  if (paced) console.warn(`  ⚠️  ${src}: ${paced}`);
 
   const resolved = resolveReel(base, log, speed);
   if ("problem" in resolved) throw new Error(`${src}: ${resolved.problem}`);
@@ -199,7 +267,7 @@ function prepare(authored: Reel, opts: CutOptions): Prepared {
   // in the film (exit cycle, direction continuity). Applied ONCE, here, so the
   // renders, the cache keys and --check all read the same sequenced segments.
   // An authored move always wins; this only fills gaps.
-  const reel: ResolvedReel = {
+  let reel: ResolvedReel = {
     ...resolved.reel,
     segments: applySequence(resolved.reel.segments, preset),
   };
@@ -224,13 +292,316 @@ function prepare(authored: Reel, opts: CutOptions): Prepared {
   for (const w of clipLabelWarnings(reel.segments, log, speed))
     console.warn(`  ⚠️  ${src}: ${w}`);
 
-  const counts = segmentFrameCounts(reel, FPS);
-  const joins = segmentJoins(reel.segments, preset.join);
-  const chipBad = chipsProblem(reel, dissolvedFrameCount(counts, joins) / FPS);
-  if (chipBad && preset.annotation) throw new Error(`${src}: ${chipBad}`);
+  let counts = segmentFrameCounts(reel, FPS);
+  // R10: a style whose seams are an emptied frame overlaps each exit with the
+  // next entry instead of cutting after it, keyed against its flat ground.
+  const { joins, blends } = overlapJoins(
+    reel.segments,
+    segmentJoins(reel.segments, preset.join),
+    preset,
+  );
+  if (blends.includes("overlap") && !preset.shot.ground)
+    throw new Error(
+      `${src}: the "${style}" style overlaps its exits (sequence.overlapExitF) but ` +
+        `has no flat shot.ground to key the overlap against.`,
+    );
 
+  // R9: land each cut out of a card on a beat of the bed.
+  let beats: BeatCut[] | null = null;
+  if (reel.snapToBeats) {
+    const snapped = snapToBed(reel, counts, joins);
+    reel = snapped.reel;
+    counts = segmentFrameCounts(reel, FPS);
+    beats = snapped.cuts;
+    const drift = counts.findIndex((c, i) => c !== snapped.counts[i]);
+    if (drift >= 0)
+      throw new Error(`beat snap: segment ${drift + 1} came out ${counts[drift]} frames, planned ${snapped.counts[drift]}`);
+  }
+  const runtimeS = dissolvedFrameCount(counts, joins) / FPS;
+
+  // Chips draw only in a style with an annotation look. Authored chips under
+  // one without it used to vanish with no message at all.
+  const chipCount = reel.chips?.length ?? 0;
+  if (chipCount > 0 && !preset.annotation) {
+    const lost =
+      `${chipCount} chip(s) authored, but the "${style}" style has no annotation ` +
+      `look, so none would draw`;
+    if (!opts.style)
+      throw new Error(`${src}: ${lost}. Remove \`chips\`, or cut in a style that draws them.`);
+    console.warn(`  ⚠️  ${src}: ${lost} (--style=${opts.style}); dropped from this cut.`);
+  }
   const aspect = isNativeAspect(reel.aspect) ? undefined : reel.aspect;
-  return { reel, demo, preset, style, log, speed, counts, joins, ignored, aspect };
+  let chips: ReelChip[] = [];
+  const chipNotes = { info: [] as string[], warn: [] as string[] };
+  if (chipCount > 0 && preset.annotation) {
+    const resolvedChips = resolveReelChips(reel, preset, log, speed, counts, joins);
+    if ("problem" in resolvedChips) throw new Error(`${src}: ${resolvedChips.problem}`);
+    chipNotes.info.push(...resolvedChips.notes);
+    const placed = placeChips(
+      { reel, preset, log, speed, counts, joins, ignored, aspect },
+      resolvedChips.chips,
+    );
+    chips = placed.chips;
+    chipNotes.info.push(...placed.info);
+    chipNotes.warn.push(...placed.warn);
+    const chipBad = chipsProblem(chips, runtimeS);
+    if (chipBad) throw new Error(`${src}: ${chipBad}`);
+  }
+
+  // Audio placement against THIS reel's runtime and bounds — reelProblem only
+  // knew the demo's length, which is the wrong bound for a start.
+  const audioBad = audioPlacementProblem(
+    reel.audio,
+    runtimeS,
+    segmentBoundsSeconds(counts, FPS, joins),
+  );
+  if (audioBad) throw new Error(`${src}: ${audioBad}`);
+
+  return {
+    reel, demo, preset, style, log, speed, counts, joins, blends, beats, ignored, aspect, chips, chipNotes,
+  };
+}
+
+/**
+ * Clip `i`'s push as the render will apply it: authored, else the style's own
+ * shot arrival when its motion lives on the shots. clipProps and the chips both
+ * read this, so a chip rides exactly the move its shot makes.
+ */
+function clipShotPush(authored: PushSpec | undefined, preset: StylePreset): PushSpec | undefined {
+  return authored ?? (preset.motionLayer === "shots" ? presetShotPush(preset) : undefined);
+}
+
+/** Authored chips -> reel seconds, each cut to its shot and riding its push. */
+function resolveReelChips(
+  reel: ResolvedReel,
+  preset: StylePreset,
+  log: ClickLog,
+  speed: number,
+  counts: number[],
+  joins: number[],
+): ReturnType<typeof resolveChips> {
+  const bounds = segmentBoundsSeconds(counts, FPS, joins);
+  const segs = reel.segments.map((seg, i) => ({
+    startF: Math.round(bounds.startS[i] * FPS),
+    frames: counts[i],
+    ...(isClip(seg)
+      ? {
+          push: clipShotPush(seg.clip.push, preset),
+          clip: { fromS: seg.clip.fromS, toS: seg.clip.toS, freeze: seg.clip.freeze },
+        }
+      : {}),
+  }));
+  const beat = (label: string) => {
+    const hit = findBeatEvent(label, log, speed);
+    return "problem" in hit ? hit : { s: beatDemoS(hit.beat, log, speed) };
+  };
+  // FramedPush's useDesignScale: the 16:9 width over the design width, at every
+  // aspect (DesignWidthContext carries the native width into an aspect cut).
+  return resolveChips(reel.chips ?? [], segs, FPS, beat, compositionSize(log).width / DESIGN_WIDTH);
+}
+
+/** Frames between samples when collecting press targets under a chip. */
+const PRESS_SAMPLE_F = 2;
+
+/**
+ * The press targets a chip must not cover, in frame fractions: at every sampled
+ * frame of its window, the rect of the control the pointer is on or heading
+ * for (the follow's own subject, by tDepartMs) and of the NEXT one — so a chip
+ * placed over a button the hand is about to reach is caught before it lands.
+ * Mapped through the shot's actual framing (window camera, crop, or the moving
+ * aspect crop) and clipped to what is on screen.
+ */
+function pressRects(p: ChipPlacing, i: number, fromS: number, toS: number): FrameRect[] {
+  const seg = p.reel.segments[i];
+  if (!isClip(seg)) return [];
+  const { log, speed, preset } = p;
+  const shot = preset.shot;
+  const windowed = shot.framing === "window";
+  const fit = windowed ? (shot.windowFit ?? WINDOW_FIT) : 1;
+  const crop =
+    windowed || p.ignored.get(i)?.includes("crop") ? undefined : resolveCrop(seg.clip.crop);
+  const W = log.viewport.width || 1;
+  const H = log.viewport.height || 1;
+  const clicks = [...log.clicks].sort((a, b) => a.tMs - b.tMs);
+  if (!clicks.length) return [];
+  const departs = clicks.map((c) => c.tDepartMs ?? c.tMs - LEAD_FALLBACK_S * 1000);
+  const bounds = segmentBoundsSeconds(p.counts, FPS, p.joins);
+  const startF = Math.round(bounds.startS[i] * FPS);
+  const { first, last } = clipFrames(seg.clip, FPS);
+  const camScale = (f: number) =>
+    shot.zoom ? zoomAt(f, FPS, log, { speed, fit, drift: seg.clip.drift }).scale / fit : 1;
+
+  // Footage point -> frame fraction at demo frame f, for this shot's framing.
+  let toFrame: (pt: Point, f: number) => Point;
+  if (p.aspect) {
+    const native = demoSize(log);
+    const size = aspectSize(native, p.aspect);
+    const box = { width: size.width * fit, height: size.height * fit };
+    const s = coverScale(box, native);
+    const mag = aspectMagnification(native, size);
+    const half = visibleHalf(box, native);
+    const frames = demoDurationInFrames(log, speed, demoGeometry(log), FPS);
+    const follow = cachedFollow(log, { fps: FPS, speed, frames, half, crop });
+    toFrame = (pt, f) => {
+      const c = followAt(follow, f);
+      const view = clampView(
+        { scale: Math.max(1, camScale(f) / mag), cx: c.x, cy: c.y },
+        half,
+        footageBounds(crop),
+      );
+      return aspectFramePoint(cropPoint(pt, crop), view, native, s, size);
+    };
+  } else if (windowed) {
+    toFrame = (pt, f) => {
+      const z = shot.zoom
+        ? zoomAt(f, FPS, log, { speed, fit, drift: seg.clip.drift })
+        : { scale: fit, translateX: 0, translateY: 0 };
+      return {
+        x: 0.5 + z.translateX + (pt.x - 0.5) * z.scale,
+        y: 0.5 + z.translateY + (pt.y - 0.5) * z.scale,
+      };
+    };
+  } else {
+    toFrame = (pt) => cropPoint(pt, crop);
+  }
+  const panel = { lo: 0.5 - fit / 2, hi: 0.5 + fit / 2 };
+
+  const out: FrameRect[] = [];
+  const seen = new Set<string>();
+  for (let rf = Math.ceil(fromS * FPS); rf < toS * FPS; rf += PRESS_SAMPLE_F) {
+    const f = seg.clip.freeze ? last : first + (rf - startF);
+    const tMs = ((f / FPS) * speed - (log.offsetMs ?? 0) / 1000) * 1000;
+    let k = 0;
+    while (k + 1 < departs.length && departs[k + 1] <= tMs) k++;
+    for (const c of clicks.slice(k, k + 2)) {
+      const r = c.rect ?? { x: c.x - 12, y: c.y - 12, w: 24, h: 24 };
+      const a = toFrame({ x: r.x / W, y: r.y / H }, f);
+      const b = toFrame({ x: (r.x + r.w) / W, y: (r.y + r.h) / H }, f);
+      const rect = {
+        x0: Math.max(panel.lo, Math.min(a.x, b.x)),
+        x1: Math.min(panel.hi, Math.max(a.x, b.x)),
+        y0: Math.max(panel.lo, Math.min(a.y, b.y)),
+        y1: Math.min(panel.hi, Math.max(a.y, b.y)),
+      };
+      if (rect.x1 <= rect.x0 || rect.y1 <= rect.y0) continue;
+      const key = [rect.x0, rect.y0, rect.x1, rect.y1].map((v) => v.toFixed(3)).join();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(rect);
+    }
+  }
+  return out;
+}
+
+type ChipPlacing = Pick<
+  Prepared,
+  "reel" | "preset" | "log" | "speed" | "counts" | "joins" | "ignored" | "aspect"
+>;
+
+/**
+ * Where each chip actually sits. At 16:9 the author's placement stands and
+ * --check warns when it covers a press target. At any other aspect the author
+ * placed it against a panel edge that no longer exists, so it is pulled inside
+ * the frame and then moved to the nearest side of any press target it covers
+ * (the control being clicked, or the next one) — measured on agent-tool 9:16,
+ * "every action" sat on the Done button as it was pressed.
+ */
+function placeChips(
+  p: ChipPlacing,
+  chips: ReelChip[],
+): { chips: ReelChip[]; info: string[]; warn: string[] } {
+  const style = p.preset.annotation;
+  if (!style) return { chips, info: [], warn: [] };
+  const native = compositionSize(p.log);
+  const size = aspectSize(native, p.aspect);
+  const info: string[] = [];
+  const warn: string[] = [];
+  const placed = chips.map((c) => {
+    const px = chipSizePx(c.text, style, native.height);
+    const half = { w: px.width / 2 / size.width, h: px.height / 2 / size.height };
+    const rects = c.segment != null ? pressRects(p, c.segment, c.fromS, c.toS) : [];
+    let { x, y } = c;
+    if (p.aspect) {
+      x = pullInside(x, half.w);
+      // A pill's height of clearance, so it reads as beside the control, not
+      // touching it.
+      const d = dodgeRects(x, y, half, rects, { x: half.h, y: half.h / 2 });
+      if (d.moved)
+        info.push(
+          `"${c.text}" moved (${c.x.toFixed(3)}, ${c.y.toFixed(3)}) -> ` +
+            `(${d.x.toFixed(3)}, ${d.y.toFixed(3)}) off a press target`,
+        );
+      x = d.x;
+      y = d.y;
+    }
+    if (chipCovers(x, y, half, rects))
+      warn.push(
+        `chip "${c.text}" at (${x.toFixed(3)}, ${y.toFixed(3)}) covers a press target ` +
+          `in segment ${(c.segment ?? 0) + 1} (${c.fromS.toFixed(2)}-${c.toS.toFixed(2)}s). Move it.`,
+      );
+    return { ...c, x, y };
+  });
+  return { chips: placed, info, warn };
+}
+
+/**
+ * The reel with each card's hold nudged (±SNAP_MAX_F frames) so the cut out of
+ * it lands on the nearest onset of its `role: "bed"` audio. Onsets are
+ * detected once per bed and cached (scripts/lib/beats.ts); the bed is placed
+ * exactly as the mux will place it, against the bounds as they stand at each
+ * step, so an anchored bed moves with the nudges.
+ */
+function snapToBed(
+  reel: ResolvedReel,
+  counts: number[],
+  joins: number[],
+): { reel: ResolvedReel; counts: number[]; cuts: BeatCut[] } {
+  const beds = (reel.audio ?? []).map((piece) => {
+    const file = path.join(ROOT, "public", piece.src);
+    const durS = mediaDurationS(file);
+    // The trim alone decides which source range is read; placement comes later.
+    const probe = resolvePiece({ ...piece, start: 0, end: undefined, duration: undefined, pad: false }, durS, durS);
+    return { piece, durS, onsets: piece.role === "bed" ? bedOnsets(file, probe.sourceFromS, probe.availS) : [] };
+  }).filter((b) => b.piece.role === "bed");
+  const onsetsAt = (bounds: SegmentBounds): number[] => {
+    const total = bounds.startS[bounds.startS.length - 1] + bounds.durS[bounds.durS.length - 1];
+    return beds.flatMap((b) => {
+      const r = resolvePiece(b.piece, total, b.durS, bounds);
+      return b.onsets
+        .filter((o) => o >= r.sourceFromS && o < r.sourceFromS + r.durationS)
+        .map((o) => r.startS + (o - r.sourceFromS));
+    });
+  };
+  const segments = [...reel.segments];
+  const nudged = new Map<string, ReelSegment | null>();
+  const tryNudge = (i: number, d: number): ReelSegment | null => {
+    const key = `${i}:${d}`;
+    if (!nudged.has(key)) {
+      const seg = segments[i];
+      const card = isCard(seg) ? nudgeCard(reel, seg.card, d, FPS) : null;
+      nudged.set(key, card ? { ...seg, card } : null);
+    }
+    return nudged.get(key)!;
+  };
+  const snapped = snapCardCuts(
+    (i) => isCard(segments[i]),
+    counts,
+    joins,
+    FPS,
+    onsetsAt,
+    (i, d) => tryNudge(i, d) != null,
+  );
+  for (const c of snapped.cuts) if (c.nudgeF !== 0) segments[c.segment] = tryNudge(c.segment, c.nudgeF)!;
+  return { reel: { ...reel, segments }, counts: snapped.counts, cuts: snapped.cuts };
+}
+
+/** One line on how the cuts sit against the bed's beats. */
+function beatsLine(cuts: BeatCut[]): string {
+  const on = cuts.filter((c) => c.offF != null && Math.abs(c.offF) <= 0.5).length;
+  const each = cuts
+    .map((c) => `#${c.segment + 1} ${c.nudgeF > 0 ? "+" : ""}${c.nudgeF}f${c.offF == null ? "" : ` (${c.offF >= 0 ? "+" : ""}${c.offF.toFixed(1)}f)`}`)
+    .join(", ");
+  return `beats      -> ${on}/${cuts.length} card cuts on a beat (±0.5f) · nudge (off after): ${each}`;
 }
 
 /**
@@ -255,7 +626,27 @@ function openingScale(p: Prepared, i: number): { natural: number; opens: number 
     natural = p.ignored.get(i)?.includes("crop") ? 1 : (resolveCrop(seg.clip.crop)?.k ?? 1);
   }
   const open = seg.clip.open;
-  return { natural, opens: open ? Math.max(open.scale, natural) : natural };
+  if (!open) return { natural, opens: natural };
+  // What DemoClip will actually open on: openPose may step the scale down to
+  // keep the target in shot. The aspect path frames by its own crop.
+  if (p.aspect) return { natural, opens: Math.max(open.scale, natural) };
+  const running = { scale: natural, cx: 0.5, cy: 0.5 };
+  if (shot.framing === "window") {
+    const fit = shot.windowFit ?? WINDOW_FIT;
+    return { natural, opens: openPose(open, running, { viewScale: (s) => fit * s }).scale };
+  }
+  const crop = p.ignored.get(i)?.includes("crop") ? undefined : resolveCrop(seg.clip.crop);
+  const k = crop?.k ?? 1;
+  const pose = openPose(
+    {
+      ...open,
+      scale: open.scale / k,
+      at: cropPoint(open.at, crop),
+      ...(open.rect ? { rect: cropRect(open.rect, crop) } : {}),
+    },
+    { scale: 1, cx: 0.5, cy: 0.5 },
+  );
+  return { natural, opens: Math.max(natural, pose.scale * k) };
 }
 
 /** Source px per output px for clip `i` at rest — the number SHARPNESS_CEILING caps. */
@@ -332,7 +723,10 @@ function report(p: Prepared, authored: Reel, opts: CutOptions): void {
       ].filter(Boolean);
       what = `${seg.clip.label ?? ""}${anchors}${tags.length ? ` (${tags.join(", ")})` : ""}${motion}`;
     }
-    const join = i > 0 && joins[i - 1] > 0 ? `~${joins[i - 1]}f ` : "";
+    const join =
+      i > 0 && joins[i - 1] > 0
+        ? `${p.blends[i - 1] === "overlap" ? "+" : "~"}${joins[i - 1]}f `
+        : "";
     console.log(
       `  ${String(i + 1).padStart(2)} ${isCard(seg) ? "card" : "clip"}  ` +
         `${(join + at).padEnd(15)} ${len.padStart(6)}  ${demoRange.padEnd(12)}  ${what}`,
@@ -357,7 +751,12 @@ function report(p: Prepared, authored: Reel, opts: CutOptions): void {
   const t = preset.targets;
   const vs = (v: number, target: number | undefined, unit: string, digits = 2) =>
     `${v.toFixed(digits)}${unit}` + (target != null ? ` (target ${target.toFixed(digits)}${unit})` : "");
-  console.log(`\nruntime    -> ${s2(pace.runtimeS)}s · ${pace.shots} shots · ${pace.dissolves} dissolve(s)`);
+  const overlaps = p.blends.filter((b, i) => b === "overlap" && joins[i] > 0).length;
+  console.log(
+    `\nruntime    -> ${s2(pace.runtimeS)}s · ${pace.shots} shots · ` +
+      `${pace.dissolves - overlaps} dissolve(s)` +
+      (overlaps ? ` · ${overlaps} exit overlap(s) (+Nf above)` : ""),
+  );
   console.log(`mean shot  -> ${vs(pace.meanShotS, t?.meanShotS, "s")}`);
   console.log(`cut rate   -> ${vs(pace.cutsPerMin, t?.cutsPerMin, "/min", 1)}`);
   console.log(
@@ -373,8 +772,16 @@ function report(p: Prepared, authored: Reel, opts: CutOptions): void {
       console.log(`sfx ${kind.padEnd(7)}-> ${times.length} hit(s) at ${times.map(s2).join(", ")}s`);
     }
   }
+  if (p.beats) console.log(beatsLine(p.beats));
   const hud = preset.hud.kind === "steps" ? "steps" : "none";
-  console.log(`overlays   -> hud ${hud} · chips ${preset.annotation ? (reel.chips?.length ?? 0) : "n/a"}`);
+  console.log(`overlays   -> hud ${hud} · chips ${preset.annotation ? p.chips.length : "n/a"}`);
+  for (const c of p.chips)
+    console.log(
+      `  chip     -> "${c.text}" seg ${(c.segment ?? 0) + 1} ${s2(c.fromS)}-${s2(c.toS)}s ` +
+        `at (${c.x.toFixed(3)}, ${c.y.toFixed(3)})${c.ride ? " · rides its shot" : ""}`,
+    );
+  for (const n of p.chipNotes.info) console.log(`  chip     -> ${n}`);
+  for (const w of p.chipNotes.warn) console.warn(`  ⚠️  ${w}`);
   console.log(`\nchecked. Nothing rendered.`);
 }
 
@@ -395,7 +802,7 @@ function presetShotPush(preset: StylePreset): PushSpec | undefined {
 }
 
 /** DemoClip props for clip `i`, omitting every field its framing ignores. */
-function clipProps(p: Prepared, i: number): Record<string, unknown> {
+export function clipProps(p: Prepared, i: number): Record<string, unknown> {
   const { reel, preset } = p;
   const seg = reel.segments[i];
   if (!isClip(seg)) throw new Error("not a clip");
@@ -409,13 +816,16 @@ function clipProps(p: Prepared, i: number): Record<string, unknown> {
   // motion and adds nothing — measured on the harness reel, 24% moving under
   // proof became 18% under narration against a 36.8% target. Authored `push`
   // still wins, and a cards-layer style contributes nothing here.
-  const shotPush =
-    push ?? (preset.motionLayer === "shots" ? presetShotPush(preset) : undefined);
+  const shotPush = clipShotPush(push, preset);
   const common = {
     name: p.demo,
     speed: p.speed,
     ...(has("drift") ? { drift } : {}),
-    ...(reel.style ? { style: reel.style } : {}),
+    // ALWAYS the resolved style, never the reel's raw field. DemoClip resolves
+    // an absent style to DEFAULT_STYLE ("proof", full-bleed), so a reel that
+    // said only `look: "framed"` — or nothing — used to get framed CARDS and
+    // full-bleed CLIPS (review 2). `look` is not passed: the style supersedes it.
+    style: p.style,
     // The range is what lets a push know where the shot starts and ends:
     // --frames renders absolute frame numbers, so without it the envelope would
     // measure from the demo's frame 0.
@@ -432,16 +842,13 @@ function clipProps(p: Prepared, i: number): Record<string, unknown> {
     ...(open ? { open } : {}),
   };
   if (preset.shot.framing === "window") {
-    // A framed clip that names no style renders with exactly the props
-    // scripts/render.ts uses; the range only matters to a push, an opening and
-    // a moving crop, which all measure from the shot's first frame.
+    // The range only matters to a push, an opening and a moving crop, which
+    // all measure from the shot's first frame.
     const needsRange = shotPush || open || p.aspect;
     return { ...common, ...(needsRange ? { range: { first, last } } : {}) };
   }
   return {
     ...common,
-    // `look` keeps a legacy full-bleed reel dispatching as it always has.
-    ...(reel.look ? { look: reel.look } : {}),
     range: { first, last },
     ...(has("crop") ? { crop } : {}),
     ...(has("pageBg") ? { pageBg } : {}),
@@ -555,7 +962,7 @@ export function cutReel(authored: Reel, opts: CutOptions): string | null {
   const frame = p.aspect ? { size: aspectSize(native, p.aspect), native } : undefined;
   const layers = [
     hudLayer(reel, preset, counts, FPS, log, speed, joins, runtimeS, workDir, keep, frame),
-    chipsLayer(reel, preset, runtimeS, workDir, keep, frame),
+    chipsLayer(p.chips, preset, runtimeS, workDir, keep, frame),
   ].filter((l): l is NonNullable<typeof l> => l != null);
 
   const out = outPath("reel", `${opts.outBase}.mp4`);
@@ -572,7 +979,17 @@ export function cutReel(authored: Reel, opts: CutOptions): string | null {
     requireFilters(["concat", "xfade", "overlay"], "Joining a reel");
     execFileSync(
       "ffmpeg",
-      buildFinishArgs(parts, counts, FPS, joins, layers.map((l) => l.file), videoOnly),
+      buildFinishArgs(
+        parts,
+        counts,
+        FPS,
+        joins,
+        layers.map((l) => l.file),
+        videoOnly,
+        p.preset.shot.ground
+          ? { blends: p.blends, groundY: groundLuma(p.preset.shot.ground) }
+          : undefined,
+      ),
       { stdio: "inherit" },
     );
   } else {
@@ -619,10 +1036,11 @@ export function cutReel(authored: Reel, opts: CutOptions): string | null {
   const encode = dissolving || layers.length ? "1 encode" : "stream copy";
   console.log(
     `\nsegments   -> ${parts.length} (${counts.join(" + ")})` +
-      (dissolving ? `  dissolve ${joins.filter((o) => o > 0).length}x` : "") +
+      (dissolving ? `  blend ${joins.filter((o) => o > 0).length}x` : "") +
       (layers.length ? `  + ${layers.map((l) => l.label).join(", ")}` : "") +
       `  · ${encode}`,
   );
+  if (p.beats) console.log(beatsLine(p.beats));
   console.log(`frames     -> ${joined ?? expectedF}`);
   console.log(`runtime    -> ${runtimeS.toFixed(2)}s`);
   console.log(`reel       -> ${path.relative(ROOT, out)}`);

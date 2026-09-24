@@ -26,6 +26,7 @@ import {
   wordSchedule,
   wordsOf,
   type IntroStoryboard,
+  withChipTone,
 } from "./intro";
 import { DEFAULT_STYLE, STYLE_PRESETS, STYLES } from "./style";
 import type { ClickLog } from "./click-log";
@@ -925,5 +926,27 @@ describe("resolveCard", () => {
     assert.ok(t.chip);
     assert.ok(Math.abs(t.chip.punchEndS - t.chip.punchStartS - chip.punchS) < 1e-9);
     assert.ok(Math.abs(t.totalS - t.chip.pressS - chip.afterPressS) < 1e-9);
+  });
+});
+
+describe("chip tone", () => {
+  const light = introLook("light", STYLE_PRESETS.classic.palette);
+
+  it("keeps the ground's own chip when the chip names no tone", () => {
+    assert.equal(withChipTone(light).chipFill, light.chipFill);
+  });
+
+  it("paints a dark pill to match a dark control in the footage", () => {
+    // agent-skill's Create is a black button; the light ground's pill is white.
+    const dark = withChipTone(light, "dark");
+    assert.equal(dark.chipFill, "#17191d");
+    assert.notEqual(dark.chipFill, light.chipFill);
+    assert.equal(dark.ground, light.ground);
+  });
+
+  it("refuses a tone it does not know", () => {
+    const card = { name: "x", headline: "Hit {chip}.", background: "light" as const };
+    assert.equal(introProblem({ ...card, chip: { label: "Create", tone: "dark" } }), null);
+    assert.match(introProblem({ ...card, chip: { label: "Create", tone: "red" } }) ?? "", /chip\.tone/);
   });
 });

@@ -4,7 +4,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { describe, it } from "node:test";
 import {
+  dotenvValues,
   importGraph,
+  LEAVES,
   referencedAssets,
   referencedEnv,
   relativeSpecifiers,
@@ -152,5 +154,34 @@ describe("the real composition source sets", () => {
       for (const p of presets) assert.ok(code.includes(p), `${entry} misses ${path.relative(root, p)}`);
       assert.ok(code.includes(path.join(root, "src/lib/style/sequence.ts")), `${entry} misses sequence.ts`);
     }
+  });
+});
+
+describe("what the render command reads (review 2)", () => {
+  it("hashes the render-flag sources, even though no composition imports them", () => {
+    const root = path.resolve(import.meta.dirname, "..", "..");
+    for (const f of ["scripts/lib/remotion.ts", "scripts/lib/encode.ts"])
+      assert.ok(LEAVES.includes(f), `${f} is a leaf`);
+    const set = sourceSet(
+      [path.join(root, "src/Intro.tsx")],
+      LEAVES.map((f) => path.join(root, f)),
+    );
+    assert.ok(set.code.includes(path.join(root, "scripts/lib/remotion.ts")));
+    assert.ok(set.code.includes(path.join(root, "scripts/lib/encode.ts")));
+  });
+
+  it("hashes a value that only .env provides", () => {
+    // `pnpm reel` never loads .env into process.env, but the Remotion CLI
+    // hands it to the bundle — so a .env edit changes pixels.
+    const { dir, write } = fixture();
+    const entry = write("src/Root.tsx", `const b = process.env.DEMO_BACKDROP;\n`);
+    const set = sourceSet([entry], [], path.join(dir, "public"));
+    const envFile = write(".env", "DEMO_BACKDROP=glaze\n");
+    assert.deepEqual(dotenvValues(envFile), { DEMO_BACKDROP: "glaze" });
+    assert.notEqual(
+      sourceSetDigest(set, {}, dotenvValues(envFile)),
+      sourceSetDigest(set, {}, { DEMO_BACKDROP: "ink" }),
+    );
+    assert.deepEqual(dotenvValues(path.join(dir, "missing.env")), {});
   });
 });

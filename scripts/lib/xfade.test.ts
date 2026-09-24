@@ -5,6 +5,8 @@ import {
   buildJoinFilter,
   dissolvedFrameCount,
   dissolvedStarts,
+  groundLuma,
+  overlapTransition,
   runs,
 } from "./xfade";
 import { segmentBoundsSeconds } from "../../src/lib/reel-audio";
@@ -238,5 +240,32 @@ describe("buildFinishArgs (R1)", () => {
     assert.equal(flag("-filter_complex"), buildJoinFilter([60, 60], 30, [6], 1));
     assert.equal(flag("-map"), "[v]");
     assert.equal(args[args.length - 1], "/out.mp4");
+  });
+});
+
+describe("exit overlaps (R10)", () => {
+  it("keys an overlap join against the ground and fades the rest", () => {
+    // Joins 0->1 overlap, 1->2 dissolve: one custom transition, one fade, and
+    // the same offsets a pair of dissolves would get.
+    const f = buildJoinFilter(COUNTS, FPS, OVERLAP, 0, {
+      blends: ["overlap", "fade"],
+      groundY: 227.5,
+    });
+    assert.match(f, /xfade=transition=custom:expr='if\(gte\(abs\(a0\(/);
+    assert.match(f, /-227\.5\)/);
+    assert.match(f, /transition=custom[^;]*duration=0\.2:offset=0\.8/);
+    assert.match(f, /transition=fade:duration=0\.2:offset=1\.6/);
+  });
+
+  it("reads chroma by the luma of its own pixel (4:2:0)", () => {
+    assert.match(overlapTransition(200), /a0\(X\*\(1\+gt\(PLANE,0\)\),Y\*\(1\+gt\(PLANE,0\)\)\)/);
+  });
+
+  it("computes the ground's encoded luma", () => {
+    // stage's cream #faf6f1, BT.709 limited range.
+    assert.ok(Math.abs(groundLuma("#faf6f1") - 227.7) < 0.05, String(groundLuma("#faf6f1")));
+    assert.equal(groundLuma("#ffffff"), 235);
+    assert.equal(groundLuma("#000000"), 16);
+    assert.throws(() => groundLuma("cream"));
   });
 });

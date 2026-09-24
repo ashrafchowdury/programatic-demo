@@ -10,7 +10,7 @@
  * is a later input trimmed at the input level, and a single `-filter_complex`
  * places (adelay), levels (volume), fades (afade) and mixes (amix) them.
  */
-import type { ClickEvent, ClickLog } from "./click-log";
+import { logMsToDemoS, type ClickEvent, type ClickLog } from "./click-log";
 import {
   coldOpenIndex,
   isClip,
@@ -129,6 +129,17 @@ export function resolvePiece(
   // Without pad, a piece cannot outlast its own (trimmed) source.
   const wantS = piece.pad ? spanS : Math.min(spanS, availS);
   const durationS = Math.max(0, Math.min(wantS, reelRoom));
+  // A zero-length piece used to be dropped by the mux without a word, so a
+  // start past the end or a trim past the file shipped a reel without its bed
+  // — possibly a silent one. audioPlacementProblem catches the reel-side cases
+  // before anything renders; this catches the ones only the source length
+  // reveals.
+  if (!(durationS > 0))
+    throw new Error(
+      `audio "${piece.src}" resolves to zero length: it starts at ${n(startS)}s ` +
+        `of a ${n(totalReelS)}s reel with ${n(availS)}s of source after its trim` +
+        `${piece.duration === 0 ? " and `duration: 0`" : ""}. Fix its start, trim or length.`,
+    );
 
   return {
     src: piece.src,
@@ -146,6 +157,39 @@ export function resolvePiece(
   };
 }
 
+/**
+ * The first authored piece that cannot sound in THIS reel, or null.
+ *
+ * Needs the reel's own runtime and segment bounds, so it runs once the cut's
+ * frame counts are known — not in reelProblem, which only knows the demo's
+ * length and used to bound `start` by that (a 30 s demo, a 20 s reel: a start
+ * at 25 s passed and then placed nothing). Anchors are resolved exactly as the
+ * mux resolves them.
+ */
+export function audioPlacementProblem(
+  audio: ReelAudioPiece[] | undefined,
+  totalReelS: number,
+  bounds: SegmentBounds,
+): string | null {
+  for (let i = 0; i < (audio ?? []).length; i++) {
+    const piece = audio![i];
+    const at = `audio[${i}] ("${piece.src}")`;
+    // A crossfaded piece's own start is ignored; the fade places it.
+    if (!(piece.crossfadePrevS && i > 0)) {
+      const startS = resolveAnchor(piece.start ?? 0, bounds);
+      if (startS >= totalReelS - 1e-6)
+        return (
+          `${at} starts at ${s2(startS)}s, at or after the reel ends ` +
+          `(${s2(totalReelS)}s), so it would place no sound`
+        );
+      if (piece.end != null && resolveAnchor(piece.end, bounds) <= startS + 1e-6)
+        return `${at} ends at or before it starts (${s2(startS)}s)`;
+    }
+    if (piece.duration === 0) return `${at} has \`duration: 0\`, so it would place no sound`;
+  }
+  return null;
+}
+
 /** One beat that lands inside a playing clip: where it is, and which clip. */
 export type CueHit = {
   /** Segment index of the clip the beat plays in. */
@@ -161,8 +205,8 @@ export type CueHit = {
  * Every beat a cue fires on, per PLAYING clip — the hit list clickReelTimes
  * places and sfxProblem checks, so the two cannot disagree about what counts.
  *
- * A beat at `tMs` on the shoot clock lands at demo-second `(tMs/1000)/speed -
- * offset`; a clip covering `[fromS,toS)` plays it `demoSec - fromS` in. The
+ * A beat at `tMs` on the shoot clock lands at demo-second
+ * `logMsToDemoS(tMs)` — the picture's own clock; a clip covering `[fromS,toS)` plays it `demoSec - fromS` in. The
  * cold-open clip is skipped — it replays footage a later clip also covers, so
  * its beats would fire twice.
  *
@@ -178,7 +222,6 @@ export function cueHits(
   labels?: string[],
 ): CueHit[] {
   const cold = coldOpenIndex(segments);
-  const offsetS = (log.offsetMs ?? 0) / 1000;
   const hits: CueHit[] = [];
   for (let i = 0; i < segments.length; i++) {
     if (i === cold) continue;
@@ -188,7 +231,7 @@ export function cueHits(
     const { fromS, toS } = seg.clip;
     for (const beat of log.clicks) {
       if (!beatMatches(beat, kind, labels)) continue;
-      const demoS = beatTimeMs(beat, kind, labels) / 1000 / speed - offsetS;
+      const demoS = logMsToDemoS(beatTimeMs(beat, kind, labels), log, speed);
       if (demoS >= fromS && demoS < toS)
         hits.push({ segment: i, demoS, intoS: demoS - fromS, label: beat.label });
     }
@@ -257,7 +300,6 @@ export function sfxProblem(
   speed: number,
 ): string | null {
   if (!sfx) return null;
-  const offsetS = (log.offsetMs ?? 0) / 1000;
   for (const kind of SFX_KINDS) {
     const cue = sfx[kind];
     if (!cue) continue;
@@ -273,7 +315,7 @@ export function sfxProblem(
         .filter((b) => labelHit(b, [want]))
         .map(
           (b) =>
-            `"${b.label}" at demo ${s2((b.tDownMs ?? b.tMs) / 1000 / speed - offsetS)}s`,
+            `"${b.label}" at demo ${s2(logMsToDemoS(b.tDownMs ?? b.tMs, log, speed))}s`,
         );
       return found.length
         ? `"${want}" -> ${found.join(", ")}`
@@ -308,7 +350,6 @@ export function clipLabelWarnings(
   log: ClickLog,
   speed: number,
 ): string[] {
-  const offsetS = (log.offsetMs ?? 0) / 1000;
   const words = (s: string): string[] =>
     s
       .toLowerCase()
@@ -319,7 +360,7 @@ export function clipLabelWarnings(
     if (!isClip(seg) || seg.clip.freeze || !seg.clip.label) return;
     const { fromS, toS, label } = seg.clip;
     const inRange = log.clicks.filter((b) => {
-      const t = (b.tDownMs ?? b.tMs) / 1000 / speed - offsetS;
+      const t = logMsToDemoS(b.tDownMs ?? b.tMs, log, speed);
       return b.label && t >= fromS && t < toS;
     });
     const want = words(label);

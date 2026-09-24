@@ -580,6 +580,20 @@ export type SequenceStyle = {
     "x" | "y" | "scale",
     { dist: number; frames: number }
   > | null;
+  /**
+   * Frames by which a segment's directional EXIT overlaps the next segment's
+   * first frames, composited so whichever of the two shows more than bare
+   * ground wins each pixel. 0 = off: the exit plays out, then the cut.
+   *
+   * For a grammar whose seams are an emptied frame. Cut after the exit, the
+   * last frames of a shot leaving at speed are bare ground, and a hard cut
+   * there reads as a drop-out; overlapped, the next element is already
+   * arriving as the last one clears — which is what the reference does, with
+   * no cut at all. Needs a FLAT `shot.ground` to key against (checked by
+   * scripts/lib/reel-cut.ts); read by overlapJoins in src/lib/reel.ts. Costs
+   * the film its sum, exactly as a dissolve does.
+   */
+  overlapExitF: number;
 };
 
 export type StylePreset = {

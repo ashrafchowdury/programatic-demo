@@ -26,7 +26,7 @@ import {
 import { OUTPUT_WIDTH, type ClickLog, type CursorSample } from "./click-log";
 
 export type IntroStoryboard = {
-  /** Must match the demo name: it drives out/<name>.intro.mp4 and the stitch. */
+  /** Must match the demo name: it names out/reel/<name>.intro.mp4 and sizes the card from that demo's log. */
   name: string;
   /** Split on whitespace and staggered word by word. CSS does the wrapping. */
   headline: string;
@@ -75,9 +75,9 @@ export type IntroStoryboard = {
    * Absent falls back to `look`, and then to DEFAULT_STYLE (`proof`). See
    * src/lib/style.ts.
    *
-   * Must live HERE and not only on the reel: scripts/render-intro.ts renders a
-   * card straight from intros/<name>.ts with no reel around it, so a reel-level
-   * value could never reach it.
+   * Must live HERE and not only on the reel: `pnpm intro` (scripts/intro.ts)
+   * cuts a card straight from intros/<name>.ts as a one-card reel with no reel
+   * file around it, so a reel-level value could never reach it.
    */
   style?: ReelStyle;
   /**
@@ -143,7 +143,21 @@ export type IntroChip = {
   label: string;
   /** Where the pointer starts, in frame fractions. */
   from?: { x: number; y: number };
+  /**
+   * The pill's colour, when it must match the control in the footage rather
+   * than the card's ground. A chip card cuts into the clip that presses the
+   * real button, so the pill IS that button: agent-skill's Create is a black
+   * button, and the classic light ground's white outlined pill stopped matching
+   * it (round-3 review) where the old black one had. Absent = the ground's own
+   * chip look. Authored, not sampled from the footage: a sample at the rect
+   * reads the hover or pressed state, the cursor or the ripple as often as the
+   * button, and the two tones cover every control a flow has pressed.
+   */
+  tone?: ChipTone;
 };
+
+export const CHIP_TONES = ["dark", "light"] as const;
+export type ChipTone = (typeof CHIP_TONES)[number];
 
 /**
  * Inline per-word styling, so a storyboard can emphasise words without any code
@@ -332,6 +346,23 @@ const CHIP_DEFAULT = {
   rim: "rgba(255,255,255,0.16)",
 } as const;
 const HIGHLIGHT_DEFAULT = { fill: "#f4d35e", ink: "#101317" } as const;
+
+/**
+ * A chip's explicit tone. `dark` is CHIP_DEFAULT, the black pill every chip
+ * card wore before the light ground got its own; `light` is the classic light
+ * ground's white pill. See IntroChip.tone.
+ */
+const CHIP_TONE_LOOK: Record<ChipTone, { fill: string; label: string; rim: string }> = {
+  dark: CHIP_DEFAULT,
+  light: { fill: "#ffffff", label: "#101317", rim: "rgba(15,23,42,0.14)" },
+};
+
+/** The look with the chip's own tone, when it names one, over the ground's. */
+export function withChipTone(look: IntroLook, tone?: ChipTone): IntroLook {
+  if (!tone) return look;
+  const t = CHIP_TONE_LOOK[tone];
+  return { ...look, chipFill: t.fill, chipLabel: t.label, chipRim: t.rim };
+}
 
 /**
  * A card's colours, read from its style's palette and nothing else.
@@ -1035,13 +1066,11 @@ export function introDurationInFrames(
 }
 
 /**
- * Composition size for a card that will be concatenated onto <name>.mp4.
+ * Composition size for a card cut next to <name>'s demo footage.
  *
  * DUPLICATED from the DemoClip block in src/Root.tsx, on purpose: that block is
  * the demo's contract and is left byte-identical, so the two cannot share a
- * call without editing it. The duplication is pinned by a test, and
- * scripts/stitch.ts re-checks the real files with ffprobe before concatenating
- * — if these ever drift, the stitch refuses rather than producing a broken mp4.
+ * call without editing it. The duplication is pinned by a test.
  */
 export function compositionSize(log: ClickLog): {
   width: number;
@@ -1090,6 +1119,8 @@ export function introProblem(value: unknown): string | null {
       return "`chip` must be an object";
     if (typeof intro.chip.label !== "string" || intro.chip.label === "")
       return "`chip` needs a `label`";
+    if (intro.chip.tone !== undefined && !CHIP_TONES.includes(intro.chip.tone))
+      return `\`chip.tone\` must be one of ${CHIP_TONES.map((t) => `"${t}"`).join(", ")}`;
     if (headlineParts(intro.headline as string) === null)
       return `a chip card's headline must contain ${CHIP_TOKEN}`;
     // Length is checked on the VISIBLE text: markup adds characters that never

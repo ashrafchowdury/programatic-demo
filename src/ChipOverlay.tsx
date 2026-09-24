@@ -1,7 +1,7 @@
 import React from "react";
 import { AbsoluteFill, useCurrentFrame, useVideoConfig } from "remotion";
-import { settle } from "./lib/push";
-import { chipsAt, type ReelChip } from "./lib/chips";
+import { pushToCss, settle } from "./lib/push";
+import { chipRideAt, chipsAt, chipSizePx, pullInside, type ReelChip } from "./lib/chips";
 import type { AnnotationStyle } from "./lib/style";
 
 /**
@@ -32,11 +32,6 @@ export type ChipOverlayProps = {
   designHeight?: number;
 };
 
-/** Frame fraction kept clear at the sides when a chip has to be pulled in. */
-const EDGE_FRAC = 0.04;
-/** Advance of an average Inter glyph at 500, as a share of the font size. */
-const GLYPH_EM = 0.56;
-
 export const ChipOverlay: React.FC<ChipOverlayProps> = ({
   chips,
   style,
@@ -48,19 +43,19 @@ export const ChipOverlay: React.FC<ChipOverlayProps> = ({
   const live = chipsAt(chips, t);
   if (live.length === 0) return <AbsoluteFill />;
 
-  const pillH = (designHeight ?? height) * style.heightFrac;
-  const fontSize = (pillH * style.capRatio) / 0.715;
   // At another aspect a placement authored against a 16:9 panel edge can hang
   // off a narrower frame, so the pill's centre is pulled in until the whole
   // pill fits, from an estimate of its width. Native placements are the
   // author's and are left exactly where they were put.
+  // (scripts/lib/reel-cut.ts has usually placed it already — off the press
+  // targets too — so this is a no-op there; it guards a hand-built layer.)
   const centreX = (c: ReelChip): number => {
     if (designHeight == null) return c.x;
-    const halfW = (c.text.length * GLYPH_EM * fontSize + 2 * pillH * 0.38) / 2 / width;
-    const lo = EDGE_FRAC + halfW;
-    const hi = 1 - EDGE_FRAC - halfW;
-    return lo >= hi ? 0.5 : Math.min(hi, Math.max(lo, c.x));
+    const { width: w } = chipSizePx(c.text, style, designHeight);
+    return pullInside(c.x, w / 2 / width);
   };
+
+  const { height: pillH, fontSize } = chipSizePx("", style, designHeight ?? height);
 
   return (
     <AbsoluteFill>
@@ -81,9 +76,12 @@ export const ChipOverlay: React.FC<ChipOverlayProps> = ({
         // pill grows and squash them on the way out. Clipping reveals the text
         // at its true width, so the type is correct on every frame.
         const hidden = (1 - p) * 100;
-        return (
+        // The chip RIDES ITS SHOT: the same envelope, CSS and origin as
+        // FramedPush, so a panel scaling in carries its chips with it and one
+        // sliding out would take them along. Rest (no ride) adds no layer.
+        const ride = c.ride ? chipRideAt(c, frame) : null;
+        const pill = (
           <div
-            key={`${c.text}-${c.fromS}`}
             style={{
               position: "absolute",
               left: `${centreX(c) * 100}%`,
@@ -114,6 +112,14 @@ export const ChipOverlay: React.FC<ChipOverlayProps> = ({
           >
             {c.text}
           </div>
+        );
+        const key = `${c.text}-${c.fromS}`;
+        return ride && c.ride ? (
+          <AbsoluteFill key={key} style={{ transform: pushToCss(ride, c.ride.designScale) }}>
+            {pill}
+          </AbsoluteFill>
+        ) : (
+          <React.Fragment key={key}>{pill}</React.Fragment>
         );
       })}
     </AbsoluteFill>

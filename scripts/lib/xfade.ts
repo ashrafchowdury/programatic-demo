@@ -108,6 +108,43 @@ export function runs(count: number, joins: number[]): number[][] {
 }
 
 /**
+ * How to blend each join, when not every one is a plain cross-fade: `blends`
+ * parallels `joins`, and an "overlap" join keys its two shots against the
+ * style's flat ground (`groundY`, the ground's 8-bit limited-range luma).
+ */
+export type JoinOverlap = { blends: ("fade" | "overlap")[]; groundY: number };
+
+/** BT.709 limited-range luma of a `#rrggbb` ground, as the encoded Y plane holds it. */
+export function groundLuma(hex: string): number {
+  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+  if (!m) throw new Error(`Not a #rrggbb colour: ${hex}`);
+  const [r, g, b] = m.slice(1).map((h) => parseInt(h, 16) / 255);
+  return 16 + 219 * (0.2126 * r + 0.7152 * g + 0.0722 * b);
+}
+
+/**
+ * The xfade transition an OVERLAP join uses: per pixel, whichever shot sits
+ * further from the ground in luma wins — the outgoing shot where it still
+ * shows anything, the incoming one where it has already drawn something, and
+ * ground where neither has. Both play at full strength for the whole overlap;
+ * nothing fades.
+ *
+ * Chroma is decided by the luma of the pixel it belongs to (a0/b0 at twice the
+ * chroma coordinate), so a pixel never takes its Y from one shot and its colour
+ * from the other. That factor of two is 4:2:0, which every segment is.
+ * Measured on a 64x36 fixture: black from A, #f0f05a from B and bare cream
+ * all came through (0,0,0) / (240,239,89) / (250,246,243).
+ */
+export function overlapTransition(groundY: number): string {
+  const c = "(1+gt(PLANE,0))";
+  const g = n(groundY);
+  return (
+    `transition=custom:expr='if(gte(abs(a0(X*${c},Y*${c})-${g}),` +
+    `abs(b0(X*${c},Y*${c})-${g})),A,B)'`
+  );
+}
+
+/**
  * The `-filter_complex` graph joining every part and compositing `layers`
  * transparent overlays on top, output as `[v]`.
  *
@@ -125,6 +162,7 @@ export function buildJoinFilter(
   fps: number,
   joins: number[],
   layers = 0,
+  overlap?: JoinOverlap,
 ): string {
   const parts: string[] = [];
   const groups = runs(counts.length, joins);
@@ -150,10 +188,15 @@ export function buildJoinFilter(
   let acc = (runFrames[0] ?? 0) / fps;
   for (let r = 1; r < groups.length; r++) {
     const out = `[x${r}]`;
-    const d = (joins[groups[r][0] - 1] ?? 0) / fps;
+    const j = groups[r][0] - 1;
+    const d = (joins[j] ?? 0) / fps;
     const offset = acc - d;
+    const how =
+      overlap?.blends[j] === "overlap"
+        ? overlapTransition(overlap.groundY)
+        : "transition=fade";
     parts.push(
-      `${label}${runLabels[r]}xfade=transition=fade:duration=${n(d)}:offset=${n(offset)}${out}`,
+      `${label}${runLabels[r]}xfade=${how}:duration=${n(d)}:offset=${n(offset)}${out}`,
     );
     acc = offset + runFrames[r] / fps;
     label = out;
@@ -195,12 +238,13 @@ export function buildFinishArgs(
   joins: number[],
   layers: string[],
   out: string,
+  overlap?: JoinOverlap,
 ): string[] {
   return [
     "-y",
     ...[...parts, ...layers].flatMap((f) => ["-i", f]),
     "-filter_complex",
-    buildJoinFilter(counts, fps, joins, layers.length),
+    buildJoinFilter(counts, fps, joins, layers.length, overlap),
     "-map",
     "[v]",
     ...VIDEO_ENCODE_ARGS,
