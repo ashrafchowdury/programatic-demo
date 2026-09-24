@@ -65,7 +65,12 @@ Things that follow from this, and are not obvious:
   never upscales the app, even at the camera's deepest zoom. See
   `scripts/lib/capture-scale.ts` and `scripts/lib/screencast.ts`. The demo and
   reel output stay 2560 (`OUTPUT_WIDTH`); a still's `page.screenshot()` reads
-  the compositor surface and renders at 3840.
+  the compositor surface and renders at 3840. A capture too narrow for the
+  deepest zoom is REFUSED before filming; `DEMO_ALLOW_SOFT_CAPTURE=1` (or a
+  flow's `captureScale: 1` pin) records it soft. **Agenta automation flows
+  need `CAPTURE_SCALE=1` for now** — their popovers land off-screen under the
+  root zoom (being fixed). `DEMO_CAPTURE=playwright` is the old 25 fps VP8
+  path, for debugging the capture only.
 - A lone title card is a one-card reel: `pnpm intro <name>` renders
   `intros/<name>` to `out/reel/<name>.intro.mp4` through the reel pipeline.
   `render:intro` and `stitch` are retired — for card + demo, write a reel.
@@ -87,7 +92,12 @@ pnpm lint            # eslint + tsc --noEmit over src/ scripts/ flows/ shots/
 Demo: `pnpm record:live <name>` → `pnpm convert <name>` → `pnpm render <name>`.
 Reel: author `reels/<name>.ts` (a `style`, cards + clip ranges), then
 `pnpm reel <name>` (cards render, clip ranges re-render from the demo footage,
-all concatenated).
+all concatenated). Anchor ranges to beats (`fromBeat`/`toBeat` + signed
+`leadS`/`tailS`, matched to the click log's labels) rather than hand-typed
+seconds, so a re-shoot does not silently shift them. `--check` resolves beats
+and prints every range without rendering — run it first; `--style=<s>` cuts
+the same reel in another grammar; `--aspect=9:16|1:1` cuts a click-following
+crop. `pnpm render` and `pnpm intro` take `--style=` too.
 Still: author `shots/<name>.ts` (steps + the region to keep + a `look`:
 `window`, `cutout` or `bleed`), then `pnpm still <name> [preset|--all]`.
 `pnpm shot <name> --probe` writes a coordinate grid to `.diag/shots/` for

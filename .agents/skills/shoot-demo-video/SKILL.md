@@ -224,6 +224,23 @@ Recording is **headless by default** — a window that loses focus blurs inputs
 and pauses animations, so it changes what gets filmed. `HEADED=1` to watch a
 failure.
 
+**Capture.** The recorder films Chrome's compositor over CDP — lossless frames on
+their own timestamps (`DEMO_CAPTURE=playwright` is the old 25 fps VP8 fallback,
+for debugging only) — at `CAPTURE_SCALE` (default 2): a 2x viewport under a root
+`zoom`, so the camera's deepest zoom never upscales the app. A capture too narrow
+for that is **refused** before filming. `DEMO_ALLOW_SOFT_CAPTURE=1`, or
+`captureScale: 1` in the flow's `defineFlow`, records it soft instead.
+**Agenta automation flows need `CAPTURE_SCALE=1` for now**: their popovers land
+off-screen under the root zoom and cannot be clicked (being fixed):
+
+```bash
+CAPTURE_SCALE=1 DEMO_ALLOW_SOFT_CAPTURE=1 pnpm record:live <name>
+```
+
+`pnpm render <name> --style=<style>` renders the demo in another grammar (an
+unknown name is an error). For cutting a reel from the demo — beat-anchored
+ranges, `--check`, `--style`, `--aspect=9:16|1:1` — see the intro-reel skill.
+
 ### No hand-written flow: the self-tour
 
 Click through the UI yourself and let the recorder replay your selectors with
@@ -251,6 +268,10 @@ opened. Unset `DEMO_TOUR` keeps the scripted `flows/<name>.ts` path.
 | `HEADED` | unset | `1` shows the browser during a shoot. |
 | `DEMO_TOUR` | unset | `capture` records your own clicks to `tours/<name>.json`; `replay` shoots them. |
 | `DEMO_BAKED_CURSOR` | unset | `1` falls back to the legacy in-page cursor instead of the one Remotion draws. Debugging only — the drawn cursor stays sharp at any zoom. |
+| `CAPTURE_SCALE` | `2` | Capture multiple of the flow viewport. `1` for Agenta automation flows for now. |
+| `DEMO_ALLOW_SOFT_CAPTURE` | unset | `1` records a capture too narrow for full zoom instead of refusing it. |
+| `DEMO_CAPTURE` | `cdp` | `playwright` = legacy 25 fps VP8 capture, for debugging. |
+| `DEMO_BACKDROP` | `glaze` | Backdrop for renders that name none. `--backdrop=` beats it. |
 
 ## Check the result
 

@@ -128,6 +128,28 @@ Every recorder reads this the same way — `record:live`, `record:batch`,
 headed because a human drives it. A public site that challenges headless
 browsers (Google, sometimes) is a reason to set `HEADED=1` for that take.
 
+### Capture
+
+The recorder films through Chrome's compositor (CDP `Page.startScreencast`):
+lossless PNG frames, each placed on its own swap timestamp, muxed to
+`recordings/<name>.mkv`. `DEMO_CAPTURE=playwright` falls back to Playwright's
+`recordVideo` (25 fps, 1 Mbps VP8) — only for debugging the capture itself.
+
+The screencast emits CSS-viewport pixels, so the footage is sharpened another
+way: `CAPTURE_SCALE` (default **2**) doubles the CSS viewport under a root
+`zoom`, so the app lays out at the flow's own size and the recorder films
+3840×2160 frames of it. A capture narrower than the render needs at the
+camera's deepest zoom (3831 px for the 2560 output) is **refused** before a
+frame is shot; `DEMO_ALLOW_SOFT_CAPTURE=1` records it anyway, soft, and says so.
+A flow the root zoom breaks can pin `captureScale: 1` in `defineFlow`, which
+also allows the soft capture; `CAPTURE_SCALE` on the command line still wins.
+
+**Agenta automation flows currently need `CAPTURE_SCALE=1`**: their popovers are
+positioned from computed offsets and land off-screen under the root zoom, so
+Playwright cannot click them. That is being fixed; until then shoot them with
+`CAPTURE_SCALE=1 DEMO_ALLOW_SOFT_CAPTURE=1`. See
+[`scripts/lib/capture-scale.ts`](scripts/lib/capture-scale.ts).
+
 ### Several at once
 
 ```bash
@@ -206,8 +228,8 @@ something else is already moving. Doing it after a typing beat once turned a
 ## Intro title card
 
 An optional card that plays before a demo: wordmark, headline assembling word by
-word, then a still hold. It is rendered as its own composition and concatenated
-onto the demo, so nothing about the demo render changes.
+word, then a still hold. It is cut as a one-card reel (`pnpm intro <name>`,
+below), so nothing about the demo render changes.
 
 Write the copy — that is the whole storyboard, there is no animation to author.
 Author it as **JSON** (no code) or **TS** (`intros/<name>.json` is loaded before
@@ -317,6 +339,25 @@ Clip ranges are **seconds of `out/demo/<name>.mp4`** — the numbers you read of
 scrubber. `toS` is exclusive, so `0 → 3.2` and `3.2 → 7.9` do not share a frame.
 Cut on still beats, not mid-glide: the camera holds through every interaction,
 and a cut during a pan reads as a mistake.
+
+Or anchor a range to **beats**: name a click-log `label` and the range follows
+it through a re-shoot that moves it. A beat sits on its press; `leadS`/`tailS`
+are signed offsets from it; `"label#2"` picks the second beat with that label.
+Plain `fromS`/`toS` win where both are given.
+
+```ts
+{ clip: { fromBeat: "Add provider", leadS: -0.4, toBeat: "Save", tailS: 0.3 } }
+```
+
+```bash
+pnpm reel <name> --check          # resolve beats, print each range and the cut rate; render nothing
+pnpm reel <name> --style=stage    # the same cut in another grammar -> out/reel/<name>.stage.mp4
+pnpm reel <name> --aspect=9:16    # vertical (or 1:1): a crop that follows the clicks -> <name>.9x16.mp4
+```
+
+`--style=` also works on `pnpm render` (a demo in another grammar) and
+`pnpm intro` (with `--check`, too). An unknown style name is an error, not a
+silent default.
 
 Clips are re-rendered from the `DemoClip` composition with `--frames` rather
 than cut out of the mp4, so the footage never picks up a second h264 generation.
@@ -690,7 +731,7 @@ controls, not here. `.env.example` lists them with a line each.
 | `APP_BASE_URL` | — | The app to sign in to (`capture:session`, required) and the start URL for any flow or shot that names none | [`.env.example`](.env.example) |
 | `DEMO_URL_<NAME>` | — | A flow's start URL, kept out of the repo because it embeds account ids | [`.env.example`](.env.example) |
 | `HEADED` / `HEADLESS` | headless | `HEADED=1` (or `HEADLESS=0`) shows the browser, in every recorder — see [Recording your own app](#recording-your-own-app) | [`scripts/lib/session.ts`](scripts/lib/session.ts) |
-| `CAPTURE_SCALE` | `2` (max 4) | Record at this multiple of the flow's viewport while the app lays out at its own size — sharper footage. A capture too narrow for full zoom is refused unless `DEMO_ALLOW_SOFT_CAPTURE=1` | [`scripts/lib/capture-scale.ts`](scripts/lib/capture-scale.ts) |
+| `CAPTURE_SCALE` | `2` (max 4) | Record at this multiple of the flow's viewport while the app lays out at its own size — sharper footage. A capture too narrow for full zoom is refused unless `DEMO_ALLOW_SOFT_CAPTURE=1`. Agenta automation flows need `1` for now — see [Capture](#capture) | [`scripts/lib/capture-scale.ts`](scripts/lib/capture-scale.ts) |
 | `DEMO_CAPTURE` | `cdp` | Capture path: lossless compositor frames on their own timestamps. `playwright` falls back to Playwright's 25fps 1 Mbps VP8 | [`scripts/lib/screencast.ts`](scripts/lib/screencast.ts) |
 | `DEMO_CAPTURE_FPS` | `60` | Frame rate of the CDP intermediate. `DEMO_KEEP_FRAMES=1` keeps its raw PNGs | [`scripts/lib/screencast.ts`](scripts/lib/screencast.ts) |
 | `DEMO_BAKED_CURSOR` | off | `1` draws the legacy in-page pointer into the footage instead of Remotion's vector cursor — for debugging what the browser actually did | [`scripts/lib/recorder.ts`](scripts/lib/recorder.ts) |
