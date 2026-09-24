@@ -63,6 +63,15 @@
  * was. Filling it anyway paints a square over a parent that rounds its corners
  * without clipping (no overflow:hidden), and the corners poke out.
  * shots/smoke-popover.ts is the offline check for that and for oklch() fills.
+ *
+ * WHY `flat` STRIPS ONLY THE ROOTS' OUTER SHADOWS
+ * `shadow: false` in a shot means "photograph it without its elevation". The
+ * element's own outer box-shadow and any filter: drop-shadow() are that
+ * elevation, so they go before the screenshot and the crop measures the bare
+ * border box. Inset shadows are part of the surface, and a shadow on a button
+ * inside the card is content — both stay. Before this the flag only turned
+ * off the composition's CAST shadow, which an element with its own never got
+ * anyway, so `shadow: false` and the default rendered byte-identical.
  */
 
 export type IsolateResult = {
@@ -81,8 +90,9 @@ export type IsolateResult = {
 
 export const isolateInPage = new Function(
   "el",
-  "extras",
+  "arg",
   `
+  const extras = arg.extras;
   const rect = (r) => ({ x: r.left, y: r.top, width: r.width, height: r.height });
   const visible = (n) => getComputedStyle(n).visibility === "visible";
   // Every root kept: the element, plus any the shot named alongside it — a
@@ -163,6 +173,33 @@ export const isolateInPage = new Function(
     n.style.setProperty("background-color", "rgb(" + r + "," + g + "," + b + ")", "important");
   }
 
+  // shadow: false — see WHY \`flat\` above. Split box-shadow into its layers
+  // at top-level commas (a colour's rgb() has commas of its own).
+  if (arg.flat) {
+    const layers = (v) => {
+      const out = [];
+      let depth = 0, cur = "";
+      for (const ch of v) {
+        if (ch === "(") depth++;
+        if (ch === ")") depth--;
+        if (ch === "," && depth === 0) { out.push(cur.trim()); cur = ""; } else cur += ch;
+      }
+      if (cur.trim()) out.push(cur.trim());
+      return out;
+    };
+    for (const r of roots) {
+      const cs = getComputedStyle(r);
+      if (cs.boxShadow !== "none") {
+        const inset = layers(cs.boxShadow).filter((l) => /\\binset\\b/.test(l));
+        r.style.setProperty("box-shadow", inset.length ? inset.join(", ") : "none", "important");
+      }
+      if (cs.filter.includes("drop-shadow")) {
+        const rest = cs.filter.replace(/drop-shadow\\((?:[^()]|\\([^()]*\\))*\\)/g, "").trim();
+        r.style.setProperty("filter", rest || "none", "important");
+      }
+    }
+  }
+
   const clippers = [];
   for (let a = el.parentElement; a; a = a.parentElement) {
     const cs = getComputedStyle(a);
@@ -205,7 +242,7 @@ export const isolateInPage = new Function(
   };
   return { box, clippers };
 `,
-) as (el: Element, extras?: Element[]) => IsolateResult;
+) as (el: Element, arg: { extras: Element[]; flat: boolean }) => IsolateResult;
 
 /**
  * Tight bounding box of every pixel with alpha > 0, in the PNG's own pixels, or

@@ -66,6 +66,20 @@ export const Stage: React.FC<{ children: React.ReactNode; clip?: boolean }> = ({
 );
 
 /**
+ * The colour grade every still and clip wears over the product, whatever the
+ * look: a window, a bleed, or a cutout with no window at all. One string so a
+ * cutout cannot drift from the window beside it.
+ */
+export const PRODUCT_GRADE = "saturate(1.05) contrast(1.025) brightness(1.01)";
+
+/**
+ * The tint of every cast shadow on a light ground, as an `r,g,b` triple for
+ * rgba(). Warm, not slate: it is what the window's shadow below has always
+ * been, and a cutout's cast shadow uses it too so the two looks match.
+ */
+export const SHADOW_RGB = "30,20,10";
+
+/**
  * Window elevation, as a light rim rather than a cast shadow.
  *
  * ---------------------------------------------------------------------------
@@ -108,7 +122,7 @@ export const RimLight: React.FC<{ light?: boolean }> = ({ light = false }) => {
             position: "absolute",
             inset: 0,
             borderRadius: 60 * k,
-            background: "rgba(30,20,10,0.30)",
+            background: `rgba(${SHADOW_RGB},0.30)`,
             transform: "translateY(2.5%) scale(0.97, 0.96)",
             filter: `blur(${90 * k}px)`,
             pointerEvents: "none",
@@ -178,7 +192,7 @@ export const WindowFrame: React.FC<{
         background: "#fff",
         display: "flex",
         flexDirection: "column",
-        filter: "saturate(1.05) contrast(1.025) brightness(1.01)",
+        filter: PRODUCT_GRADE,
         // Hard edges only: the top inner highlight, and nothing else. The
         // outer hairline that used to sit here was a dark violet, sized to
         // stop white dissolving into a light gradient; against the dark

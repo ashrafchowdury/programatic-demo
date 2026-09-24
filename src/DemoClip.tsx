@@ -2,7 +2,6 @@ import React from "react";
 import {
   AbsoluteFill,
   Freeze,
-  Img,
   staticFile,
   useCurrentFrame,
   useVideoConfig,
@@ -12,7 +11,8 @@ import { zoomAt, type ClickLog } from "./lib/zoom";
 import { BASE_POSE, poseToCss } from "./lib/camera";
 import { footageFrames } from "./lib/demo-duration";
 import { CHROME_H, WINDOW_FIT } from "./lib/window";
-import { backdropFile, isLightBackdrop, isLightGround } from "./lib/backdrop";
+import { resolveGround } from "./lib/backdrop";
+import { Backdrop } from "./Backdrop";
 import { Cursor } from "./Cursor";
 import { ShutterBlur } from "./ShutterBlur";
 import { cornerTravelPx, groupsFor, shutterFraction } from "./lib/shutter";
@@ -31,7 +31,7 @@ import {
   KEYCAP_GROUND_FRAMED,
 } from "./KeycapHUD";
 import type { ReelLook } from "./lib/look";
-import { resolvePreset, type ReelStyle } from "./lib/style";
+import { resolveStylePreset, type ReelStyle } from "./lib/style";
 
 const round = (n: number) => Math.round(n);
 
@@ -125,64 +125,6 @@ export type DemoClipProps = {
    */
   freeze?: boolean;
 };
-
-/**
- * Studio backdrop: a pre-rendered image, not CSS.
- *
- * WHY AN IMAGE. Everything drawn as a CSS gradient has to survive h264 at CRF
- * 16, and near-black gradients do not. Measured as the longest run of
- * pixel-identical colour on a backdrop scanline after encoding (2560px wide):
- *
- *   this file                                  12px
- *   the violet CSS gradient this replaced      97px
- *   ray.so Prisma  (linear-gradient, near-black)  360px
- *   ray.so Stripe / AWS (flat #0a2540 / #151D26)  2560px — the whole scanline
- *
- * The mechanism is the dither. A soft ramp only avoids banding if noise breaks
- * it up, and the old `feTurbulence` overlay ran at opacity 0.035 — calibrated
- * for a Y=200 backdrop. On a dark one h264 discards it, and the encoder's
- * deadzone quantiser then flattens what is left. Worse, WEAK noise is actively
- * worse than none: measured on this same image, grain 4 gave 160px against 112px
- * for no grain at all, because the encoder quantises faint noise into blocks.
- * There is a threshold near grain 8 below which nothing survives.
- *
- * Baking sidesteps all of it. The grain is in the source at full amplitude, so
- * the encoder must spend bits on it. It is also nearly free per-frame: the
- * backdrop never moves, so after the I-frame every P-frame sees zero residual.
- *
- * REGENERATING. `pnpm backdrop <image> <name>` does all of this and reports the
- * banding measurement. Order matters and the script keeps it: blur first (it
- * would destroy grain applied before it), lift the black floor only if the
- * source is clipped (`--lift`), grain last.
- *
- * Downscaling alone is NOT enough dither: averaging 6000px into 2560px cuts the
- * source's own grain, and the unprocessed wallpaper measured 1930px.
- */
-
-
-/**
- * Drawn with <Img>, not a CSS background-image: Remotion blocks the frame until
- * an <Img> has decoded, so it cannot render a frame with the backdrop missing.
- * A CSS background is invisible to that handshake and flickers on cold workers.
- */
-export const Backdrop: React.FC<{ name?: string; ground?: string | null }> = ({
-  name,
-  ground,
-}) =>
-  // A FLAT ground short-circuits the image entirely. Not a 1x1 image stretched
-  // to frame: an <Img> costs a decode and a texture upload per frame, and the
-  // encoder treats a real gradient and a solid fill very differently — a solid
-  // fill is what lets the whole ground sit in one macroblock run.
-  ground ? (
-    <AbsoluteFill style={{ backgroundColor: ground }} />
-  ) : (
-    <AbsoluteFill>
-      <Img
-        src={staticFile(backdropFile(name))}
-        style={{ width: "100%", height: "100%", objectFit: "cover" }}
-      />
-    </AbsoluteFill>
-  );
 
 /**
  * The camera, as a function of frame, for the window group. Shared by the
@@ -296,11 +238,13 @@ const HeldFootage: React.FC<{
  */
 const ShadowGroup: React.FC<DemoClipProps> = (props) => {
   const { log, chrome = false, speed = 1, drift, backdrop } = props;
-  const { style } = useCameraGroup(chrome, log, speed, drift, resolvePreset(props).shot);
-  // A flat ground answers the light/dark question by measurement rather than
-  // from LIGHT_BACKDROPS, which only knows about the shipped images.
-  const ground = resolvePreset(props).shot.ground;
-  const light = ground ? isLightGround(ground) : isLightBackdrop(backdrop ?? "");
+  const { style } = useCameraGroup(chrome, log, speed, drift, resolveStylePreset(props).shot);
+  // The preset's flat ground, when it has one, wins over the backdrop image.
+  // See resolveGround for the one rule every composition shares.
+  const { light } = resolveGround({
+    ground: resolveStylePreset(props).shot.ground,
+    ownBackdrop: backdrop,
+  });
   return (
     // Unclipped: a push that scales the panel scales this box too, and its edge
     // would cut the shadow's blur flat. See Stage.
@@ -319,7 +263,7 @@ const ShadowGroup: React.FC<DemoClipProps> = (props) => {
  */
 const WindowGroup: React.FC<DemoClipProps> = (props) => {
   const { name, log, chrome = false, speed = 1, drift } = props;
-  const { shot } = resolvePreset(props);
+  const { shot } = resolveStylePreset(props);
   // The style's own pointer settings unless the clip overrides them. The demo
   // grammar says cursor + ripple, so every demo renders exactly as before; the
   // flat-ground grammar says no ripple, which its reels asked for and never got.
@@ -412,7 +356,7 @@ const ShutteredWindow: React.FC<DemoClipProps> = (props) => {
     log,
     speed,
     drift,
-    resolvePreset(props).shot,
+    resolveStylePreset(props).shot,
   );
   const half = shutterFraction() / 2;
   const travel = cornerTravelPx(
@@ -589,7 +533,7 @@ export const DemoClip: React.FC<DemoClipProps> = (props) => {
   // On the style's FRAMING, not its name — so a future grammar picks a path by
   // saying which framing it uses. `isolate` (src/lib/crop.ts) renders down the
   // full-bleed path too: it is a crop with a clip-path, not a third layer stack.
-  const { shot } = resolvePreset(props);
+  const { shot } = resolveStylePreset(props);
   if (shot.framing !== "window") return <FullBleedClip {...props} />;
 
   return (
@@ -599,7 +543,7 @@ export const DemoClip: React.FC<DemoClipProps> = (props) => {
         point of a flat-ground grammar: the stage stays put and elements enter
         and leave it. So the backdrop sits outside the push wrapper below.
       */}
-      <Backdrop name={props.backdrop} ground={resolvePreset(props).shot.ground} />
+      <Backdrop name={props.backdrop} ground={resolveStylePreset(props).shot.ground} />
       <FramedPush {...props}>
         {/*
           Shadow first, and deliberately NOT inside the shutter below: stacking

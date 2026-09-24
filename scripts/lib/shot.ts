@@ -63,7 +63,7 @@ export const isShotRect = (r: ShotRegion): r is ShotRect =>
   typeof r === "object" && "w" in r && "h" in r;
 
 export type ShotSpec = {
-  /** Output name: public/shots/<name>.png and out/shots/<name>-<preset>.png. */
+  /** Output name: public/shots/<name>.png and out/still/<name>-<preset>.png. */
   name: string;
   viewport: { width: number; height: number };
   /**
@@ -139,7 +139,11 @@ export type ShotSpec = {
   inset?: number;
   /** bleed: how much larger than the fitted window, or "fill" to cover the frame. Default BLEED_ZOOM. */
   zoom?: Zoom;
-  /** cutout: cast a soft shadow. Default: only when the element brought none. */
+  /**
+   * cutout: elevation. Default: the element's own shadow, or a soft cast one
+   * when it brought none. `true` always casts one; `false` strips the
+   * element's own box-shadow / drop-shadow at capture, so it comes out flat.
+   */
   shadow?: boolean;
   /** cutout: allow stretching past native by up to this factor (≤ 1.5). Default 1: never. */
   upscale?: number;

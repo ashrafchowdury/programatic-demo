@@ -6,7 +6,7 @@
  * which is the point: the treatment is authored per demo, not per release.
  *
  * Every file in public/backdrops/ has been through the same preparation, and
- * that preparation is not cosmetic — see the banding note in src/DemoClip.tsx.
+ * that preparation is not cosmetic — see the banding note in src/Backdrop.tsx.
  * A soft ramp banded by h264's deadzone quantiser is the failure mode, and the
  * fix is grain in the SOURCE at full amplitude. Measured on each of these, as
  * the longest identical-colour run on a scanline after an h264 pass: 1px, well
@@ -90,6 +90,62 @@ export function backdropFile(name: string = DEFAULT_BACKDROP): string {
   return trimmed.includes(".")
     ? `backdrops/${trimmed}`
     : `backdrops/${trimmed}.jpg`;
+}
+
+/**
+ * The still variant of a backdrop file, relative to public/.
+ *
+ * The shipped files are VIDEO assets: 2560x1440, grain at full amplitude so
+ * h264 cannot band them (see scripts/make-backdrop.ts). A PNG has no deadzone
+ * quantiser to beat, and a 4K still draws that file 1.5-2.7x up, where the
+ * grain turns into a visible grid and bloats the PNG. `pnpm backdrop` writes a
+ * 4K, grain-free `<name>-still.jpg` beside each one; a still prefers it when
+ * it exists and falls back to the video file when it does not (a custom
+ * backdrop dropped in by hand).
+ */
+export function stillBackdropFile(name: string = DEFAULT_BACKDROP): string {
+  return backdropFile(name).replace(/(\.[^./]+)?$/, "-still.jpg");
+}
+
+/**
+ * Which ground a composition stands on, and whether it is light.
+ *
+ * One rule, used by every composition and by the still renderer's warnings,
+ * so they cannot disagree about it:
+ *
+ *   - a flat `ground` given for THIS render wins;
+ *   - else a `backdrop` given for this render wins — over the shot's or
+ *     preset's own ground too, so `--backdrop=cobalt` on a flat-ground shot
+ *     does what it says;
+ *   - else the shot's own ground, else its own backdrop (the environment's
+ *     DEMO_BACKDROP, when set, stands in for the shot's).
+ *
+ * `light` answers the elevation question: a flat ground by measurement
+ * (isLightGround), an image by the hand-kept LIGHT_BACKDROPS.
+ */
+export type ResolvedGround = {
+  /** Flat colour (#rrggbb or "transparent"), or undefined for an image. */
+  ground?: string;
+  /** Backdrop name when the ground is an image; undefined means the default. */
+  backdrop?: string;
+  light: boolean;
+};
+
+export function resolveGround(o: {
+  /** Asked for this render (a flag, a prop). */
+  ground?: string | null;
+  backdrop?: string | null;
+  /** The shot's, preset's or flow's own. */
+  ownGround?: string | null;
+  ownBackdrop?: string | null;
+  /** process.env.DEMO_BACKDROP, where the caller reads it. */
+  envBackdrop?: string | null;
+}): ResolvedGround {
+  const ground =
+    o.ground || (o.backdrop ? undefined : o.ownGround || undefined);
+  const backdrop = o.backdrop || o.envBackdrop || o.ownBackdrop || undefined;
+  if (ground) return { ground, light: isLightGround(ground) };
+  return { backdrop, light: isLightBackdrop(backdrop ?? "") };
 }
 
 /** Reason a backdrop name is unusable, or null. */

@@ -60,8 +60,12 @@ export type ShotMeta = {
   inset?: number;
   zoom?: Zoom;
   /**
-   * Cutout only: cast a soft shadow under the element. Absent means "when the
-   * element brought none of its own" — see hasOwnShadow.
+   * Cutout only: the element's elevation. Absent means "its own shadow if it
+   * painted one, else a soft cast one" — see hasOwnShadow. `true` adds the
+   * cast shadow regardless. `false` in the SPEC is a capture decision: the
+   * element's own box-shadow and drop-shadow are stripped at isolation, so
+   * the PNG is flat. `--shadow=false` at render can only drop the cast
+   * shadow — whatever the element painted is already in the PNG.
    */
   shadow?: boolean;
   /**
@@ -77,6 +81,14 @@ export type ShotMeta = {
    * visibly high. The composition centres this box and lets the shadow hang.
    */
   body?: Box;
+  /**
+   * Bleed only: the box to keep in view, CSS px relative to the PNG's
+   * top-left. A bleed with a focus centres it on the canvas instead of pinning
+   * a corner — the corner is rarely where the point of the screen is. Written
+   * by the capture side when the spec names one, or given at render as
+   * `--focus=x,y` (fractions of the region).
+   */
+  focus?: Box;
 };
 
 /** An axis-aligned box, in whatever unit the caller says. */
@@ -96,14 +108,50 @@ export const STILL_LOOKS = ["window", "cutout", "bleed"] as const;
 export type StillLook = (typeof STILL_LOOKS)[number];
 export const DEFAULT_LOOK: StillLook = "window";
 
-export const isLook = (v: unknown): v is StillLook =>
+/** Named apart from src/lib/look.ts's isLook, which is the REEL's look. */
+export const isStillLook = (v: unknown): v is StillLook =>
   typeof v === "string" && (STILL_LOOKS as readonly string[]).includes(v);
 
 /** Look from CLI input. Throws with the list, since that is the fix. */
 export function resolveLook(raw?: string | null): StillLook {
   if (raw == null || raw === "") return DEFAULT_LOOK;
-  if (isLook(raw)) return raw;
+  if (isStillLook(raw)) return raw;
   throw new Error(`unknown look "${raw}" — expected one of ${STILL_LOOKS.join(", ")}`);
+}
+
+/**
+ * Which look a render of this capture uses, given what was asked for.
+ *
+ * A cutout's PNG is the element with alpha; a window's is an opaque crop. The
+ * composition cannot turn one into the other, so a request across that line
+ * comes back as a `problem` — with the fix — and the look the capture can
+ * actually be framed as. The CLI throws the problem; Studio warns and renders
+ * the fallback, because it must still open. One function so the two cannot
+ * disagree about where the line is.
+ */
+export function resolveShotLook(
+  meta: Pick<ShotMeta, "name" | "look">,
+  asked?: string | null,
+): { look: StillLook; problem: string | null } {
+  const captured: StillLook = meta.look ?? DEFAULT_LOOK;
+  if (asked == null || asked === "") return { look: captured, problem: null };
+  const look = resolveLook(asked);
+  const name = meta.name;
+  if (captured === "cutout" && look !== "cutout")
+    return {
+      look: captured,
+      problem:
+        `${name} was captured as a cutout; to frame it as ${look}, set look: "${look}" ` +
+        `in shots/${name}.ts and re-run \`pnpm shot ${name}\``,
+    };
+  if (captured !== "cutout" && look === "cutout")
+    return {
+      look: captured,
+      problem:
+        `${name} was captured as a ${captured} crop; a cutout is captured differently — ` +
+        `set look: "cutout" in shots/${name}.ts and re-run \`pnpm shot ${name}\``,
+    };
+  return { look, problem: null };
 }
 
 /** Where an anchored box sits on the canvas. */
@@ -275,8 +323,11 @@ export const STILL_PRESET_IDS = Object.keys(STILL_PRESETS) as StillPresetId[];
 export const isPresetId = (v: unknown): v is StillPresetId =>
   typeof v === "string" && v in STILL_PRESETS;
 
-/** Preset id from CLI input. Throws with the list, since that is the fix. */
-export function resolvePreset(raw?: string | null): StillPresetId {
+/**
+ * Preset id from CLI input. Throws with the list, since that is the fix.
+ * Named apart from src/lib/style.ts's resolvePreset, which is the REEL's.
+ */
+export function resolveStillPreset(raw?: string | null): StillPresetId {
   if (raw == null || raw === "") return DEFAULT_PRESET;
   if (isPresetId(raw)) return raw;
   throw new Error(
@@ -321,49 +372,68 @@ export function windowBox(
 /**
  * Native pixels the capture must reach so no preset upscales it, per look.
  *
- * The window target is unchanged from before looks existed. A bleed draws the
- * window `zoom` times larger, so it needs that many more pixels; a cutout is
- * placed at CUTOUT_FIT (or the spec's own `fit`), so it needs fewer.
+ * Measured off the layout each preset would actually draw, the way the render
+ * does it: the window (or a cutout's body) fitted into the canvas — the whole
+ * a split lays out across, when there is one — times a bleed's zoom. The
+ * largest long edge over every preset is the target.
+ *
+ * A split used to multiply the single-canvas target by its piece count. That
+ * assumed the window could be `count` times wider, which only a region as
+ * wide as the whole strip can be; on agents-page portrait --split=3 it asked
+ * for ~15.9k px when the layout needed ~5.9k, so every split shot at the
+ * viewport's ceiling and still warned it was short.
+ *
+ * `aspect` (height / width of the region) is known after the first pass,
+ * and is used where the canvas shape makes it matter: a split's long strip,
+ * and a fill bleed. On one canvas the bound stays the longest edge any region
+ * could reach, as it always was — shoot-still passes the PAINTED rect's
+ * aspect, which for a cutout is not its body's, and a target a few percent
+ * low would sit every cutout just under its `fit`.
  */
 export function captureTargetPx(
   look: StillLook,
   windowFit: number,
-  opts: { fit?: number; zoom?: Zoom; split?: number; aspect?: number } = {},
+  opts: { fit?: number; zoom?: Zoom; split?: number; gutter?: number; aspect?: number } = {},
 ): number {
-  // A split lays out across `count` pieces, so the window can be that much wider.
-  const pieces = opts.split ?? 1;
-  if (look === "cutout") return maxWindowPx(opts.fit ?? CUTOUT_FIT) * pieces;
-  if (look === "bleed") {
-    const zoom = opts.zoom ?? BLEED_ZOOM;
-    if (zoom !== "fill") return maxWindowPx(windowFit * zoom) * pieces;
-    // Fill depends on the canvas shape against the region's: take the most any
-    // preset would ask for. Without the region's aspect (before the first
-    // pass) fall back to the fixed default.
-    if (!opts.aspect) return maxWindowPx(windowFit * BLEED_ZOOM) * pieces;
-    return Math.round(
-      Math.max(
-        ...STILL_PRESET_IDS.map((id) => {
-          const canvas = {
-            width: STILL_PRESETS[id].width * pieces,
-            height: STILL_PRESETS[id].height,
-          };
-          const base = windowBox(opts.aspect!, canvas, windowFit);
-          const z = fillZoom(base, canvas);
-          return Math.max(base.width, base.height) * z;
-        }),
-      ),
-    );
-  }
-  return maxWindowPx(windowFit) * pieces;
+  const count = opts.split != null && opts.split > 1 ? opts.split : 1;
+  const whole = (id: StillPresetId): Canvas =>
+    count > 1
+      ? splitCanvas(STILL_PRESETS[id], { count, piece: 0, gutter: opts.gutter ?? 0 }).canvas
+      : STILL_PRESETS[id];
+  const fit = look === "cutout" ? (opts.fit ?? CUTOUT_FIT) : windowFit;
+  const zoom = look === "bleed" ? (opts.zoom ?? BLEED_ZOOM) : 1;
+  // Without the region's shape a fill zoom cannot be resolved; the default
+  // factor stands in, as it always has.
+  const factor = (base: Canvas, canvas: Canvas): number =>
+    zoom === "fill" ? (opts.aspect ? fillZoom(base, canvas) : BLEED_ZOOM) : zoom;
+  return Math.round(
+    Math.max(
+      ...STILL_PRESET_IDS.map((id) => {
+        const canvas = whole(id);
+        if (!opts.aspect || (count === 1 && zoom !== "fill")) {
+          const edge = Math.max(canvas.width, canvas.height) * fit;
+          return edge * factor({ width: edge, height: edge }, canvas);
+        }
+        const base = windowBox(opts.aspect, canvas, fit);
+        return Math.max(base.width, base.height) * factor(base, canvas);
+      }),
+    ),
+  );
 }
 
 /**
  * Top-left of a box of `size` placed on `canvas` at `anchor`.
  *
- * `inset` is a fraction of the canvas edge kept clear on each anchored side —
- * "top-left" with 0.06 sits 6% in from the left and 6% down from the top. An
- * axis the anchor does not name is centred. A box larger than the canvas
- * simply gets a negative offset on the far side; that is what a bleed is.
+ * `inset` is a fraction of the canvas's SHORT edge kept clear on each
+ * anchored side — "top-left" with 0.06 on 3840x2160 sits 130px in from the
+ * left and 130px down from the top. An axis the anchor does not name is
+ * centred. A box larger than the canvas simply gets a negative offset on the
+ * far side; that is what a bleed is.
+ *
+ * One margin on both axes, not a fraction of each: per axis, a story frame
+ * (2160x3840) got 230px on top and 130px at the side, and a 3-piece portrait
+ * split — laid out across 6480x2700 — 390px at the side and 160px on top. A
+ * split's canvas is the whole strip, so its short edge is the piece height.
  */
 export function anchorBox(
   size: Canvas,
@@ -372,20 +442,25 @@ export function anchorBox(
   inset: number,
 ): { left: number; top: number } {
   const [v, h] = anchorAxes(anchor);
+  const margin = insetPx(canvas, inset);
   const left =
     h === "left"
-      ? canvas.width * inset
+      ? margin
       : h === "right"
-        ? canvas.width - canvas.width * inset - size.width
+        ? canvas.width - margin - size.width
         : (canvas.width - size.width) / 2;
   const top =
     v === "top"
-      ? canvas.height * inset
+      ? margin
       : v === "bottom"
-        ? canvas.height - canvas.height * inset - size.height
+        ? canvas.height - margin - size.height
         : (canvas.height - size.height) / 2;
   return { left, top };
 }
+
+/** An `inset` fraction in canvas px: the same margin on both axes. See anchorBox. */
+export const insetPx = (canvas: Canvas, inset: number): number =>
+  Math.min(canvas.width, canvas.height) * inset;
 
 const anchorAxes = (
   anchor: Anchor,
@@ -552,9 +627,10 @@ export function bleedLayout(
   meta: ShotMeta,
   canvas: Canvas,
   windowFit: number,
-  opts: { zoom?: Zoom; anchor?: Anchor; inset?: number } = {},
+  opts: { zoom?: Zoom; anchor?: Anchor; inset?: number; focus?: Box } = {},
 ): Box {
   const asked = opts.zoom ?? meta.zoom ?? BLEED_ZOOM;
+  const focus = opts.focus ?? meta.focus;
   const anchor = opts.anchor ?? meta.anchor ?? "top-left";
   const inset = opts.inset ?? meta.inset ?? BLEED_INSET;
   const base = windowBox(shotAspect(meta), canvas, windowFit);
@@ -565,8 +641,119 @@ export function bleedLayout(
     width: Math.round(base.width * zoom),
     height: Math.round(base.height * zoom),
   };
-  const at = anchorBox(size, canvas, anchor, inset);
+  const at = focus
+    ? focusBox(size, canvas, {
+        x: ((focus.x + focus.width / 2) / meta.region.width) * size.width,
+        y: ((focus.y + focus.height / 2) / meta.region.height) * size.height,
+      }, inset)
+    : anchorBox(size, canvas, anchor, inset);
   return { x: Math.round(at.left), y: Math.round(at.top), ...size };
+}
+
+/**
+ * Top-left of a box of `size` placed so `point` (px inside the box) lands on
+ * the canvas centre — then pulled back so no edge comes further in than the
+ * inset margin, or the ground would show where the bleed should run off. An
+ * axis on which the box is smaller than the canvas is simply centred.
+ */
+export function focusBox(
+  size: Canvas,
+  canvas: Canvas,
+  point: { x: number; y: number },
+  inset: number,
+): { left: number; top: number } {
+  const margin = insetPx(canvas, inset);
+  const axis = (len: number, room: number, at: number): number => {
+    if (len <= room) return (room - len) / 2;
+    const want = room / 2 - at;
+    return Math.min(margin, Math.max(room - margin - len, want));
+  };
+  return {
+    left: axis(size.width, canvas.width, point.x),
+    top: axis(size.height, canvas.height, point.y),
+  };
+}
+
+/**
+ * The width, in device px, a feed shows an image at: a phone's feed column.
+ * Text size in a still only means something against the size it is SEEN at,
+ * and every platform scales a post to its column, whatever its pixel count.
+ */
+export const FEED_WIDTH = 1080;
+/**
+ * Below this many feed px per CSS px, UI text stops reading. 13px body text
+ * at 0.7x lands at ~9px on a phone, which is the smallest the reference
+ * stills ever show; a 1440px-wide 16:9 page in a window on `wide` reaches ~0.64x.
+ */
+export const MIN_TEXT_SCALE = 0.7;
+/**
+ * Below this share of the canvas, the product is a small picture on a lot of
+ * ground. A 16:9 window in a story frame covers ~23%.
+ */
+export const MIN_FILL = 0.45;
+
+export type Legibility = {
+  /** Feed px per CSS px of the app — 1 is the app at its own size. */
+  textScale: number;
+  /** Share of the (whole) canvas the product covers, 0-1. */
+  fill: number;
+};
+
+/**
+ * How big the app will read, and how much of the frame it takes, for one
+ * render. Both come off the same layout the composition draws.
+ *
+ * `piece` is the size one posted image is (a split's piece, else the canvas):
+ * a feed scales THAT to FEED_WIDTH. `canvas` is what the layout spans.
+ */
+export function stillLegibility(
+  meta: ShotMeta,
+  look: StillLook,
+  piece: Canvas,
+  canvas: Canvas,
+  windowFit: number,
+  opts: {
+    fit?: number;
+    anchor?: Anchor;
+    inset?: number;
+    zoom?: Zoom;
+    upscale?: number;
+    focus?: Box;
+  } = {},
+): Legibility {
+  let drawn: Box;
+  let cssWidth: number;
+  if (look === "cutout" && meta.body) {
+    drawn = cutoutLayout(meta, canvas, opts).body;
+    cssWidth = meta.body.width;
+  } else if (look === "bleed") {
+    drawn = bleedLayout(meta, canvas, windowFit, opts);
+    cssWidth = meta.region.width;
+  } else {
+    const box = windowBox(shotAspect(meta), canvas, windowFit);
+    drawn = { x: (canvas.width - box.width) / 2, y: (canvas.height - box.height) / 2, ...box };
+    cssWidth = meta.region.width;
+  }
+  const seen = (a: number, len: number, room: number) =>
+    Math.max(0, Math.min(room, a + len) - Math.max(0, a));
+  return {
+    textScale: (drawn.width / cssWidth) * (FEED_WIDTH / piece.width),
+    fill:
+      (seen(drawn.x, drawn.width, canvas.width) * seen(drawn.y, drawn.height, canvas.height)) /
+      (canvas.width * canvas.height),
+  };
+}
+
+/**
+ * `--focus=x,y` — a point as fractions of the region, 0-1 each — as the
+ * zero-size box in the region's CSS px that bleedLayout centres. Throws with
+ * the form, since that is the fix.
+ */
+export function parseFocus(raw: string, region: Canvas): Box {
+  const parts = raw.split(",").map((p) => Number(p.trim()));
+  if (parts.length !== 2 || !parts.every((n) => Number.isFinite(n) && n >= 0 && n <= 1))
+    throw new Error(`--focus wants x,y as fractions of the region, e.g. 0.7,0.3 — got "${raw}"`);
+  return { x: parts[0] * region.width, y: parts[1] * region.height, width: 0, height: 0 };
 }
 
 /** Stand-in so Studio opens before anything has been shot. */
@@ -625,8 +812,9 @@ export function framingProblem(v: {
   upscale?: unknown;
   ground?: unknown;
   body?: unknown;
+  focus?: unknown;
 }): string | null {
-  if (v.look !== undefined && !isLook(v.look))
+  if (v.look !== undefined && !isStillLook(v.look))
     return `\`look\` must be one of ${STILL_LOOKS.join(", ")}`;
   if (v.fit !== undefined && !(typeof v.fit === "number" && v.fit > 0 && v.fit <= MAX_CUTOUT_FIT))
     return `\`fit\` must be a number in (0, ${MAX_CUTOUT_FIT}]`;
@@ -651,6 +839,13 @@ export function framingProblem(v: {
     for (const key of ["x", "y", "width", "height"] as const)
       if (typeof b[key] !== "number") return `\`body.${key}\` must be a number`;
     if (!(b.width! > 0 && b.height! > 0)) return "`body` must have a positive size";
+  }
+  if (v.focus !== undefined) {
+    const f = v.focus as Partial<Box>;
+    if (typeof f !== "object" || f === null) return "`focus` must be an object";
+    for (const key of ["x", "y", "width", "height"] as const)
+      if (typeof f[key] !== "number") return `\`focus.${key}\` must be a number`;
+    if (!(f.width! >= 0 && f.height! >= 0)) return "`focus` must not have a negative size";
   }
   return null;
 }

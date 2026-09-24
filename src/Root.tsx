@@ -21,14 +21,14 @@ import { compositionSize, introDurationInFrames } from "./lib/intro";
 import {
   DEFAULT_PRESET,
   fallbackShotMeta,
-  resolveLook,
-  resolvePreset,
+  resolveShotLook,
+  resolveStillPreset,
   shotMetaProblem,
   STILL_PRESETS,
   type ShotMeta,
   type Split,
-  type StillLook,
 } from "./lib/still";
+import { resolveGround, stillBackdropFile } from "./lib/backdrop";
 import smokeIntro from "../intros/smoke";
 
 const FPS = 30;
@@ -239,33 +239,40 @@ export const RemotionRoot: React.FC = () => {
           } catch {
             // Nothing shot yet. Studio still opens on the fallback.
           }
-          const preset = resolvePreset(
+          const preset = resolveStillPreset(
             (props as { preset?: string }).preset ?? process.env.DEMO_PRESET,
           );
-          const backdrop =
-            props.backdrop ?? process.env.DEMO_BACKDROP ?? meta.backdrop;
-          // An explicit backdrop on the command line beats the shot's ground;
-          // otherwise the ground, when the shot has one, beats the backdrop.
-          const ground =
-            props.ground ?? (props.backdrop ? undefined : meta.ground);
-          // A cutout's PNG is the element with alpha, not a crop, so it can
-          // only be framed as a cutout; a window capture can be a window or a
-          // bleed. Mismatches warn and fall back rather than refusing — the
-          // CLI rejects them earlier, and Studio must still open.
-          const captured: StillLook = meta.look ?? "window";
-          let look = props.look == null ? captured : resolveLook(props.look);
-          if ((captured === "cutout") !== (look === "cutout")) {
-            console.warn(
-              `shots/${props.name}.json was captured as ${captured}; cannot render as ${look}`,
-            );
-            look = captured;
+          // Which ground wins — the one rule, shared with DemoClip and the
+          // CLI's warnings. See resolveGround.
+          const { ground, backdrop } = resolveGround({
+            ground: props.ground,
+            backdrop: props.backdrop,
+            ownGround: meta.ground,
+            ownBackdrop: meta.backdrop,
+            envBackdrop: process.env.DEMO_BACKDROP,
+          });
+          // An image ground prefers its 4K grain-free still variant, when
+          // `pnpm backdrop` has made one; a hand-dropped file has none.
+          let backdropSrc: string | undefined;
+          if (!ground) {
+            const still = stillBackdropFile(backdrop);
+            try {
+              const res = await fetch(staticFile(still), { method: "HEAD" });
+              if (res.ok) backdropSrc = still;
+            } catch {
+              // No variant: the video file it is.
+            }
           }
+          // A cutout can only be framed as a cutout. The CLI refuses a
+          // mismatch; Studio warns and falls back, because it must still open.
+          const { look, problem: lookProblem } = resolveShotLook(meta, props.look);
+          if (lookProblem) console.warn(lookProblem);
           // A split is rendered a piece at a time; the composition stays the
           // preset's size and the piece index rides in with the props.
           const split = (props as { split?: Split }).split;
           return {
             ...STILL_PRESETS[preset],
-            props: { ...props, meta, backdrop, ground, look, split },
+            props: { ...props, meta, backdrop, backdropSrc, ground, look, split },
           };
         }}
       />

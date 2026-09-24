@@ -23,7 +23,13 @@ import {
   MAX_UPSCALE,
   resolveAnchor,
   resolveLook,
-  resolvePreset,
+  resolveStillPreset,
+  resolveShotLook,
+  isStillLook,
+  focusBox,
+  parseFocus,
+  stillLegibility,
+  FEED_WIDTH,
   shotAspect,
   shotMetaProblem,
   shotPixels,
@@ -74,15 +80,15 @@ describe("STILL_PRESETS", () => {
   });
 });
 
-describe("resolvePreset", () => {
+describe("resolveStillPreset", () => {
   it("defaults when nothing is given", () => {
-    assert.equal(resolvePreset(), DEFAULT_PRESET);
-    assert.equal(resolvePreset(""), DEFAULT_PRESET);
-    assert.equal(resolvePreset(null), DEFAULT_PRESET);
+    assert.equal(resolveStillPreset(), DEFAULT_PRESET);
+    assert.equal(resolveStillPreset(""), DEFAULT_PRESET);
+    assert.equal(resolveStillPreset(null), DEFAULT_PRESET);
   });
 
   it("names the valid options when it rejects one, since that is the fix", () => {
-    assert.throws(() => resolvePreset("twitter"), /wide, og, square/);
+    assert.throws(() => resolveStillPreset("twitter"), /wide, og, square/);
   });
 });
 
@@ -221,12 +227,25 @@ describe("anchorBox", () => {
   });
 
   it("keeps inset clear on the anchored sides only", () => {
-    assert.deepEqual(anchorBox(size, canvas, "top-left", 0.1), { left: 100, top: 50 });
+    assert.deepEqual(anchorBox(size, canvas, "top-left", 0.1), { left: 50, top: 50 });
     assert.deepEqual(anchorBox(size, canvas, "bottom-right", 0.1), {
-      left: 1000 - 100 - 200,
+      left: 1000 - 50 - 200,
       top: 500 - 50 - 100,
     });
-    assert.deepEqual(anchorBox(size, canvas, "right", 0.1), { left: 700, top: 200 });
+    assert.deepEqual(anchorBox(size, canvas, "right", 0.1), { left: 750, top: 200 });
+  });
+
+  it("insets the same px on both axes, off the short edge, on any canvas shape", () => {
+    const tiny = { width: 10, height: 10 };
+    // A story frame: 0.06 per axis used to be 130px at the side, 230px on top.
+    const story = anchorBox(tiny, STILL_PRESETS.story, "top-left", 0.06);
+    assert.equal(story.left, story.top);
+    assert.equal(Math.round(story.left), 130);
+    // A 3-piece portrait split lays out across 6480x2700: 390 vs 162 before.
+    const whole = splitCanvas(STILL_PRESETS.portrait, { count: 3, piece: 0, gutter: 0 }).canvas;
+    const split = anchorBox(tiny, whole, "bottom-right", 0.06);
+    assert.equal(whole.width - split.left - tiny.width, whole.height - split.top - tiny.height);
+    assert.equal(Math.round(whole.height - split.top - tiny.height), 162);
   });
 
   it("places every anchor inside the canvas when the box fits", () => {
@@ -240,7 +259,7 @@ describe("anchorBox", () => {
   it("lets an oversized box run off the far side", () => {
     const big = { width: 1300, height: 600 };
     const { left, top } = anchorBox(big, canvas, "top-left", 0.06);
-    assert.equal(left, 60);
+    assert.equal(left, 30);
     assert.equal(top, 30);
     assert.ok(left + big.width > canvas.width);
     assert.ok(top + big.height > canvas.height);
@@ -296,10 +315,10 @@ describe("cutoutLayout", () => {
   });
 
   it("honours anchor and inset, and reports overflow", () => {
-    // 15% of 2160 is 324px clear below the body; the shadow needs 240.
+    // 15% of 2160 is 324px clear below the body — and beside it; the shadow needs 240.
     const lay = cutoutLayout(cut(), canvas, { anchor: "bottom-right", inset: 0.15 });
-    assert.equal(lay.body.x + lay.body.width, canvas.width * 0.85);
-    assert.equal(lay.body.y + lay.body.height, canvas.height * 0.85);
+    assert.equal(lay.body.x + lay.body.width, canvas.width - 324);
+    assert.equal(lay.body.y + lay.body.height, canvas.height - 324);
     assert.equal(lay.overflows, false);
     const off = cutoutLayout(cut(), canvas, { anchor: "bottom", inset: 0 });
     assert.equal(off.overflows, true, "the shadow below the body runs off the canvas");
@@ -310,7 +329,7 @@ describe("cutoutLayout", () => {
     const wide = cut({ scale: 4, body: { x: 20, y: 20, width: 1000, height: 200 }, region: { width: 1040, height: 280 } });
     const lay = cutoutLayout(wide, canvas, { fit: 1.4, anchor: "left", inset: 0.05 });
     assert.equal(lay.scale, 1);
-    assert.equal(lay.body.x, canvas.width * 0.05);
+    assert.equal(lay.body.x, canvas.height * 0.05);
     assert.ok(lay.body.x + lay.body.width > canvas.width, "runs off the right");
     assert.equal(lay.overflows, true);
     // With the pixels to spare it is scaled DOWN to the asked size.
@@ -444,9 +463,152 @@ describe("splitProblem", () => {
 });
 
 describe("captureTargetPx with a split", () => {
-  it("asks for count times the pixels, since the window can be that much wider", () => {
-    assert.equal(captureTargetPx("window", FIT, { split: 3 }), maxWindowPx(FIT) * 3);
-    assert.equal(captureTargetPx("cutout", FIT, { split: 2 }), maxWindowPx(CUTOUT_FIT) * 2);
+  it("asks for what the per-piece layout draws, not count times one canvas", () => {
+    // agents-page, 16:9, --split=3: used to ask 3x maxWindowPx (~9.9k px at
+    // this fit), and so always shot at the viewport's ceiling.
+    const target = captureTargetPx("window", FIT, { split: 3, gutter: 8, aspect: 9 / 16 });
+    // Whatever preset binds, it is the largest window any split canvas holds.
+    const expected = Math.max(
+      ...STILL_PRESET_IDS.map((id) => {
+        const whole = splitCanvas(STILL_PRESETS[id], { count: 3, piece: 0, gutter: 8 }).canvas;
+        const w = windowBox(9 / 16, whole, FIT);
+        return Math.max(w.width, w.height);
+      }),
+    );
+    assert.equal(target, expected);
+    assert.ok(target < maxWindowPx(FIT) * 3 * 0.65, `${target} is well under the old ask`);
+  });
+
+  it("stays the conservative longest-edge bound before the region's shape is known", () => {
+    const whole = splitCanvas(STILL_PRESETS.wide, { count: 2, piece: 0, gutter: 0 }).canvas;
+    assert.equal(captureTargetPx("cutout", FIT, { split: 2 }), Math.round(whole.width * CUTOUT_FIT));
+  });
+
+  it("changes nothing on one canvas", () => {
+    assert.equal(captureTargetPx("window", FIT, { split: 1, aspect: 1 }), maxWindowPx(FIT));
+    assert.equal(captureTargetPx("window", FIT, { aspect: 1 }), maxWindowPx(FIT));
+  });
+});
+
+describe("resolveShotLook", () => {
+  const window = { name: "s" };
+  const cutout = { name: "s", look: "cutout" as const };
+
+  it("is the captured look when nothing is asked", () => {
+    assert.deepEqual(resolveShotLook(window), { look: "window", problem: null });
+    assert.deepEqual(resolveShotLook(cutout, ""), { look: "cutout", problem: null });
+  });
+
+  it("reframes a window capture as a bleed, and back", () => {
+    assert.deepEqual(resolveShotLook(window, "bleed"), { look: "bleed", problem: null });
+    assert.deepEqual(resolveShotLook({ name: "s", look: "bleed" }, "window"), {
+      look: "window",
+      problem: null,
+    });
+  });
+
+  it("refuses across the capture line with the fix, and falls back to what was captured", () => {
+    const a = resolveShotLook(cutout, "window");
+    assert.equal(a.look, "cutout");
+    assert.match(a.problem!, /captured as a cutout.*pnpm shot s/);
+    const b = resolveShotLook(window, "cutout");
+    assert.equal(b.look, "window");
+    assert.match(b.problem!, /captured differently/);
+  });
+
+  it("throws on a look that does not exist", () => {
+    assert.throws(() => resolveShotLook(window, "poster"), /unknown look/);
+    assert.equal(isStillLook("poster"), false);
+  });
+});
+
+describe("focus", () => {
+  it("centres the focus point when the box is larger than the canvas", () => {
+    const canvas = { width: 1000, height: 500 };
+    const at = focusBox({ width: 2000, height: 1000 }, canvas, { x: 1000, y: 500 }, 0);
+    assert.deepEqual(at, { left: -500, top: -250 });
+  });
+
+  it("pulls back rather than show ground inside the inset", () => {
+    const canvas = { width: 1000, height: 500 };
+    // Focus in the top-left corner: centring would drag the box in past the edge.
+    const at = focusBox({ width: 2000, height: 1000 }, canvas, { x: 0, y: 0 }, 0.1);
+    assert.deepEqual(at, { left: 50, top: 50 });
+    const far = focusBox({ width: 2000, height: 1000 }, canvas, { x: 2000, y: 1000 }, 0.1);
+    assert.equal(far.left + 2000, 1000 - 50);
+    assert.equal(far.top + 1000, 500 - 50);
+  });
+
+  it("centres an axis the box does not cover", () => {
+    const at = focusBox({ width: 2000, height: 300 }, { width: 1000, height: 500 }, { x: 0, y: 0 }, 0);
+    assert.equal(at.top, 100);
+  });
+
+  it("drives a bleed when set, instead of the anchor", () => {
+    const canvas = STILL_PRESETS.wide;
+    const m = meta({ focus: { x: 576, y: 324, width: 0, height: 0 } });
+    const box = bleedLayout(m, canvas, FIT, { zoom: 2, inset: 0 });
+    // 60% across and down the region lands on the canvas centre.
+    assert.ok(Math.abs(box.x + box.width * 0.6 - canvas.width / 2) <= 1);
+    assert.ok(Math.abs(box.y + box.height * 0.6 - canvas.height / 2) <= 1);
+  });
+
+  it("parses --focus as fractions of the region", () => {
+    assert.deepEqual(parseFocus("0.5,0.25", { width: 960, height: 540 }), {
+      x: 480,
+      y: 135,
+      width: 0,
+      height: 0,
+    });
+    assert.throws(() => parseFocus("2,0", { width: 1, height: 1 }), /fractions/);
+    assert.throws(() => parseFocus("0.5", { width: 1, height: 1 }), /fractions/);
+  });
+
+  it("is validated in a sidecar", () => {
+    assert.equal(framingProblem({ focus: { x: 1, y: 2, width: 0, height: 0 } }), null);
+    assert.match(framingProblem({ focus: { x: 1 } })!, /`focus.y`/);
+  });
+});
+
+describe("stillLegibility", () => {
+  it("reads a 1440px page in a window on wide as too small for a feed", () => {
+    const page = meta({ region: { width: 1440, height: 900 } });
+    const wide = STILL_PRESETS.wide;
+    const l = stillLegibility(page, "window", wide, wide, FIT);
+    const box = windowBox(900 / 1440, wide, FIT);
+    assert.equal(l.textScale, (box.width / 1440) * (FEED_WIDTH / wide.width));
+    assert.ok(l.textScale < 0.7);
+  });
+
+  it("measures how little of a story frame a landscape window covers", () => {
+    const story = STILL_PRESETS.story;
+    const l = stillLegibility(meta(), "window", story, story, FIT);
+    assert.ok(l.fill > 0.2 && l.fill < 0.3, String(l.fill));
+    // A fill bleed covers it all.
+    const b = stillLegibility(meta(), "bleed", story, story, FIT, { zoom: "fill", inset: 0 });
+    assert.ok(b.fill > 0.99);
+    assert.ok(b.textScale > l.textScale);
+  });
+
+  it("scales text by the piece a feed shows, not the whole a split spans", () => {
+    const piece = STILL_PRESETS.square;
+    const whole = splitCanvas(piece, { count: 2, piece: 0, gutter: 0 }).canvas;
+    const l = stillLegibility(meta(), "window", piece, whole, FIT);
+    const box = windowBox(shotAspect(meta()), whole, FIT);
+    assert.equal(l.textScale, (box.width / 960) * (FEED_WIDTH / piece.width));
+  });
+
+  it("judges a cutout on its body", () => {
+    const m = meta({
+      look: "cutout",
+      scale: 4,
+      region: { width: 400, height: 300 },
+      body: { x: 20, y: 20, width: 360, height: 240 },
+    });
+    const wide = STILL_PRESETS.wide;
+    const l = stillLegibility(m, "cutout", wide, wide, FIT);
+    const lay = cutoutLayout(m, wide);
+    assert.equal(l.textScale, (lay.body.width / 360) * (FEED_WIDTH / wide.width));
   });
 });
 

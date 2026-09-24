@@ -189,7 +189,12 @@ async function shootCutout(
     if (!handle) throw new Error(`keep css(${k.css}) matched nothing on screen`);
     extras.push(handle);
   }
-  const { box, clippers } = await locator.evaluate(isolateInPage, extras);
+  // `shadow: false` strips the element's own shadow here, at isolation, so
+  // the PNG is flat — the composition cannot remove what was photographed.
+  const { box, clippers } = await locator.evaluate(isolateInPage, {
+    extras,
+    flat: spec.shadow === false,
+  });
   // The sheet cancels transitions, but give the compositor one frame anyway.
   await page.waitForTimeout(100);
 

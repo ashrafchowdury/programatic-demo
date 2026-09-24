@@ -1,7 +1,7 @@
 import React from "react";
 import { AbsoluteFill, Img, staticFile, useVideoConfig } from "remotion";
-import { Backdrop } from "./DemoClip";
-import { RimLight, Stage, WindowFrame } from "./WindowFrame";
+import { Backdrop } from "./Backdrop";
+import { PRODUCT_GRADE, RimLight, SHADOW_RGB, Stage, WindowFrame } from "./WindowFrame";
 import { WINDOW_FIT } from "./lib/window";
 import {
   bleedLayout,
@@ -11,12 +11,13 @@ import {
   splitCanvas,
   windowBox,
   type Anchor,
+  type Box,
   type ShotMeta,
   type Split,
   type StillLook,
   type Zoom,
 } from "./lib/still";
-import { isLightBackdrop, isLightGround } from "./lib/backdrop";
+import { resolveGround } from "./lib/backdrop";
 import { DesignWidthContext, useDesignScale } from "./WindowFrame";
 
 export type StillShotProps = {
@@ -28,6 +29,12 @@ export type StillShotProps = {
   backdrop?: string;
   /** Flat ground colour instead of the backdrop image. Wins over `backdrop`. */
   ground?: string;
+  /**
+   * The image to draw for `backdrop`, under public/ — the 4K grain-free
+   * `-still` variant when Root found one (see stillBackdropFile). Absent
+   * means the backdrop's own (video) file.
+   */
+  backdropSrc?: string;
   /** Cutout: cast a soft shadow. Defaults to "only if the element has none". */
   shadow?: boolean;
   /**
@@ -43,6 +50,8 @@ export type StillShotProps = {
   inset?: number;
   zoom?: Zoom;
   upscale?: number;
+  /** Bleed: the box to centre, CSS px in the region. Overrides the sidecar's. */
+  focus?: Box;
   /**
    * Render one piece of a still cut into several. The composition is the
    * PIECE's size; the layout is done across the whole. See splitCanvas.
@@ -108,6 +117,7 @@ const StillBody: React.FC<StillShotProps & { canvas: { width: number; height: nu
   name,
   meta,
   backdrop,
+  backdropSrc,
   ground,
   shadow,
   look,
@@ -116,14 +126,17 @@ const StillBody: React.FC<StillShotProps & { canvas: { width: number; height: nu
   inset,
   zoom,
   upscale,
+  focus,
   canvas,
 }) => {
   const { width, height } = canvas;
   const k = useDesignScale();
-  // A flat ground answers the light/dark question by measurement, an image by
-  // the hand-kept list — exactly as DemoClip decides it.
-  const light = ground ? isLightGround(ground) : isLightBackdrop(backdrop ?? "");
+  // Root has already decided which ground wins; this only asks whether it is
+  // light — by measurement for a flat ground, by the hand-kept list for an
+  // image — through the same rule DemoClip uses.
+  const { light } = resolveGround({ ground, backdrop });
   const resolved = look ?? meta.look ?? "window";
+  const ground_ = <Backdrop name={backdrop} ground={ground} file={backdropSrc} />;
 
   if (resolved === "cutout" && meta.body) {
     const lay = cutoutLayout(meta, { width, height }, { fit, anchor, inset, upscale });
@@ -132,21 +145,26 @@ const StillBody: React.FC<StillShotProps & { canvas: { width: number; height: nu
     // drawn from the alpha, so they follow the exact shape. On a dark ground a
     // dark shadow has nothing darker to be, so it gets RimLight's hairline
     // lift instead, for the same reason RimLight exists.
+    //
+    // The cast shadow is the window's warm tint (SHADOW_RGB), not a slate of
+    // its own, and the image wears the window's grade: a cutout beside a
+    // window still, on the same ground, should read as the same product.
     const cast = shadow ?? meta.shadow ?? !hasOwnShadow(meta);
-    const filter = !light
+    const elevation = !light
       ? `drop-shadow(0 0 ${k}px rgba(255,255,255,0.14))`
       : cast
-        ? `drop-shadow(0 ${18 * k}px ${22 * k}px rgba(15,23,42,0.10)) ` +
-          `drop-shadow(0 ${2 * k}px ${4 * k}px rgba(15,23,42,0.06))`
-        : undefined;
+        ? `drop-shadow(0 ${18 * k}px ${22 * k}px rgba(${SHADOW_RGB},0.10)) ` +
+          `drop-shadow(0 ${2 * k}px ${4 * k}px rgba(${SHADOW_RGB},0.06))`
+        : "";
+    const filter = `${PRODUCT_GRADE} ${elevation}`.trim();
     return (
       <AbsoluteFill>
-        <Backdrop name={backdrop} ground={ground} />
+        {ground_}
         {/*
           The element alone. Its own shadow and anti-aliased corners are in the
           PNG's alpha, so nothing is drawn AROUND it: no frame, no rim, no
-          colour filter, no clip. Elevation, when needed, is a filter on the
-          image itself — see `filter` above.
+          clip. The grade and the elevation are filters on the image itself —
+          see `filter` above.
         */}
         <Img
           src={staticFile(`shots/${name}.png`)}
@@ -167,7 +185,7 @@ const StillBody: React.FC<StillShotProps & { canvas: { width: number; height: nu
     // The window look's two layers — rim, then window — at the same box, but
     // that box is larger than the canvas and anchored, so Stage's flex centring
     // cannot place it. Absolute positioning inside a clipping fill instead.
-    const box = bleedLayout(meta, { width, height }, WINDOW_FIT, { zoom, anchor, inset });
+    const box = bleedLayout(meta, { width, height }, WINDOW_FIT, { zoom, anchor, inset, focus });
     const at: React.CSSProperties = {
       position: "absolute",
       left: box.x,
@@ -177,7 +195,7 @@ const StillBody: React.FC<StillShotProps & { canvas: { width: number; height: nu
     };
     return (
       <AbsoluteFill style={{ overflow: "hidden" }}>
-        <Backdrop name={backdrop} ground={ground} />
+        {ground_}
         <div style={at}>
           <RimLight light={light} />
         </div>
@@ -204,7 +222,7 @@ const StillBody: React.FC<StillShotProps & { canvas: { width: number; height: nu
 
   return (
     <AbsoluteFill>
-      <Backdrop name={backdrop} ground={ground} />
+      {ground_}
       {/* Elevation first, as its own layer, exactly as DemoClip stacks it. */}
       <Stage>
         <div style={frame}>

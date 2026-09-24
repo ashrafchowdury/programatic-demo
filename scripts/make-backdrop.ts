@@ -1,8 +1,11 @@
 /**
- * Turn any image into a studio backdrop: public/backdrops/<name>.jpg.
+ * Turn any image into a studio backdrop: public/backdrops/<name>.jpg, and
+ * its still variant public/backdrops/<name>-still.jpg.
  *
  *   pnpm backdrop ~/Pictures/wall.heic aurora
  *   pnpm backdrop wall.png aurora --lift --blur=10
+ *   pnpm backdrop --still aurora     the still variant alone, from <name>.jpg
+ *   pnpm backdrop --still --all      ... for every backdrop in the directory
  *
  * The preparation is not cosmetic. A soft ramp is banded into rings by h264's
  * deadzone quantiser, and the only thing that survives is grain present in the
@@ -14,6 +17,18 @@
  * run of identical pixels on a scanline, after an h264 pass. Single digits is
  * good; the CSS gradient this replaced measured 97, a flat colour 2560.
  *
+ * THE STILL VARIANT is the same picture for a PNG, which wants the opposite.
+ * The grain exists to beat h264's quantiser, and a PNG has none; a 4K still
+ * draws the 2560px file 1.5x (wide) to 2.7x (story) up, where noise=12
+ * becomes a visible grid of blobs and costs the PNG its compression. So: 4K,
+ * and no grain. Measured on smoke-story over glaze, the PNG went from
+ * 7.9 MB to 1.2 MB (smoke-wide 5.6 to 1.0) — see STILL_QUALITY for the format.
+ *
+ * `--still` derives it from the committed video file when the source is gone
+ * (all sixteen shipped ones): a sigma-3 blur takes the ±12 grain to under a
+ * level, and every shipped backdrop was blurred at sigma 16 before its grain
+ * went on, so nothing else in the picture is that fine.
+ *
  * Needs system ffmpeg. HEIC and AVIF are converted with `sips` first.
  */
 import { execFileSync } from "node:child_process";
@@ -23,6 +38,38 @@ import * as path from "node:path";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const DIR = path.join(ROOT, "public", "backdrops");
+
+/** The still variant's size: the largest canvas edge any still preset has. */
+const STILL_W = 3840;
+const STILL_H = 2160;
+/**
+ * JPEG, at ffmpeg's -q:v 2. Measured on glaze / chalk / cobalt at 3840x2160,
+ * grain-free: PNG 3.4 / 3.4 / 4.4 MB, JPEG q2 223 / 183 / 274 KB. The JPEG's
+ * error sits under one level on a blurred gradient and never reaches the
+ * product (it is drawn over it), so the 15x is free. A light grain
+ * (noise=2) bought nothing visible and cost 2-3% in size; none it is.
+ */
+const STILL_QUALITY = 2;
+
+/** Write <name>-still.jpg from `input` through `filters`, and report it. */
+function writeStill(name: string, input: string, filters: string[]): void {
+  const out = path.join(DIR, `${name}-still.jpg`);
+  execFileSync("ffmpeg", ["-v", "error", "-y", "-i", input, "-vf", filters.join(","),
+    "-q:v", String(STILL_QUALITY), out]);
+  const kb = Math.round(fs.statSync(out).size / 1024);
+  console.log(`still      -> public/backdrops/${name}-still.jpg  ${kb} KB, ${STILL_W}x${STILL_H}, no grain`);
+}
+
+/** The still variant of an existing backdrop, from its video file alone. */
+function stillFromVideoFile(name: string): void {
+  const src = path.join(DIR, `${name}.jpg`);
+  if (!fs.existsSync(src)) throw new Error(`No backdrop at public/backdrops/${name}.jpg`);
+  writeStill(name, src, [
+    "gblur=sigma=3",
+    `scale=${STILL_W}:${STILL_H}:force_original_aspect_ratio=increase:flags=lanczos`,
+    `crop=${STILL_W}:${STILL_H}`,
+  ]);
+}
 
 const num = (argv: string[], flag: string, fallback: number): number => {
   const raw = argv.find((a) => a.startsWith(`--${flag}=`))?.split("=")[1];
@@ -61,6 +108,17 @@ function bandingRun(jpg: string): number {
 function main() {
   const argv = process.argv.slice(2);
   const positional = argv.filter((a) => !a.startsWith("-"));
+  if (argv.includes("--still")) {
+    const names = argv.includes("--all")
+      ? fs.readdirSync(DIR)
+          .filter((f) => f.endsWith(".jpg") && !f.endsWith("-still.jpg"))
+          .map((f) => f.slice(0, -".jpg".length))
+      : positional;
+    if (names.length === 0)
+      throw new Error("Usage: pnpm backdrop --still <name>... | --still --all");
+    for (const n of names) stillFromVideoFile(n);
+    return;
+  }
   const [source, name] = positional;
   if (!source || !name)
     throw new Error("Usage: pnpm backdrop <image> <name> [--lift] [--blur=16] [--quality=4]");
@@ -91,6 +149,16 @@ function main() {
     "noise=alls=12:allf=u",
   ].join(",");
   execFileSync("ffmpeg", ["-v", "error", "-y", "-i", input, "-vf", filters, "-q:v", String(quality), out]);
+
+  // The still variant from the SOURCE, not from the grained file: same crop
+  // and blur (scaled with the size, so the picture matches), same lift, no
+  // grain.
+  writeStill(name, input, [
+    `scale=${STILL_W}:${STILL_H}:force_original_aspect_ratio=increase:flags=lanczos`,
+    `crop=${STILL_W}:${STILL_H}`,
+    `gblur=sigma=${blur * (STILL_W / 2560)}`,
+    ...(lift ? ["lutrgb=r='10+val*245/255':g='10+val*245/255':b='10+val*245/255'"] : []),
+  ]);
 
   const run = bandingRun(out);
   const kb = Math.round(fs.statSync(out).size / 1024);

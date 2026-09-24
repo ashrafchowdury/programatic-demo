@@ -6,6 +6,8 @@ import {
   backdropFile,
   backdropProblem,
   isLightBackdrop,
+  resolveGround,
+  stillBackdropFile,
 } from "./backdrop";
 
 describe("backdropFile", () => {
@@ -50,5 +52,61 @@ describe("isLightBackdrop", () => {
     assert.equal(isLightBackdrop("canyon"), true);
     assert.equal(isLightBackdrop("glaze"), false);
     assert.equal(isLightBackdrop("unknown"), false);
+  });
+});
+
+describe("stillBackdropFile", () => {
+  it("names the 4K grain-free variant beside the video file", () => {
+    assert.equal(stillBackdropFile("cobalt"), "backdrops/cobalt-still.jpg");
+    assert.equal(stillBackdropFile(), `backdrops/${DEFAULT_BACKDROP}-still.jpg`);
+  });
+
+  it("derives one for a custom file too, whatever its extension", () => {
+    assert.equal(stillBackdropFile("mine.png"), "backdrops/mine-still.jpg");
+  });
+});
+
+describe("resolveGround", () => {
+  it("a ground asked for this render wins over everything", () => {
+    assert.deepEqual(
+      resolveGround({ ground: "#f3f3f3", backdrop: "cobalt", ownGround: "#000000" }),
+      { ground: "#f3f3f3", light: true },
+    );
+  });
+
+  it("a backdrop asked for this render beats the shot's own ground", () => {
+    assert.deepEqual(resolveGround({ backdrop: "cobalt", ownGround: "#f3f3f3" }), {
+      backdrop: "cobalt",
+      light: false,
+    });
+  });
+
+  it("otherwise the shot's own ground beats every backdrop, the environment's included", () => {
+    assert.deepEqual(
+      resolveGround({ ownGround: "#111111", ownBackdrop: "chalk", envBackdrop: "mist" }),
+      { ground: "#111111", light: false },
+    );
+  });
+
+  it("the environment's backdrop stands in for the shot's", () => {
+    assert.deepEqual(resolveGround({ ownBackdrop: "glaze", envBackdrop: "chalk" }), {
+      backdrop: "chalk",
+      light: true,
+    });
+  });
+
+  it("nothing at all is the default image, which is dark", () => {
+    assert.deepEqual(resolveGround({}), { backdrop: undefined, light: false });
+  });
+
+  it("empty strings count as unset, as a blank env var does", () => {
+    assert.deepEqual(resolveGround({ ground: "", envBackdrop: "", ownBackdrop: "mist" }), {
+      backdrop: "mist",
+      light: true,
+    });
+  });
+
+  it("transparent is a flat ground, and treated as light", () => {
+    assert.equal(resolveGround({ ground: "transparent" }).light, true);
   });
 });

@@ -154,6 +154,9 @@ behind it competes for the eye. `ground: "#rrggbb"` (or `--ground=` at
 render) replaces the backdrop image; a light one gets the cast-shadow
 elevation, a dark one the hairline lift, decided by luminance. The image
 backdrops remain the right choice for the window look next to the clips.
+A still draws each one's `-still.jpg` twin — 4K, no grain — not the video
+file, whose h264 grain turns into a visible grid when a 4K canvas scales it up;
+`pnpm backdrop` makes both.
 
 ```ts
 export default defineShot({
@@ -191,10 +194,11 @@ Framing knobs, in the spec or as `--flag=` on `render:still` (the flag wins):
 | `split` | all | — | cut into this many pieces side by side, laid out as one picture |
 | `gutter` | all | 0 | output px left out between pieces — the platform's gap |
 | `fit` | cutout | 0.8 | fraction of the canvas the element may fill — over 1 crops INTO it (up to 2) |
-| `shadow` | cutout | auto | cast a soft shadow; default only when the element painted none |
+| `shadow` | cutout | auto | `true` always casts a soft shadow; `false` in the SPEC strips the element's own at capture (re-shoot); `--shadow=false` only drops the cast one |
 | `anchor` | cutout, bleed | center / top-left | `top-left`, `top`, … `bottom-right`, `center` |
-| `inset` | cutout, bleed | 0 / 0.06 | fraction of the canvas edge kept clear on the anchored side(s) |
+| `inset` | cutout, bleed | 0 / 0.06 | fraction of the canvas's short edge kept clear on the anchored side(s) — the same px on both axes |
 | `zoom` | bleed | 1.3 | how much larger than the fitted window, or `fill` to cover the frame |
+| `focus` | bleed | — | `--focus=x,y`, fractions of the region: centre that point instead of pinning a corner |
 | `upscale` | cutout | 1 | stretch a small element past native, up to 1.5 — opt-in only |
 
 **Crop into the subject, don't present it whole.** The reference stills run a
@@ -230,7 +234,21 @@ pnpm still <name> [og|--all]     # both
 ```
 
 Iterating on framing? Run `render:still` alone. The capture is the slow half and
-it is already done.
+it is already done; the framing bundles the composition once and renders every
+preset and piece through one browser, so `--all --split=3` is seconds.
+
+Every render-time flag that changed the picture goes in the filename, so
+variants never overwrite each other. A flag the look ignores (`--fit` on a
+window) is warned about and left out; so is the look when `--look` asks for
+the one the shot already has.
+
+**Read the warnings.** Before rendering, each preset is checked two ways:
+how large the app's text lands once a feed shrinks the image to a 1080px
+column (under 0.7× of its own size — 13px reads as ~9px — it will not read),
+and how much of the frame the product covers (under 45% it is a small
+picture on a lot of ground). The usual fixes: a tighter region,
+`--look=bleed --zoom=fill` for a screen in a tall frame, a higher `fit` for a
+cutout.
 
 ## Framing an image you already have
 
@@ -303,7 +321,11 @@ same detail in any frame.
   a kept parent's fill, not the page's, is left alone, so a bordered header
   cannot square off a rounded menu. `pnpm shot smoke-popover` checks both.
 - **The composition adds a shadow only when the element brought none.** Read
-  off the capture: painted extent vs border box. `shadow: true`/`false` forces it.
+  off the capture: painted extent vs border box. `shadow: true` forces one.
+  `shadow: false` in the spec photographs the element without its own
+  box-shadow / drop-shadow (inset shadows and shadows inside it stay); as a
+  render flag it can only drop the cast shadow, and warns if the PNG carries
+  one.
 - **Rows without a surface float.** A list whose rows are text on the page has
   nothing to cut out; it comes back as floating text. That is a *part of a
   page* — use `window`.
@@ -326,4 +348,6 @@ same detail in any frame.
 a CDP override — it was measured), `scripts/lib/isolate.ts` (how a cutout
 hides the page without moving it, and why the crop is measured off alpha),
 `src/StillShot.tsx` (why there is no motion blur and no camera, and why a
-cutout on a dark backdrop gets a hairline).
+cutout on a dark backdrop gets a hairline), `src/lib/backdrop.ts`
+(`resolveGround`, the one rule for which ground wins, and the still variant),
+`scripts/render-still.ts` (the legibility warnings and the single bundle).

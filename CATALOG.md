@@ -35,6 +35,7 @@ re-driving the browser.
 | a popover **and** its submenu, or a menu and the chip it opened from | `look: "cutout"` + `keep: [css("…")]` |
 | a component cropped into, running off an edge | `look: "cutout"`, `fit: 1.35`, `anchor: "left"` |
 | a screen running off the canvas edges | `look: "bleed"`, `zoom`, `anchor` |
+| a bleed centred on one part of the screen | `look: "bleed"`, `--focus=x,y` (fractions of the region) |
 | a landscape screen filling a portrait / story frame | `look: "bleed"`, `zoom: "fill"` |
 | one picture posted as 2–3 images (carousel, multi-image post) | `split: 3`, `gutter: 8` |
 | a flat ground like the reference stills | `ground: "#f3f3f3"` |
@@ -81,7 +82,8 @@ lift instead, because a dark shadow has nothing darker to be.
 ### Cutout: fit, anchor, inset
 
 `fit` is the fraction of the canvas the element may fill; over 1 crops into
-it. `anchor` pins it; `inset` keeps that much of the edge clear.
+it. `anchor` pins it; `inset` keeps that fraction of the canvas's short edge
+clear — the same margin on both axes, whatever the canvas shape.
 
 | fit 0.5 | fit 0.8 (default) | fit 1.35, anchor left |
 | --- | --- | --- |
@@ -98,7 +100,13 @@ it. `anchor` pins it; `inset` keeps that much of the edge clear.
 | shadow auto | shadow off | native (45%) | upscale 1.5 (68%) |
 | --- | --- | --- | --- |
 | <img src="docs/catalog/still-shadow-auto.jpg" width="220"> | <img src="docs/catalog/still-shadow-off.jpg" width="220"> | <img src="docs/catalog/still-ground-flat.jpg" width="220"> | <img src="docs/catalog/still-ground-flat-upscale.jpg" width="220"> |
-| the element's own shadow, kept | `--shadow=false` | a 188px element at the 4× ceiling: never stretched | `--upscale=1.5` — opt-in, capped, reads softer |
+| the element's own shadow, kept (`smoke-cutout`) | `shadow: false` in the shot — stripped at capture | a 188px element at the 4× ceiling: never stretched | `--upscale=1.5` — opt-in, capped, reads softer |
+
+`shadow: false` is a capture decision: the element's own box-shadow and
+drop-shadow are removed before the screenshot, so re-shoot after setting it.
+`--shadow=false` at render can only drop the *cast* shadow the composition
+adds to an element that painted none — and says so when there is a painted
+one it cannot remove.
 
 A cutout never upscales unless asked. When an element comes up short, the
 capture log names the viewport that would reach it natively (a smaller viewport
@@ -148,7 +156,12 @@ Not visible in a picture, but part of every shot:
 | `keep` | extra elements isolated with a cutout's region |
 | `hide` | CSS selectors removed before measuring — a row with a real name, an email |
 | `clean` | `false` keeps framework dev overlays, scrollbars and the caret, which are removed by default |
-| `--out=` | name the output file; otherwise every render-time flag goes in the name |
+| `--out=` | name the output file; otherwise every render-time flag that changed the picture goes in the name (a `DEMO_BACKDROP` that picked the ground too) |
+
+The render warns when a still will not read in a feed: app text under 0.7×
+its own size once the image is shrunk to a 1080px column, or the product
+covering under 45% of the frame. It names the fix — usually
+`--look=bleed --zoom=fill`, or a tighter region.
 
 ---
 
@@ -248,6 +261,11 @@ Emphasis lives in the headline string, per word, no code:
 Sixteen ship with the repo, prepared with grain so they survive h264 without
 banding. `backdrop: "<name>"` on a flow, shot or reel; `--backdrop=` at render.
 Add your own with `pnpm backdrop <image> <name>`.
+
+Each has a still twin, `<name>-still.jpg`: 4K and grain-free, because a PNG
+has no encoder to beat and the video file's grain, drawn 1.5–2.7× up, reads
+as a grid. Stills use it automatically; `pnpm backdrop --still --all`
+rebuilds them.
 
 **Dark** — the window gets a white rim.
 
