@@ -218,11 +218,14 @@ export const BASE: StylePreset = {
     minS: 3.2,
   },
   // Measured off the reference's recap (f1094-1203), the one composition in it
-  // that is NOT centred. A 5-frame blank lead, then the mark, the wordmark, and
+  // that is NOT centred. A 4-frame blank lead, then the mark, the wordmark, and
   // one item every 16 frames — three times slower than the sentence cards'
   // words, because these are labels to be read, not prose to be scanned.
   recap: {
-    leadS: 0.17,
+    // 0.12, not 0.17: the mark appears on the first frame at or after leadS, so
+    // 0.17 (5.1f) put it on frame 6 — two late. 0.12 lands the mark on frame 4
+    // and the wordmark on 12, matching the film frame for frame (re-rendered).
+    leadS: 0.12,
     lockupStaggerS: 0.27,
     itemsLeadS: 0.37,
     itemStaggerS: 0.533,

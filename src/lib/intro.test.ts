@@ -700,7 +700,7 @@ describe("recap card", () => {
   it("opens blank, so the dark-to-dark cut reads as a breath", () => {
     const at = recapSchedule(4, RECAP);
     assert.ok(at.markS > 0, "the mark must not be up on frame 0");
-    assert.ok(Math.round(at.markS * 30) === 5, "5 blank frames");
+    assert.ok(Math.ceil(at.markS * 30) === 4, "4 blank frames, as the reference");
   });
 
   it("reveals the lockup before the first item", () => {
