@@ -20,16 +20,14 @@ import {
   punchEase,
   pushAt,
   readableInk,
-  RECAP_ITEM_STAGGER_S,
-  TRIM_IN_S,
-  WORD_STAGGER_MIN_S,
+  recapSchedule,
+  resolveCard,
   WORD_STAGGER_S,
   wordSchedule,
   wordsOf,
   type IntroStoryboard,
 } from "./intro";
-import { recapSchedule } from "../RecapCard";
-import { DEFAULT_STYLE } from "./style";
+import { DEFAULT_STYLE, STYLE_PRESETS, STYLES } from "./style";
 import type { ClickLog } from "./click-log";
 
 const CARD: IntroStoryboard = defineIntro({
@@ -129,15 +127,19 @@ describe("introTiming", () => {
     // Linear, so velocity is never zero — including on the frame the cut lands
     // on. An eased push would decelerate into a stop and put the freeze back.
     const t = introTiming(CARD);
-    const a = pushAt(t.totalS - 1 / 30, t.settledS, t.totalS);
-    const b = pushAt(t.totalS, t.settledS, t.totalS);
+    const exit = STYLE_PRESETS.classic.card.exit;
+    assert.equal(exit.kind, "ramp");
+    const ramp = exit.kind === "ramp" ? exit : { scale: 0, durationS: 0 };
+    const a = pushAt(t.totalS - 1 / 30, t.settledS, t.totalS, ramp);
+    const b = pushAt(t.totalS, t.settledS, t.totalS, ramp);
     assert.ok(b > a, "the push had stopped before the cut");
-    assert.equal(pushAt(0, t.settledS, t.totalS), 1);
+    assert.equal(pushAt(0, t.settledS, t.totalS, ramp), 1);
+    assert.ok(Math.abs(b - 1 - ramp.scale) < 1e-9, "lands on the style's scale");
     // And it genuinely rests while the copy is being read.
-    const mid = (t.settledS + Math.max(t.settledS, t.totalS - 0.35)) / 2;
+    const mid = (t.settledS + Math.max(t.settledS, t.totalS - ramp.durationS)) / 2;
     assert.equal(
-      pushAt(mid, t.settledS, t.totalS),
-      pushAt(t.settledS, t.settledS, t.totalS),
+      pushAt(mid, t.settledS, t.totalS, ramp),
+      pushAt(t.settledS, t.settledS, t.totalS, ramp),
     );
   });
 
@@ -271,19 +273,21 @@ const lumaOf = (hex: string): number => {
 };
 
 describe("introLook", () => {
+  const framed = STYLE_PRESETS.classic.palette;
+
   it("keys the wide column off flatness, not off one background name", () => {
     // The bug this replaces: the wide column was gated on `background ===
     // "plain"`, so a third flat mode silently inherited the narrow 0.52 plate
     // column — which exists only to keep white text off the plate's specular
     // band. On a flat field that costs a line break in the wrong place ("Say
     // when to / use it."), which reads as a typesetting accident, not a beat.
-    assert.equal(introLook("light").columnFrac, introLook("plain").columnFrac);
+    assert.equal(introLook("light", framed).columnFrac, introLook("plain", framed).columnFrac);
     assert.notEqual(
-      introLook("light").columnFrac,
-      introLook("plate").columnFrac,
+      introLook("light", framed).columnFrac,
+      introLook("plate", framed).columnFrac,
     );
-    assert.equal(introLook("plate").flat, false);
-    assert.equal(introLook("light").flat, true);
+    assert.equal(introLook("plate", framed).flat, false);
+    assert.equal(introLook("light", framed).flat, true);
   });
 
   it("inverts ink with ground so no mode can render invisibly", () => {
@@ -292,7 +296,7 @@ describe("introLook", () => {
     // near-white card: it renders, it passes every other check, and the card is
     // blank.
     for (const bg of BACKGROUNDS) {
-      const look = introLook(bg);
+      const look = introLook(bg, framed);
       const gap = Math.abs(lumaOf(look.ground) - lumaOf(look.headline));
       assert.ok(
         gap > 150,
@@ -300,21 +304,41 @@ describe("introLook", () => {
       );
     }
     // And the light mode has to be the bright one, near the top of the range.
-    assert.ok(lumaOf(introLook("light").ground) > 225);
+    assert.ok(lumaOf(introLook("light", framed).ground) > 225);
     // The chip is the card's LAST frame under a punch, so it has to sit on the
     // same side of the range as the ground or the cut delta comes back.
-    const light = introLook("light");
+    const light = introLook("light", framed);
     assert.ok(Math.abs(lumaOf(light.ground) - lumaOf(light.chipFill)) < 30);
   });
 
-  it("leaves the two dark modes exactly as they render today", () => {
+  it("leaves the framed modes exactly as they rendered before the preset owned them", () => {
     // intros/*.ts and older reels that never set `background` must be
-    // pixel-identical after this refactor, or every cached card is silently
-    // wrong and every stitched intro changes.
-    assert.equal(introLook(undefined).ground, introLook("plate").ground);
-    assert.equal(introLook("plate").ground, "#08080a");
-    assert.equal(introLook("plain").headline, "#fff");
-    assert.equal(introLook("plate").columnFrac, 0.52);
+    // pixel-identical, or every cached card is silently wrong and every
+    // stitched intro changes. These were the values of introLook's old framed
+    // branch, which ignored the classic preset's palette entirely.
+    const silent = resolveCard({ name: "x", headline: "x", look: "framed" }).look;
+    assert.deepEqual(silent, introLook("plate", framed), "absent = the plate");
+    assert.equal(silent.ground, "#08080a");
+    assert.equal(silent.headline, "#ffffff");
+    assert.equal(silent.wordmark, "rgba(255,255,255,0.52)");
+    assert.equal(silent.columnFrac, 0.52);
+    const light = introLook("light", framed);
+    assert.equal(light.ground, "#fafafb");
+    assert.equal(light.chipFill, "#ffffff");
+    assert.equal(light.highlightBg, "#ffe08a");
+  });
+
+  it("reads every colour from the style's palette, and nowhere else", () => {
+    // There used to be a second copy of the full-bleed palette in intro.ts,
+    // beside the preset's. One source, or they drift.
+    for (const style of STYLES)
+      for (const background of BACKGROUNDS) {
+        const g = STYLE_PRESETS[style].palette[background];
+        const look = resolveCard({ name: "x", headline: "x", style, background }).look;
+        assert.equal(look.ground, g.ground, `${style}.${background}`);
+        assert.equal(look.headline, g.ink, `${style}.${background}`);
+        assert.equal(look.subhead, g.muted, `${style}.${background}`);
+      }
   });
 });
 
@@ -596,7 +620,7 @@ describe("fullbleed card timing", () => {
       (t.words[1].startS - t.words[0].startS) * 30;
     assert.ok(Math.abs(step(short) - WORD_STAGGER_S * 30) < 0.01);
     assert.ok(step(long) < step(short), "15 words should tighten");
-    assert.ok(step(long) >= WORD_STAGGER_MIN_S * 30 - 0.01, "never below 3f");
+    assert.ok(step(long) >= 3 - 0.01, "never below 3f");
   });
 
   it("never compresses past the measured 3-frame floor", () => {
@@ -619,21 +643,35 @@ describe("fullbleed card timing", () => {
 });
 
 describe("fittedStagger", () => {
+  const TRIM = STYLE_PRESETS.proof.card.length.trimInS;
   it("returns the unhurried default when the copy already fits", () => {
-    assert.equal(fittedStagger(4, TRIM_IN_S), WORD_STAGGER_S);
+    assert.equal(fittedStagger(4, TRIM), WORD_STAGGER_S);
   });
 
   it("clamps to the floor rather than producing a sub-frame stagger", () => {
-    assert.equal(fittedStagger(500, TRIM_IN_S), WORD_STAGGER_MIN_S);
+    const { cadence } = STYLE_PRESETS.proof.card;
+    assert.equal(cadence.kind, "fitted");
+    const floor = cadence.kind === "fitted" ? cadence.minStaggerS : NaN;
+    assert.equal(fittedStagger(500, TRIM), floor);
+    assert.equal(Math.round(floor * 30), 3, "the measured 3-frame floor");
   });
 
   it("survives a one-word or empty headline", () => {
-    assert.equal(fittedStagger(1, TRIM_IN_S), WORD_STAGGER_S);
-    assert.equal(fittedStagger(0, TRIM_IN_S), WORD_STAGGER_S);
+    assert.equal(fittedStagger(1, TRIM), WORD_STAGGER_S);
+    assert.equal(fittedStagger(0, TRIM), WORD_STAGGER_S);
+  });
+
+  it("never compresses under a grammar with no ceiling", () => {
+    const { cadence, length } = STYLE_PRESETS.proof.card;
+    assert.equal(
+      fittedStagger(500, TRIM, cadence, { ...length, maxS: null }),
+      WORD_STAGGER_S,
+    );
   });
 });
 
 describe("recap card", () => {
+  const RECAP = STYLE_PRESETS[DEFAULT_STYLE].recap;
   const recap = (n: number): IntroStoryboard => ({
     name: "x",
     headline: "New in Agenta",
@@ -656,31 +694,31 @@ describe("recap card", () => {
   it("grows by one item stagger per extra item", () => {
     const four = introTiming(recap(4)).totalS;
     const five = introTiming(recap(5)).totalS;
-    assert.ok(Math.abs(five - four - RECAP_ITEM_STAGGER_S) < 1e-9);
+    assert.ok(Math.abs(five - four - RECAP.itemStaggerS) < 1e-9);
   });
 
   it("opens blank, so the dark-to-dark cut reads as a breath", () => {
-    const at = recapSchedule(4);
+    const at = recapSchedule(4, RECAP);
     assert.ok(at.markS > 0, "the mark must not be up on frame 0");
     assert.ok(Math.round(at.markS * 30) === 5, "5 blank frames");
   });
 
   it("reveals the lockup before the first item", () => {
-    const at = recapSchedule(4);
+    const at = recapSchedule(4, RECAP);
     assert.ok(at.markS < at.wordmarkS);
     assert.ok(at.wordmarkS < at.itemsS[0]);
   });
 
   it("spaces items 16 frames apart, three times slower than card words", () => {
-    const at = recapSchedule(4);
+    const at = recapSchedule(4, RECAP);
     for (let i = 1; i < at.itemsS.length; i++)
       assert.equal(Math.round((at.itemsS[i] - at.itemsS[i - 1]) * 30), 16);
-    assert.ok(RECAP_ITEM_STAGGER_S > WORD_STAGGER_S * 2.5);
+    assert.ok(RECAP.itemStaggerS > WORD_STAGGER_S * 2.5);
   });
 
   it("survives a single item and an empty list", () => {
     assert.ok(introDurationInFrames(recap(1), 30) > 1);
-    assert.deepEqual(recapSchedule(0).itemsS, []);
+    assert.deepEqual(recapSchedule(0, RECAP).itemsS, []);
   });
 });
 
@@ -777,5 +815,115 @@ describe("typed cadence", () => {
     // The guard that keeps every non-typed style byte-identical.
     for (const c of wordSchedule("one two three", 0, 0.2, 0.05))
       assert.equal(c.typed, undefined);
+  });
+});
+
+describe("openOn: the cut lands on a written word", () => {
+  const typed = (headline: string): IntroStoryboard => ({
+    name: "x",
+    headline,
+    style: "stage",
+  });
+
+  it("opens a typewriter card with its first word already complete", () => {
+    // Audit R10: every stage card's first frame carried no ink — the
+    // typewriter started from zero on the frame the cut landed on.
+    for (const headline of ["Connect your key.", "Go now", "Schedule an agent run"]) {
+      const [first] = introTiming(typed(headline)).words;
+      assert.equal(first.typed, true);
+      assert.ok(progressAt(first, 0) === 1, `${headline}: first word incomplete at f0`);
+    }
+  });
+
+  it("keeps the typing rate and the hold — the card only starts later in it", () => {
+    // "Connect your key." types 17 characters (spaces included); cutting in
+    // on the first word spends the first 7 before frame 0. Nothing else moves.
+    const headline = "Connect your key.";
+    const t = introTiming(typed(headline));
+    const { perCharS } = { perCharS: 0.0833 };
+    const { holdS } = STYLE_PRESETS.stage.card.length;
+    const last = t.words[t.words.length - 1];
+    const typedAfterCut = (headline.length - "Connect".length) * perCharS;
+    assert.ok(Math.abs(last.endS - typedAfterCut) < 1e-9, `${last.endS}`);
+    assert.ok(Math.abs(t.totalS - (typedAfterCut + holdS)) < 1e-9, `${t.totalS}`);
+  });
+
+  it("does not move any word-cadence style", () => {
+    // openOn is 0 everywhere but stage, so these trims are what they were.
+    for (const style of ["classic", "proof", "ledger"] as const)
+      assert.equal(STYLE_PRESETS[style].card.length.openOn, 0, style);
+  });
+
+  it("leaves a logo card's timing alone — its headline is the lockup", () => {
+    const logo = { ...typed("Agenta"), logo: true };
+    assert.equal(introTiming(logo).words[0].startS, 0);
+  });
+});
+
+describe("resolveCard", () => {
+  it("holds a card still when its style says `none`", () => {
+    // It did not: with no push on either end the renderer fell back to the
+    // framed 4% scale ramp, so ledger's and stage's "pixel-locked" cards
+    // swelled into every cut.
+    for (const style of ["ledger", "stage"] as const) {
+      const r = resolveCard({ name: "x", headline: "Hold", style });
+      assert.equal(r.push, undefined, style);
+      assert.equal(r.ramp, null, style);
+    }
+  });
+
+  it("ramps a classic card by the style's own numbers", () => {
+    const r = resolveCard({ name: "x", headline: "Ramp", style: "classic" });
+    assert.deepEqual(r.ramp, { scale: 0.04, durationS: 0.35 });
+    assert.equal(r.push, undefined);
+  });
+
+  it("travels a proof card on the style's envelope", () => {
+    const r = resolveCard({ name: "x", headline: "Travel", style: "proof" });
+    assert.deepEqual(r.push, {
+      in: { axis: "y", dist: 56, frames: 14 },
+      out: { axis: "x", dist: -72, frames: 13 },
+    });
+    assert.equal(r.ramp, null);
+  });
+
+  it("honours an authored move in a style whose cards hold still", () => {
+    // A move the sequence assigns, or an author writes, must reach the frame.
+    const r = resolveCard({
+      name: "x",
+      headline: "Go",
+      style: "ledger",
+      exit: { axis: "x", dist: -72, frames: 13 },
+    });
+    assert.deepEqual(r.push?.out, { axis: "x", dist: -72, frames: 13 });
+    assert.equal(r.push?.in?.axis, "none");
+  });
+
+  it("drops a style's ramp when the card travels out instead", () => {
+    const r = resolveCard({
+      name: "x",
+      headline: "Go",
+      style: "classic",
+      exit: { axis: "y", dist: -54, frames: 9 },
+    });
+    assert.equal(r.ramp, null);
+  });
+
+  it("turns the mark only where the style has a turn", () => {
+    assert.equal(resolveCard({ name: "x", headline: "A", style: "classic" }).lockup.turns, 0);
+    assert.equal(resolveCard({ name: "x", headline: "A", style: "proof" }).lockup.turns, 1);
+  });
+
+  it("takes the chip punch from the style", () => {
+    const t = introTiming({
+      name: "x",
+      headline: "Hit {chip} now",
+      chip: { label: "Go" },
+      style: "proof",
+    });
+    const chip = STYLE_PRESETS.proof.chip;
+    assert.ok(t.chip);
+    assert.ok(Math.abs(t.chip.punchEndS - t.chip.punchStartS - chip.punchS) < 1e-9);
+    assert.ok(Math.abs(t.totalS - t.chip.pressS - chip.afterPressS) < 1e-9);
   });
 });

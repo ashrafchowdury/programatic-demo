@@ -1,19 +1,33 @@
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import * as util from "node:util";
 import { describe, it } from "node:test";
-import { BACKGROUNDS } from "./intro";
 import {
+  BACKGROUNDS,
+  introTiming,
+  recapSchedule,
+  resolveCard,
+  type IntroStoryboard,
+} from "./intro";
+import {
+  BASE,
   DEFAULT_STYLE,
   FONT_STACK_LEGACY,
   STYLES,
-  REFERENCE_FILMS,
   STYLE_PRESETS,
+  applySequence,
   isStyle,
-  resolvePreset,
+  mergePreset,
+  planSequence,
+  resolveStylePreset,
   resolveStyle,
   styleProblem,
+  type ReelStyle,
+  type SequenceSegment,
+  type StylePreset,
 } from "./style";
+import { REFERENCE_FILMS } from "./style/reference-films";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
 
@@ -30,16 +44,43 @@ describe("the registry", () => {
       const p = STYLE_PRESETS[name];
       assert.ok(p.look, `${name}: look`);
       assert.ok(p.motionLayer, `${name}: motionLayer`);
-      for (const k of ["cadence", "length", "enter", "exit"] as const)
+      for (const k of [
+        "background",
+        "cadence",
+        "length",
+        "enter",
+        "exit",
+      ] as const)
         assert.ok(p.card[k] !== undefined, `${name}: card.${k}`);
-      for (const k of ["framing", "chrome", "cursor", "ripple"] as const)
+      assert.equal(typeof p.card.length.openOn, "number", `${name}: openOn`);
+      for (const k of ["framing", "cursor", "ripple", "enter", "exit"] as const)
         assert.ok(p.shot[k] !== undefined, `${name}: shot.${k}`);
-      for (const k of ["punchScale", "punchS", "leadS", "settleS"] as const)
+      for (const k of [
+        "punchScale",
+        "punchS",
+        "leadS",
+        "settleS",
+        "afterPressS",
+      ] as const)
         assert.ok(typeof p.chip[k] === "number", `${name}: chip.${k}`);
-      for (const k of ["tumbleS", "turns"] as const)
+      for (const k of [
+        "tumbleS",
+        "turns",
+        "driftPxPerFrame",
+        "driftFrames",
+      ] as const)
         assert.ok(typeof p.bookend[k] === "number", `${name}: bookend.${k}`);
-      for (const k of ["leadS", "itemStaggerS"] as const)
+      for (const k of [
+        "leadS",
+        "lockupStaggerS",
+        "itemsLeadS",
+        "itemStaggerS",
+      ] as const)
         assert.ok(typeof p.recap[k] === "number", `${name}: recap.${k}`);
+      assert.ok(
+        Array.isArray(p.sequence.exitCycle),
+        `${name}: sequence.exitCycle`,
+      );
     }
   });
 
@@ -58,7 +99,7 @@ describe("the registry", () => {
   });
 
   it("keeps classic unmeasured on purpose", () => {
-    // Guards docs/reel/06-comparison.md §6: classic predates both films, so
+    // Guards docs/reel/cursor/06-comparison.md §6: classic predates both films, so
     // backfilling Film A's numbers into it is a category error. If a future
     // pass wants to measure it, that needs a film, not a copy.
     assert.equal(STYLE_PRESETS.classic.source, null);
@@ -101,7 +142,7 @@ describe("measured values trace back to docs/reel", () => {
   });
 
   it("locks ledger's cards perfectly still", () => {
-    // The defining measurement is an ABSENCE: docs/reel/02-motion.md tracks
+    // The defining measurement is an ABSENCE: docs/reel/cursor/02-motion.md tracks
     // Film B's shot 10 text box over 56 frames and finds zero translation. A
     // card that moved even slightly would put this grammar on the wrong motion
     // layer.
@@ -139,11 +180,21 @@ describe("measured values trace back to docs/reel", () => {
     assert.ok(cardF(10) >= 75 && cardF(10) <= 95, `10 words -> ${cardF(10)}f`);
   });
 
-  it("snaps ledger's chip in 3 frames, and does not paste 7.82x", () => {
-    // punchS is directly transferable; punchScale is a COMPOSITION target and
-    // Film B's 7.82 is a raw pill ratio. Pasting it is the Q4 trap.
-    assert.equal(Math.round(STYLE_PRESETS.ledger.chip.punchS * 30), 3);
-    assert.notEqual(STYLE_PRESETS.ledger.chip.punchScale, 7.82);
+  it("gives the chip punch to every style from BASE, never a pasted pill ratio", () => {
+    // ledger and stage used to carry Film B's 3-frame snap here, and nothing
+    // read it: every chip card rendered Film A's punch whatever its style. No
+    // reference but Film A has a chip punch to measure, so the base's is the
+    // only one there is; Film B's is recorded on its REFERENCE_FILMS entry.
+    // punchScale is a COMPOSITION target — Film B's 7.82 is a raw pill ratio,
+    // and pasting it is the Q4 trap.
+    for (const name of STYLES) {
+      assert.deepEqual(STYLE_PRESETS[name].chip, BASE.chip, name);
+      assert.notEqual(STYLE_PRESETS[name].chip.punchScale, 7.82);
+    }
+    assert.ok(
+      Math.abs(BASE.chip.punchS * 30 - 13) < 1,
+      "Film A's ~13-frame punch",
+    );
   });
 
   it("matches ledger's cuts instead of slamming them", () => {
@@ -170,7 +221,10 @@ describe("resolveStyle", () => {
     // would resolve an explicit framed request to a full-bleed grammar, so
     // resolveStyle maps both looks by name.
     assert.equal(resolveStyle({ look: "framed" }), "classic");
-    assert.equal(STYLE_PRESETS[resolveStyle({ look: "framed" })].look, "framed");
+    assert.equal(
+      STYLE_PRESETS[resolveStyle({ look: "framed" })].look,
+      "framed",
+    );
   });
 
   it("reads a legacy fullbleed look as proof", () => {
@@ -183,9 +237,12 @@ describe("resolveStyle", () => {
     assert.equal(resolveStyle({ style: "classic" }), "classic");
   });
 
-  it("resolvePreset agrees with resolveStyle", () => {
+  it("resolveStylePreset agrees with resolveStyle", () => {
     for (const look of ["framed", "fullbleed"] as const)
-      assert.equal(resolvePreset({ look }), STYLE_PRESETS[resolveStyle({ look })]);
+      assert.equal(
+        resolveStylePreset({ look }),
+        STYLE_PRESETS[resolveStyle({ look })],
+      );
   });
 });
 
@@ -238,11 +295,17 @@ describe("no component branches on a style's name", () => {
   walk(path.join(ROOT, "src"));
   walk(path.join(ROOT, "scripts"));
 
-  it("mentions a style name nowhere but style.ts", () => {
+  it("mentions a style name nowhere but src/lib/style*", () => {
     const offenders: string[] = [];
+    const home = path.join(ROOT, "src", "lib", "style");
     for (const file of files) {
-      if (path.basename(file) === "style.ts") continue;
-      const src = fs.readFileSync(file, "utf8");
+      if (file === `${home}.ts` || file.startsWith(home + path.sep)) continue;
+      // Comments stripped: naming a style in prose is documentation, not a
+      // branch.
+      const src = fs
+        .readFileSync(file, "utf8")
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/(^|[^:])\/\/.*$/gm, "$1");
       for (const name of STYLES) {
         // A quoted style name is the tell. Reading `preset.card` is fine;
         // comparing against "proof" is what this forbids.
@@ -253,7 +316,7 @@ describe("no component branches on a style's name", () => {
     assert.deepEqual(
       offenders,
       [],
-      `style names must stay inside style.ts:\n  ${offenders.join("\n  ")}`,
+      `style names must stay inside src/lib/style*:\n  ${offenders.join("\n  ")}`,
     );
   });
 });
@@ -311,7 +374,10 @@ describe("palettes", () => {
     for (const name of STYLES)
       for (const [key, g] of Object.entries(STYLE_PRESETS[name].palette)) {
         const d = Math.abs(lum(g.ground) - lum(g.ink));
-        assert.ok(d > 0.5, `${name}.${key}: ground/ink luma gap ${d.toFixed(2)}`);
+        assert.ok(
+          d > 0.5,
+          `${name}.${key}: ground/ink luma gap ${d.toFixed(2)}`,
+        );
       }
   });
 });
@@ -334,6 +400,20 @@ describe("reference films", () => {
     assert.match(String(uber.note), /NOT IMPLEMENTABLE/);
     // And it is the outlier that motivates the "type" motion layer.
     assert.ok(uber.movingFrac > 0.8, `moving ${uber.movingFrac}`);
+  });
+
+  it("gives every measured style exactly one film", () => {
+    // The film's name, length and shot count used to sit on the preset too, as
+    // `source.file`/`shots`/`durationS`, read by nothing. They live here now;
+    // this is what keeps a measured preset pointing at a film at all.
+    for (const name of STYLES) {
+      const films = REFERENCE_FILMS.filter((f) => f.style === name);
+      assert.equal(
+        films.length,
+        STYLE_PRESETS[name].source === null ? 0 : 1,
+        `${name}: ${films.length} films`,
+      );
+    }
   });
 
   it("agrees with the targets each style already carries", () => {
@@ -368,21 +448,21 @@ describe("reference films", () => {
 });
 
 describe("type scale", () => {
-  it("gives every style a scale whose cap and pitch are consistent", () => {
-    for (const name of STYLES) {
-      const t = STYLE_PRESETS[name].type;
-      // pitch = size * lineHeight, within a pixel of the recorded measurement.
-      assert.ok(
-        Math.abs(t.sizePx * t.lineHeight - t.pitchPx) < 2,
-        `${name}: ${t.sizePx} * ${t.lineHeight} != ${t.pitchPx}`,
-      );
-      // cap ~0.715 of nominal for a grotesque; loose bound, it only has to
-      // catch a transposed or invented number.
-      assert.ok(
-        Math.abs(t.capPx / t.sizePx - 0.715) < 0.12,
-        `${name}: cap ratio ${(t.capPx / t.sizePx).toFixed(2)}`,
-      );
-    }
+  // The rendered metrics each size was tuned against are MEASUREMENTS, kept as
+  // comments beside the sizes (they were fields once, read only by this file).
+  // What is checked here is that the sizes still produce them.
+  const CAP_RATIO = 0.715; // a Helvetica-class grotesque; Inter is within 0.01
+
+  it("reproduces Film A's 52px cap on an 86px pitch from proof's size", () => {
+    const t = STYLE_PRESETS.proof.type;
+    assert.ok(
+      Math.abs(t.sizePx * CAP_RATIO - 52) < 1,
+      `cap ${t.sizePx * CAP_RATIO}`,
+    );
+    assert.ok(
+      Math.abs(t.sizePx * t.lineHeight - 86) < 1,
+      `pitch ${t.sizePx * t.lineHeight}`,
+    );
   });
 
   it("sets ledger's leading for a wrapped sentence, not the reference's pitch", () => {
@@ -400,9 +480,22 @@ describe("type scale", () => {
       led.lineHeight > 1.15 && led.lineHeight < 1.45,
       `ledger lineHeight ${led.lineHeight}`,
     );
-    assert.ok(led.pitchPx < 181, "ledger pitch is below monid's measured 181");
-    const pf = STYLE_PRESETS.proof.type;
-    assert.ok(pf.pitchPx / pf.capPx < 1.8, "proof pitch/cap");
+    assert.ok(
+      led.sizePx * led.lineHeight < 181,
+      "ledger pitch is below monid's measured 181",
+    );
+    assert.ok(
+      Math.abs(led.sizePx * CAP_RATIO - 70) < 2,
+      "ledger keeps monid's ~70px cap",
+    );
+  });
+
+  it("keeps stage's cap on the reference's measured 58.5px", () => {
+    const t = STYLE_PRESETS.stage.type;
+    assert.ok(
+      Math.abs(t.sizePx * CAP_RATIO - 58.5) < 1.5,
+      `cap ${t.sizePx * CAP_RATIO}`,
+    );
   });
 
   it("keeps the pre-font-field styles on the face they shipped with", () => {
@@ -495,5 +588,253 @@ describe("shot motion and bookend length", () => {
         `${name}: bookend ${p.bookend.minS}s < card ${p.card.length.minS}s`,
       );
     }
+  });
+});
+
+describe("BASE plus overrides", () => {
+  it("resolves the house style to BASE with only its provenance added", () => {
+    const { source, targets, ...rest } = STYLE_PRESETS[DEFAULT_STYLE];
+    const { source: s0, targets: t0, ...base } = BASE;
+    assert.deepEqual(rest, base);
+    assert.equal(s0, null, "BASE claims no film");
+    assert.equal(t0, null, "BASE claims no targets");
+    assert.ok(source && targets, "the default style names its own film");
+  });
+
+  it("replaces a move wholesale rather than merging two kinds", () => {
+    // A ramp merged key-by-key over BASE's push would carry the push's stale
+    // axis and distance into a move that has neither.
+    const p = mergePreset(BASE, {
+      card: { exit: { kind: "ramp", scale: 0.1, durationS: 1 } },
+    });
+    assert.deepEqual(p.card.exit, { kind: "ramp", scale: 0.1, durationS: 1 });
+    // …while a group merges, so an override names only what differs.
+    const q = mergePreset(BASE, { card: { length: { holdS: 9 } } });
+    assert.equal(q.card.length.holdS, 9);
+    assert.equal(q.card.length.minS, BASE.card.length.minS);
+    // Arrays replace too.
+    const r = mergePreset(BASE, { sequence: { exitCycle: [] } });
+    assert.deepEqual(r.sequence.exitCycle, []);
+    assert.deepEqual(r.sequence.continuity, BASE.sequence.continuity);
+  });
+
+  it("shares no object between presets, or with BASE", () => {
+    // Every preset is a fresh tree: mutating one must never restyle another.
+    assert.notEqual(STYLE_PRESETS.proof.card, BASE.card);
+    assert.notEqual(STYLE_PRESETS.proof.card.enter, BASE.card.enter);
+    assert.notEqual(STYLE_PRESETS.ledger.chip, STYLE_PRESETS.stage.chip);
+  });
+});
+
+describe("every preset field has a reader", () => {
+  // THE GUARD AGAINST CONFIGURATION THAT CONFIGURES NOTHING. An audit found
+  // ~18 of ~60 fields read by no renderer — chip.*, recap.*, the bookend's
+  // turn, shot.chrome, type.capPx — while tests pinned their values, so tuning
+  // them changed nothing and the suite stayed green.
+  //
+  // Two kinds of reader, both checked:
+  //   - the card side is PURE (introTiming, resolveCard, recapSchedule,
+  //     planSequence), so it is RUN against a preset that records every field
+  //     it is asked for;
+  //   - the footage side (DemoClip, the reel cutter, analyze, ChipOverlay)
+  //     renders or shells out, so its reads are declared below and checked
+  //     against the source text.
+
+  /** Every leaf path a preset carries; array items collapse to `*`. */
+  const leaves = (v: unknown, at: string, out: Map<string, boolean>): void => {
+    if (Array.isArray(v)) v.forEach((x) => leaves(x, `${at}.*`, out));
+    else if (v !== null && typeof v === "object")
+      for (const [k, x] of Object.entries(v))
+        leaves(x, at ? `${at}.${k}` : k, out);
+    else out.set(at, out.get(at) || v !== null);
+  };
+  const allLeaves = (): string[] => {
+    const out = new Map<string, boolean>();
+    for (const name of STYLES) leaves(STYLE_PRESETS[name], "", out);
+    // A path that is null in one style and an object in another is covered by
+    // the object's own leaves; only a path null EVERYWHERE is a leaf itself.
+    return [...out.keys()].filter(
+      (p) => out.get(p) || ![...out.keys()].some((q) => q.startsWith(p + ".")),
+    );
+  };
+
+  const recording = <T extends object>(
+    obj: T,
+    at: string,
+    seen: Set<string>,
+  ): T =>
+    new Proxy(obj, {
+      get(target, key, receiver) {
+        const v = Reflect.get(target, key, receiver) as unknown;
+        if (typeof key === "symbol") return v;
+        const p = at ? `${at}.${/^\d+$/.test(key) ? "*" : key}` : key;
+        seen.add(p);
+        return v !== null && typeof v === "object"
+          ? recording(v as object, p, seen)
+          : v;
+      },
+    });
+
+  /** Run every pure reader, for every style, and return what it asked for. */
+  const readByCards = (): Set<string> => {
+    const seen = new Set<string>();
+    const saved = { ...STYLE_PRESETS };
+    try {
+      for (const name of STYLES)
+        STYLE_PRESETS[name] = recording(saved[name], "", seen) as StylePreset;
+      for (const style of STYLES) {
+        const cards: IntroStoryboard[] = [
+          { name: "x", headline: "Connect your ==own key== today", style },
+          {
+            name: "x",
+            headline: "Ship it",
+            wordmark: "Agenta",
+            subhead: "now",
+            style,
+          },
+          { name: "x", headline: "Agenta", logo: true, style },
+          {
+            name: "x",
+            headline: "Hit {chip} to run",
+            chip: { label: "Run" },
+            style,
+          },
+          { name: "x", headline: "New", items: ["a", "b"], style },
+          {
+            name: "x",
+            headline: "Moves",
+            style,
+            exit: { axis: "x" },
+            enter: { axis: "y" },
+          },
+        ];
+        for (const card of cards)
+          for (const background of [undefined, ...BACKGROUNDS]) {
+            const c = background ? { ...card, background } : card;
+            introTiming(c);
+            const r = resolveCard(c);
+            recapSchedule(2, r.recap);
+          }
+        const seq: SequenceSegment[] = [
+          { card: {} },
+          { clip: {} },
+          { card: {} },
+          { clip: { push: { out: { axis: "y", dist: -80, frames: 12 } } } },
+          { card: {} },
+          { card: {} },
+          { clip: { freeze: true } },
+          { card: { items: ["a"] } },
+          { card: {} },
+        ];
+        const preset = resolveStylePreset({ style });
+        planSequence(seq, preset);
+        applySequence(seq, preset);
+      }
+    } finally {
+      for (const name of STYLES) STYLE_PRESETS[name] = saved[name];
+    }
+    return seen;
+  };
+
+  /**
+   * Reads made where a preset cannot be run without rendering. A declared path
+   * covers every leaf under it. The pattern is searched for in every non-test
+   * source file under src/ and scripts/ outside src/lib/style*, comments
+   * stripped — so a reader that is deleted, not just moved, fails the test.
+   */
+  const DECLARED: { path: string; re: RegExp }[] = [
+    { path: "shot.framing", re: /shot\.framing\b/ },
+    { path: "shot.windowFit", re: /\.windowFit\b/ },
+    { path: "shot.ground", re: /shot\.ground\b/ },
+    { path: "shot.zoom", re: /shot\.zoom\b/ },
+    { path: "shot.cursor", re: /shot\.cursor\b/ },
+    { path: "shot.ripple", re: /shot\.ripple\b/ },
+    { path: "shot.enter", re: /shot\.enter\b/ },
+    { path: "join", re: /preset\.join\b/ },
+    { path: "hud.kind", re: /hud\.kind\b/ },
+    { path: "annotation", re: /preset\.annotation\b/ },
+    { path: "source.loudnessLUFS", re: /source\?\.loudnessLUFS\b/ },
+    ...(
+      [
+        "meanShotS",
+        "cutsPerMin",
+        "movingFrac",
+        "longestStillF",
+        "cutDelta",
+      ] as const
+    ).map((k) => ({
+      path: `targets.${k}`,
+      re: new RegExp(`targets\\.${k}\\b`),
+    })),
+    ...(["scale", "growS", "holdS", "settleS", "shiftFrac"] as const).map(
+      (k) => ({
+        path: `bookend.markSolo.${k}`,
+        re: new RegExp(`\\bsolo\\.${k}\\b`),
+      }),
+    ),
+  ];
+
+  const source = (() => {
+    const home = path.join(ROOT, "src", "lib", "style");
+    const texts: string[] = [];
+    const walk = (dir: string): void => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, e.name);
+        if (e.isDirectory()) walk(full);
+        else if (
+          /\.tsx?$/.test(e.name) &&
+          !/\.test\.tsx?$/.test(e.name) &&
+          full !== `${home}.ts` &&
+          !full.startsWith(home + path.sep)
+        )
+          texts.push(
+            fs
+              .readFileSync(full, "utf8")
+              .replace(/\/\*[\s\S]*?\*\//g, "")
+              .replace(/(^|[^:])\/\/.*$/gm, "$1"),
+          );
+      }
+    };
+    walk(path.join(ROOT, "src"));
+    walk(path.join(ROOT, "scripts"));
+    return texts.join("\n");
+  })();
+
+  const unread = (paths: string[]): string[] => {
+    const seen = readByCards();
+    const declared = DECLARED.filter((d) => d.re.test(source)).map(
+      (d) => d.path,
+    );
+    return paths.filter(
+      (p) =>
+        !seen.has(p) && !declared.some((d) => p === d || p.startsWith(d + ".")),
+    );
+  };
+
+  it("finds a reader for every field of every preset", () => {
+    const missing = unread(allLeaves());
+    assert.deepEqual(
+      missing,
+      [],
+      `fields no renderer reads — wire them or delete them:\n  ${missing.join("\n  ")}`,
+    );
+  });
+
+  it("still finds a declared reader in the source it names", () => {
+    // A declaration whose pattern matches nothing is a reader that was deleted;
+    // it must fail here rather than quietly covering its fields.
+    const stale = DECLARED.filter((d) => !d.re.test(source)).map((d) => d.path);
+    assert.deepEqual(stale, []);
+  });
+
+  it("would catch a field nothing reads", () => {
+    // Proves the check is not vacuous: an invented field is reported.
+    assert.deepEqual(unread(["card.bogus", "bookend.tumbleS"]), ["card.bogus"]);
+  });
+
+  it("restores the registry after recording", () => {
+    for (const name of STYLES as readonly ReelStyle[])
+      assert.equal(STYLE_PRESETS[name], resolveStylePreset({ style: name }));
+    assert.ok(!util.types.isProxy(STYLE_PRESETS.proof));
   });
 });

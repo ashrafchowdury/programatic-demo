@@ -45,27 +45,11 @@ export type PushTransform = { x: number; y: number; scale: number };
 
 export const PUSH_REST: PushTransform = { x: 0, y: 0, scale: 1 };
 
-/**
- * Measured defaults, in frames at 30fps and design px.
- *
- * Entrance travel in the reference runs 54-114px (3-6% of frame width) for the
- * ordinary case; the 208-416px outliers are the whip cuts, which are authored
- * per segment rather than defaulted.
+/*
+ * The measured numbers — Film A's shot entrance (x 114 over 15 frames), its
+ * card exits, its 2.07s hold — live on the style that uses them, in
+ * src/lib/style/base.ts. This file is the envelope, not the grammar.
  */
-export const PUSH_IN_FRAMES = 15;
-export const PUSH_OUT_FRAMES = 13;
-export const PUSH_IN_DIST = 114;
-export const PUSH_OUT_DIST = 72;
-
-/**
- * Still hold between the last word landing and the cut, in seconds.
- *
- * The hardest rule in the reference: measured 62-63 frames on every one of the
- * five sentence cards, regardless of whether the card carried 7 words or 15.
- * The word stagger is compressed to make that landing hit, not the hold
- * stretched to absorb it.
- */
-export const HOLD_AFTER_TEXT_S = 2.07;
 
 const clamp01 = (x: number): number => clamp(x, 0, 1);
 

@@ -8,19 +8,15 @@ import {
   useVideoConfig,
 } from "remotion";
 import { CameraMotionBlur } from "@remotion/motion-blur";
-import { Backdrop } from "./DemoClip";
+import { Backdrop } from "./Backdrop";
 import { Cursor } from "./Cursor";
 import { cameraEase, poseToCss } from "./lib/camera";
 import { DESIGN_WIDTH } from "./lib/click-log";
 import {
-  CARD_EXIT_DEFAULT,
   cardPointerLog,
   CHIP_AT,
-  CHIP_PUNCH_SCALE,
   flooredEntry,
-  FULLBLEED_LETTER_SPACING,
   headlineParts,
-  introLook,
   introTiming,
   LOGO_FILE,
   LOGO_IN_S,
@@ -28,14 +24,14 @@ import {
   LOGO_PERSPECTIVE,
   LOGO_RISE,
   LOGO_TUMBLE_AXIS,
-  LOGO_TUMBLE_S,
-  LOGO_TUMBLE_TURNS,
   parseHeadline,
   progressAt,
   punchEase,
   pushAt,
   readableInk,
+  resolveCard,
   WORDMARK_IN_S,
+  type CardRender,
   type ChipTiming,
   type IntroChip,
   type IntroLook,
@@ -43,9 +39,8 @@ import {
   type StyledToken,
   type WordStyle,
 } from "./lib/intro";
-import { pushEnvelope, pushToCss, type PushSpec } from "./lib/push";
+import { pushEnvelope, pushToCss } from "./lib/push";
 import { RecapCard } from "./RecapCard";
-import { resolvePreset, type MarkSolo } from "./lib/style";
 
 export type IntroProps = {
   intro: IntroStoryboard;
@@ -213,10 +208,11 @@ const LogoLockup: React.FC<{
   look: IntroLook;
   k: number;
   tS: number;
-  fullbleed?: boolean;
-  /** The mark's solo phase, or null for a lockup that simply arrives whole. */
-  solo?: MarkSolo | null;
-}> = ({ text, look, k, tS, fullbleed = false, solo = null }) => {
+  fullbleed: boolean;
+  /** The style's bookend: the mark's turn, its solo phase, the tracking. */
+  lockup: CardRender["lockup"];
+}> = ({ text, look, k, tS, fullbleed, lockup }) => {
+  const { solo } = lockup;
   // Full-bleed runs a longer, larger settle. The framed 0.92 -> 1.0 nudge over
   // 0.45s reads as a fade with a hint of scale; the reference's mark travels a
   // factor of 1.57 over ~0.63s, which is what gives the opening something to
@@ -230,20 +226,22 @@ const LogoLockup: React.FC<{
     : 0.92 + 0.08 * markP;
   // Rises as it shrinks, so the two read as one move rather than two.
   const markRise = fullbleed ? (1 - markP) * LOGO_RISE * k : 0;
-  // One full turn, on its own longer clock than the scale so the mark is still
-  // resolving after it has finished travelling. Full-bleed only: the framed
-  // lockup's 0.92 -> 1.0 nudge is a different, quieter idea and stays as it is.
-  const tumbleP = fullbleed
-    ? cameraEase(progressAt({ startS: 0, endS: LOGO_TUMBLE_S }, tS))
-    : 1;
-  const spin = LOGO_TUMBLE_TURNS * 360 * (1 - tumbleP);
+  // The style's turn, on its own longer clock than the scale so the mark is
+  // still resolving after it has finished travelling. A style with no turn
+  // (`turns: 0`, the framed lockup's quieter 0.92 -> 1.0 nudge) gets no
+  // rotate3d at all rather than a zero one.
+  const tumbleP = cameraEase(
+    progressAt({ startS: 0, endS: lockup.tumbleS }, tS),
+  );
+  const spin = lockup.turns * 360 * (1 - tumbleP);
   const [ax, ay, az] = LOGO_TUMBLE_AXIS;
   // perspective() must lead the function list, and rotate3d has to sit INSIDE
   // scale so the mark turns about its own centre rather than about the point it
   // is scaling toward.
-  const markSpin = fullbleed
-    ? ` perspective(${LOGO_PERSPECTIVE * k}px) rotate3d(${ax}, ${ay}, ${az}, ${spin}deg)`
-    : "";
+  const markSpin =
+    lockup.turns > 0
+      ? ` perspective(${LOGO_PERSPECTIVE * k}px) rotate3d(${ax}, ${ay}, ${az}, ${spin}deg)`
+      : "";
   // THE SOLO PHASE. Off unless the style asks for it, and when it is off every
   // value below collapses to what this component did before it existed.
   //
@@ -295,7 +293,7 @@ const LogoLockup: React.FC<{
           display: "flex",
           fontSize: LOGO_TEXT_SIZE * k,
           fontWeight: HEADLINE_WEIGHT,
-          letterSpacing: fullbleed ? FULLBLEED_LETTER_SPACING : "-0.022em",
+          letterSpacing: lockup.letterSpacing,
           // Comes from the palette in both looks now, so a light full-bleed
           // bookend gets dark ink without a second branch. See introLook.
           color: look.headline,
@@ -488,8 +486,8 @@ const SentenceCard: React.FC<IntroProps> = ({ intro }) => {
   const k = useDesignScale();
   const tS = frame / fps;
   const t = introTiming(intro);
-  const preset_ = resolvePreset(intro);
-  const look = introLook(intro.background, preset_.look, preset_.palette);
+  const style = resolveCard(intro);
+  const { look, fullbleed, emphasis } = style;
 
   // Floored: the film's first frame is a card, and it must not be an empty field.
   const wordmarkP = flooredEntry(
@@ -499,52 +497,14 @@ const SentenceCard: React.FC<IntroProps> = ({ intro }) => {
     progressAt({ startS: t.subheadStartS, endS: t.subheadEndS }, tS),
   );
   // No fade. The card is cut while fully on screen and still moving — see
-  // introTiming. `push` is what keeps it moving: linear, so the last frame (the
-  // one the cut lands on) still has velocity.
-  //
-  // Full-bleed swaps the 4% scale nudge for a directional translate, because
-  // that is what the reference measures: five sentence cards leaving by slide
-  // left, slide up and scale down respectively, never all by the same move. The
-  // entrance is the same curve reversed — a 56px rise, which is the one
-  // entrance shape every card in the reference shares.
-  const preset = resolvePreset(intro);
-  // Typography and palette still key off the look. They are not yet preset
-  // fields — see the `type` group proposed in choreography-references.md §5 —
-  // but this reads a FIELD of the resolved preset, never a style's name.
-  const fullbleed = preset.look === "fullbleed";
-  // Inline emphasis is now the style's call, not the look's — see
-  // CardStyle.emphasis for why the two came apart.
-  const emphasis = preset.card.emphasis;
+  // introTiming. What keeps it moving is the style's: a travel on the push
+  // envelope (the reference's five sentence cards leave by slide left, slide
+  // up and scale down, never all by the same move — see `sequence` in the
+  // style), a scale ramp into the cut (classic), or nothing at all (a grammar
+  // whose cards are pixel-locked). resolveCard dispatches on `kind`, never on
+  // the style.
   const totalFrames = Math.max(1, Math.ceil(t.totalS * fps));
-
-  // Does this grammar travel its cards on the push envelope? `push` says yes;
-  // `ramp` (the framed scale nudge, applied further down) and `none` (Film B's
-  // pixel-locked cards) say no. Dispatching on `kind` rather than on the style
-  // is what lets a third grammar pick either without touching this file.
-  const pEnter = preset.card.enter.kind === "push" ? preset.card.enter : null;
-  const pExit = preset.card.exit.kind === "push" ? preset.card.exit : null;
-  // A card's own enter/exit override its style's.
-  const exit =
-    intro.exit ??
-    (pExit
-      ? { axis: pExit.axis, dist: pExit.dist, frames: pExit.frames }
-      : CARD_EXIT_DEFAULT);
-  const enter = intro.enter;
-  const spec: PushSpec | undefined =
-    pEnter || pExit
-      ? {
-          in: {
-            axis: enter?.axis ?? pEnter?.axis ?? "none",
-            dist: enter?.dist ?? pEnter?.dist ?? 0,
-            frames: enter?.frames ?? pEnter?.frames ?? 0,
-          },
-          out: {
-            axis: exit.axis,
-            dist: exit.dist ?? pExit?.dist ?? 0,
-            frames: exit.frames ?? pExit?.frames ?? 0,
-          },
-        }
-      : undefined;
+  const spec = style.push;
   const envelope = pushEnvelope(frame, totalFrames, spec);
   // F4: residual drift, LOGO CARD ONLY. The reference's opening keeps creeping
   // at ~2px/frame for half a second after it settles, so the frame never goes
@@ -555,12 +515,12 @@ const SentenceCard: React.FC<IntroProps> = ({ intro }) => {
   if (spec && intro.logo) {
     const after = frame - (spec.in?.frames ?? 0);
     if (after > 0)
-      envelope.y -=
-        Math.min(after, preset.bookend.driftFrames) *
-        preset.bookend.driftPxPerFrame;
+      envelope.y -= Math.min(after, style.drift.frames) * style.drift.pxPerFrame;
   }
-  const push = spec ? envelope.scale : pushAt(tS, t.settledS, t.totalS);
-  const shift = spec ? pushToCss(envelope, k) : null;
+  const ramp = style.ramp ? pushAt(tS, t.settledS, t.totalS, style.ramp) : 1;
+  const transform = spec
+    ? pushToCss({ ...envelope, scale: envelope.scale * ramp }, k)
+    : `scale(${ramp})`;
   // Full-bleed has no backdrop plate to drift, by design.
   const drift = DRIFT_FROM + (1 - DRIFT_FROM) * cameraEase(tS / t.totalS);
 
@@ -570,8 +530,8 @@ const SentenceCard: React.FC<IntroProps> = ({ intro }) => {
         justifyContent: "center",
         alignItems: "center",
         padding: `0 ${MARGIN_X * k}px`,
-        transform: shift ?? `scale(${push})`,
-        fontFamily: preset.type.fontFamily,
+        transform,
+        fontFamily: style.type.fontFamily,
       }}
     >
       <div style={{ maxWidth: width * look.columnFrac, textAlign: "center" }}>
@@ -585,7 +545,7 @@ const SentenceCard: React.FC<IntroProps> = ({ intro }) => {
             k={k}
             tS={tS}
             fullbleed={fullbleed}
-            solo={preset.bookend.markSolo}
+            lockup={style.lockup}
           />
         ) : (
           <>
@@ -606,25 +566,20 @@ const SentenceCard: React.FC<IntroProps> = ({ intro }) => {
         ) : null}
         <div
           style={{
-            // Full-bleed sets its own type scale: 72px on a 1.194 pitch with no
-            // tracking — cap height 52px, line pitch 86px, measured off the
-            // reference (see FULLBLEED_HEADLINE_SIZE for why it is specified by
-            // rendered metrics). The framed values below were tuned against a
-            // photographic backdrop and stay as they were.
             // The style owns the type scale. See TypeStyle in src/lib/style.ts
             // for why it is specified by rendered metrics rather than by
             // nominal size, and for where the four reference films sit.
-            fontSize: preset.type.sizePx * k,
+            fontSize: style.type.sizePx * k,
             fontWeight: HEADLINE_WEIGHT,
-            letterSpacing: preset.type.letterSpacing,
-            lineHeight: preset.type.lineHeight,
+            letterSpacing: style.type.letterSpacing,
+            lineHeight: style.type.lineHeight,
             color: look.headline,
             // BALANCED, not greedy. The reference does not fill each line to the
             // column before wrapping: on its 3-line card the lines run 54%/52%/47%
             // of the available column, and on its 2-line card line 2 (1216px) is
             // WIDER than line 1 (1026px) — which greedy filling cannot produce,
             // since greedy always makes earlier lines the longest. Measured in
-            // docs/reel/03-composition.md.
+            // docs/reel/cursor/03-composition.md.
             //
             // Greedy wrapping is what left "feeds." alone on a line once the type
             // grew to 72px. Balancing fixes that class of break for all copy
@@ -700,6 +655,7 @@ const SentenceCard: React.FC<IntroProps> = ({ intro }) => {
         <CameraMotionBlur shutterAngle={180} samples={4}>
           <ChipPunch
             intro={intro}
+            style={style}
             chip={intro.chip}
             timing={t.chip}
             look={look}
@@ -728,6 +684,7 @@ const SentenceCard: React.FC<IntroProps> = ({ intro }) => {
  */
 const ChipPunch: React.FC<{
   intro: IntroStoryboard;
+  style: CardRender;
   chip: IntroChip;
   timing: ChipTiming;
   look: IntroLook;
@@ -735,19 +692,17 @@ const ChipPunch: React.FC<{
   tS: number;
   words: { word: string; index: number; startS: number; endS: number }[];
   vp: { width: number; height: number };
-}> = ({ intro, chip, timing, look, k, tS, words, vp }) => {
+}> = ({ intro, style, chip, timing, look, k, tS, words, vp }) => {
   const u = progressAt(
     { startS: timing.punchStartS, endS: timing.punchEndS },
     tS,
   );
-  const scale = 1 + (CHIP_PUNCH_SCALE - 1) * punchEase(u);
+  const scale = 1 + (style.punchScale - 1) * punchEase(u);
   const css = poseToCss({ scale, cx: CHIP_AT.x, cy: CHIP_AT.y }, 0, 1);
-  // Resolved here rather than threaded in: this card is rendered outside the
-  // wrapper that sets the face, so it has to name it itself.
-  const preset = resolvePreset(intro);
-
   return (
-    <AbsoluteFill style={{ fontFamily: preset.type.fontFamily }}>
+    // This card is rendered outside the wrapper that sets the face, so it has
+    // to name it itself.
+    <AbsoluteFill style={{ fontFamily: style.type.fontFamily }}>
       <AbsoluteFill
         style={{
           transform: `scale(${css.scale}) translate(${css.translateX * 100}%, ${css.translateY * 100}%)`,

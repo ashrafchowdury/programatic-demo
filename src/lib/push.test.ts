@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
-  HOLD_AFTER_TEXT_S,
   PUSH_REST,
   type PushMove,
   cutsMidMove,
@@ -216,11 +215,5 @@ describe("pushToCss", () => {
       pushToCss({ x: 10, y: 0, scale: 1 }, 2),
       "translate3d(20px, 0px, 0) scale(1)",
     );
-  });
-});
-
-describe("HOLD_AFTER_TEXT_S", () => {
-  it("is the measured 62 frames at 30fps, on every card regardless of length", () => {
-    assert.equal(Math.round(HOLD_AFTER_TEXT_S * 30), 62);
   });
 });

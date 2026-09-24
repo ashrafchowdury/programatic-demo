@@ -12,12 +12,14 @@
  */
 import { cameraEase } from "./camera";
 import { type ReelLook } from "./look";
+import { type PushSpec } from "./push";
 import {
-  FONT_STACK_LEGACY,
   STYLE_PRESETS,
-  resolvePreset,
+  resolveStylePreset,
   type CardLength,
+  type MarkSolo,
   type PaletteStyle,
+  type RecapStyle,
   type ReelStyle,
   type WordCadence,
 } from "./style";
@@ -37,12 +39,12 @@ export type IntroStoryboard = {
   /**
    * What sits behind the text.
    *
-   * "plate" is the studio backdrop — the same image DemoClip floats its window
-   * on, so a card cutting straight into footage lands on an unchanged frame.
-   * "plain" is flat near-black. "light" is flat near-white and is the right
-   * default for a light-theme product: measured, our footage averages Y 181, so
-   * a near-black card makes every cut a ~157-level slam where the reference ad
-   * we benchmark against averages 63. See introLook.
+   * A ROLE, not a colour: the style's palette decides what each one looks like
+   * (see PaletteStyle in src/lib/style/types.ts). Under `classic`, "plate" is
+   * the studio backdrop — the same image DemoClip floats its window on, so a
+   * card cutting straight into footage lands on an unchanged frame — "plain" is
+   * flat near-black and "light" flat near-white. Absent = the style's
+   * `card.background` — "plate" under classic, "plain" everywhere else.
    */
   background?: IntroBackground;
   /**
@@ -62,18 +64,16 @@ export type IntroStoryboard = {
   /** Studio backdrop name, so a card matches the demo it introduces. */
   backdrop?: string;
   /**
-   * Timing and exit treatment. Absent = "framed", i.e. every constant below
-   * keeps the value it has always had. See src/lib/look.ts.
-   *
-   * Legacy: `style` supersedes it. Kept because every reel on disk uses it, and
-   * because a card may still override one field of its reel's style.
+   * Legacy spelling of `style`, read only when `style` is absent: "framed"
+   * resolves to `classic`, "fullbleed" to `proof`. Absent too = DEFAULT_STYLE
+   * (`proof`). See resolveStyle in src/lib/style/registry.ts.
    */
   look?: ReelLook;
   /**
    * The choreography grammar this card is cut in — motion AND look together.
    *
-   * Absent falls back to `look`, and then to the default, so a storyboard that
-   * says nothing renders exactly as it always has. See src/lib/style.ts.
+   * Absent falls back to `look`, and then to DEFAULT_STYLE (`proof`). See
+   * src/lib/style.ts.
    *
    * Must live HERE and not only on the reel: scripts/render-intro.ts renders a
    * card straight from intros/<name>.ts with no reel around it, so a reel-level
@@ -87,20 +87,25 @@ export type IntroStoryboard = {
    * Measured: every card in the reference is already partly written on its
    * first frame — 4 words of 11 on one, 2 of 7 on another. The viewer arrives
    * to something already moving instead of to an empty field, which is what
-   * ENTRY_FLOOR half-solves for the wordmark today. Full-bleed only; defaults
-   * to TRIM_IN_S.
+   * ENTRY_FLOOR half-solves for the wordmark today. Honoured only by a grammar
+   * that trims at all (`card.length.trimInS > 0`), whose value is the default.
    */
   trimInS?: number;
   /**
-   * How the card arrives. Full-bleed only; defaults to the measured y-rise.
+   * How the card arrives, overriding the style's `card.enter` (a missing
+   * `dist`/`frames` falls back to it). Honoured in every style.
    *
-   * Worth setting whenever the shot before it left on a different axis: giving
-   * the card the direction the previous shot was travelling is what makes a
-   * hard cut read as one continuous move interrupted by a content change. The
-   * reference does this at four of its eleven cuts.
+   * Giving the card the direction the previous shot was travelling is what
+   * makes a hard cut read as one continuous move interrupted by a content
+   * change — the reference does it at four of its eleven cuts. A style with a
+   * `sequence.continuity` assigns exactly that when this is left unset; see
+   * planSequence in src/lib/style/sequence.ts.
    */
   enter?: CardExit;
-  /** How the card leaves. Full-bleed only; defaults to CARD_EXIT_DEFAULT. */
+  /**
+   * How the card leaves, overriding the style's `card.exit` and its
+   * `sequence.exitCycle`. Honoured in every style.
+   */
   exit?: CardExit;
   /**
    * Turns the card into a RECAP: a top-left lockup over this list.
@@ -112,12 +117,12 @@ export type IntroStoryboard = {
 };
 
 /**
- * A card's exit move.
+ * A card's entrance or exit move.
  *
  * The reference varies the axis deliberately — measured across its five
  * sentence cards: slide left (56px, 83px), slide up (54px), scale down (-7%),
- * and twice no move at all. Alternating the axis is what stops six cards in a
- * row reading as a slideshow, so this is authored per card rather than fixed.
+ * and twice no move at all. A style carries that rhythm as
+ * `sequence.exitCycle`; set this on a card only to break from it.
  */
 export type CardExit = {
   axis: "x" | "y" | "scale" | "none";
@@ -317,108 +322,45 @@ const COLUMN_FRAC_PLATE = 0.52;
 const COLUMN_FRAC_FLAT = 0.78;
 
 /**
- * Flat dark field. Not pure black: the plate's own darkest regions sit near
- * Y 8, so matching that keeps a dark card from stepping against the plate.
+ * The control and the `==highlight==` pill, for a ground that does not name
+ * its own. A marker-style highlight reads as a solid warm swatch with dark ink
+ * on any ground, so the default is shared; authors override the colour per word.
  */
-const DARK_GROUND = "#08080a";
-/**
- * Flat light field, Y 230.8 in limited range.
- *
- * Not #ffffff, for the same reason DARK_GROUND is not #000: one step off the
- * clip point leaves the encoder headroom and stops the ground reading as a
- * blown window. Against Y 181 footage this puts every cut at a ~50-level step,
- * down from ~157 — and 235 is the limited-range ceiling, so ~54 is the most any
- * light card could ever differ. This is near the floor, not a compromise.
- */
-const LIGHT_GROUND = "#fafafb";
-const LIGHT_INK = "#101317";
-
-const DARK_LOOK = {
-  ground: DARK_GROUND,
-  headline: "#fff",
-  subhead: "rgba(255,255,255,0.62)",
-  wordmark: "rgba(255,255,255,0.52)",
-  chipFill: "#17191d",
-  chipLabel: "#f2f3f5",
-  chipRim: "rgba(255,255,255,0.16)",
-  // A marker-style highlight reads as a solid warm swatch with dark ink on any
-  // ground, so the default is shared. Authors override the colour per word.
-  highlightBg: "#f4d35e",
-  highlightInk: "#101317",
+const CHIP_DEFAULT = {
+  fill: "#17191d",
+  label: "#f2f3f5",
+  rim: "rgba(255,255,255,0.16)",
 } as const;
+const HIGHLIGHT_DEFAULT = { fill: "#f4d35e", ink: "#101317" } as const;
 
 /**
- * `look` is optional and only changes the FULL-BLEED palette, which is measured
- * off the reference film rather than tuned against our backdrop: near-black
- * with #e9ebe6 ink for narration, warm off-white with black ink for bookends.
- * Called without it (every framed call site) nothing below changes.
+ * A card's colours, read from its style's palette and nothing else.
+ *
+ * There used to be a second source: a branch on `look` that carried the
+ * full-bleed palette as constants here, beside the identical copy in the
+ * preset, and a framed branch that ignored the classic preset's palette
+ * entirely. Two records of one colour is how they drift; the preset is now the
+ * only one. See PaletteStyle.
  */
 export function introLook(
-  background?: IntroBackground,
-  look?: ReelLook,
-  palette?: PaletteStyle,
+  background: IntroBackground,
+  palette: PaletteStyle,
 ): IntroLook {
-  // A style's own grounds win. This is what lets a grammar assign grounds by
-  // ROLE — one for the narrating voice, one for the workbench a component
-  // stands on, one for third-party vendors — where the looks below only ever
-  // had a single voice with a light alternative. See PaletteStyle in
-  // src/lib/style.ts for which film that comes from.
-  if (palette && look === "fullbleed") {
-    const g = palette[background ?? "plain"];
-    return {
-      ...DARK_LOOK,
-      ground: g.ground,
-      headline: g.ink,
-      subhead: g.muted,
-      wordmark: g.muted,
-      flat: true,
-      columnFrac: COLUMN_FRAC_FLAT,
-    };
-  }
-  if (look === "fullbleed")
-    return background === "light"
-      ? {
-          ...DARK_LOOK,
-          ground: FULLBLEED_LIGHT_GROUND,
-          headline: FULLBLEED_LIGHT_INK,
-          subhead: FULLBLEED_LIGHT_MUTED,
-          wordmark: FULLBLEED_LIGHT_MUTED,
-          flat: true,
-          columnFrac: COLUMN_FRAC_FLAT,
-        }
-      : {
-          ...DARK_LOOK,
-          ground: DARK_GROUND,
-          headline: FULLBLEED_INK,
-          subhead: FULLBLEED_MUTED,
-          wordmark: FULLBLEED_MUTED,
-          flat: true,
-          columnFrac: COLUMN_FRAC_FLAT,
-        };
-  if (background === "light")
-    return {
-      ground: LIGHT_GROUND,
-      headline: LIGHT_INK,
-      // Lower alphas than the dark modes: dark-on-light reads heavier at
-      // matched alpha, because there is no halation eating the stroke.
-      subhead: "rgba(16,19,23,0.58)",
-      wordmark: "rgba(16,19,23,0.45)",
-      // A light control, deliberately. The card's final frame is the chip
-      // filling the screen, so a dark chip would put the ~157 cut delta back
-      // at that one boundary.
-      chipFill: "#ffffff",
-      chipLabel: LIGHT_INK,
-      chipRim: "rgba(15,23,42,0.14)",
-      highlightBg: "#ffe08a",
-      highlightInk: LIGHT_INK,
-      flat: true,
-      columnFrac: COLUMN_FRAC_FLAT,
-    };
-  const flat = background === "plain";
+  const g = palette[background];
+  const chip = g.chip ?? CHIP_DEFAULT;
+  const highlight = g.highlight ?? HIGHLIGHT_DEFAULT;
   return {
-    ...DARK_LOOK,
-    flat,
-    columnFrac: flat ? COLUMN_FRAC_FLAT : COLUMN_FRAC_PLATE,
+    ground: g.ground,
+    headline: g.ink,
+    subhead: g.muted,
+    wordmark: g.wordmark ?? g.muted,
+    chipFill: chip.fill,
+    chipLabel: chip.label,
+    chipRim: chip.rim,
+    highlightBg: highlight.fill,
+    highlightInk: highlight.ink,
+    flat: !g.backdrop,
+    columnFrac: g.backdrop ? COLUMN_FRAC_PLATE : COLUMN_FRAC_FLAT,
   };
 }
 
@@ -466,116 +408,6 @@ export const SUBHEAD_IN_S = 0.6;
 export const HOLD_S = 1.2;
 
 /**
- * FULL-BLEED TIMING. Measured off the Cursor "Agent UX improvements" film; each
- * of these replaces a "framed" constant above only when look is "fullbleed".
- */
-
-/**
- * Still hold between the last word landing and the cut, in seconds.
- *
- * The hardest rule in the reference: 62-63 frames at 30fps on every one of its
- * five sentence cards, whether the card carried 7 words or 15. The stagger is
- * compressed to make that landing hit; the tail is never shortened to absorb
- * long copy. HOLD_S is 1.2 by comparison, which is why our cards read as
- * hurried next to it.
- */
-export const HOLD_AFTER_TEXT_S = 2.07;
-
-/**
- * How far into its own reveal a card already is on its first visible frame.
- *
- * ~5 frames at 30fps. Measured: shot 2 opens with 4 of 11 words out, shot 8
- * with 2 of 7.
- */
-export const TRIM_IN_S = 0.17;
-
-/**
- * Longest a sentence card may run before the stagger is compressed to fit.
- *
- * The reference's cards are 95-97 frames — effectively a fixed 96. Rather than
- * pin the length and let copy overflow, we cap it and tighten the stagger,
- * which is what the reference itself does: 6 frames per word on a 9-word card,
- * 3 on a 15-word one.
- */
-export const CARD_MAX_S = 3.3;
-
-/**
- * One type stack for every card variant.
- *
- * In lib rather than in a component because both Intro.tsx and RecapCard.tsx
- * need it, and RecapCard is rendered BY Intro — importing it back the other way
- * would close a cycle.
- */
-export const FONT_STACK = FONT_STACK_LEGACY;
-
-/**
- * FULL-BLEED TYPE. Measured off the reference; replaces the framed values only
- * when look is "fullbleed".
- *
- * The framed look was tuned at 96px/1.12/-0.022em against a photographic
- * backdrop, where a big tight headline holds its own. The reference is smaller
- * and looser, which is why it fits 7-8 words to a line where framed fits 5.
- *
- * SPECIFY THIS PAIR BY RENDERED METRICS, NOT BY NOMINAL SIZE. The two numbers
- * the reference actually holds are:
- *
- *     cap height  52px      line pitch  86px      (at 1920x1080)
- *
- * Pitch is exact — 86px on every multi-line card in both reference films
- * (docs/reel/03-composition.md). Cap height is 51-52 measured on FLAT capitals
- * (N, I, R); round capitals (G, S, C) read 54 because they overshoot the cap
- * line, which is what an earlier pass mistook for the true height.
- *
- * The nominal size that produces those metrics depends on the face's cap ratio.
- * FONT_STACK resolves to a Helvetica-class grotesque at ~0.715, so:
- *
- *     size  = 52 / 0.715 = 72        cap  72 * 0.715 = 51.5   ✓
- *     pitch = 86 / 72    = 1.194     pitch 72 * 1.194 = 86.0   ✓
- *
- * The previous 64/1.35 reproduced the pitch exactly and the cap height not at
- * all: 64 * 0.715 = 45.75px, ~12% under the reference. Cards read as caption
- * rather than statement. If FONT_STACK is ever pinned to a face with a
- * different cap ratio, re-derive SIZE from cap 52 and LINE_HEIGHT from 86/size
- * — do not carry these two numbers across.
- *
- * FULLBLEED_INK is #E9EBE6, not #fff. DARK_GROUND is already one step off #000
- * because the extreme does not survive h264; the same argument applies to the
- * ink and had not been carried through.
- */
-export const FULLBLEED_HEADLINE_SIZE = 72;
-export const FULLBLEED_LINE_HEIGHT = 1.194;
-export const FULLBLEED_LETTER_SPACING = "0em";
-export const FULLBLEED_INK = "#e9ebe6";
-
-/**
- * THE BOOKEND GROUND IS LIGHT, AND THAT IS STRUCTURE, NOT TASTE.
- *
- * Measured off the reference: #edece5, a warm off-white, on both its opening
- * and closing cards — against #0a0a0a on all five of its sentence cards. For a
- * long time that read as a styling choice. It is not.
- *
- * A full-bleed film alternates dark cards with light footage, so its cut
- * contrast is the whole grammar: all ten of the reference's cuts measure a
- * 209-240 level step in mean luma, without exception. Put the bookends on the
- * DARK ground and two cuts vanish — logo->card and recap->logo become steps of
- * 2 and 1 levels, which ffmpeg's own scene detector does not register as cuts
- * at all. That is exactly what our first cut did.
- *
- * Light bookends are the only arrangement in which
- * `logo, card, clip, card, clip, card, still, recap, logo` alternates on every
- * single boundary. The colour is load-bearing.
- *
- * The ink pair is measured the same way: the wordmark's glyph cores read #000,
- * and the third line reads Y 132-140 — a warm grey a little under halfway from
- * ink to ground.
- */
-export const FULLBLEED_LIGHT_GROUND = "#edece5";
-export const FULLBLEED_LIGHT_INK = "#0a0a0a";
-export const FULLBLEED_LIGHT_MUTED = "#86857e";
-/** Muted ink on the dark full-bleed ground, at the same contrast ratio. */
-export const FULLBLEED_MUTED = "#8a8a86";
-
-/**
  * FULL-BLEED LOGO CARD. The film's bookend, and the fix for an abrupt opening.
  *
  * Measured on the reference's shot 1: the mark scales 198 -> 126px (a factor of
@@ -593,53 +425,13 @@ export const LOGO_IN_S = 0.63;
 export const LOGO_RISE = 96;
 
 /**
- * THE MARK TURNS ONCE, FULLY, AS IT SETTLES.
- *
- * Measured on the reference's opening and closing cards, which get identical
- * treatment (docs/reel/02-motion.md). Sampling the mark's silhouette every two
- * frames from f0 walks through: upright cube -> tilted -> near edge-on ->
- * hexagon (corner-on) -> hexagon -> rotated square -> small quadrilateral ->
- * pentagon -> chevron -> chevron -> diamond with a facet returning -> near-cube
- * -> upright cube. Starting and ending on the SAME orientation across a
- * continuous turn is what identifies it as exactly one revolution rather than a
- * wobble. Silhouette width/height corroborates: W/H swings 2.13 -> 0.87 -> 1.55
- * over the same span, and the outline is stable from f26 on.
- *
- * ~27 frames at 30fps. Longer than the mark's scale-and-rise (LOGO_IN_S, 19
- * frames) on purpose: the size lands first and the turn keeps going, so the
- * card is still resolving after it has stopped travelling. That overlap is why
- * the reference's opening reads as one continuous move instead of two.
+ * The mark's turn, when the style's bookend has one (`bookend.tumbleS` and
+ * `turns`; the measurement behind both is in src/lib/style/base.ts).
  *
  * AXIS. Not a cardinal one. A cube spun about x or y alone never shows the
- * corner-on hexagon that frames 6-9 clearly are; a tilted axis does. (1, 1, 0)
- * is the simplest tilt that reproduces the sequence.
- *
- * A NOTE ON FLAT MARKS, AND WHY THIS IS 0.85 AND NOT 0.90.
- *
- * The reference mark is a cube: a solid, so its silhouette is a filled polygon
- * at every angle. Ours is a flat image, which is exactly zero px wide at 90 and
- * 270 degrees. Those two crossings are unavoidable — any axis that lets a plane
- * show its back must pass through edge-on — so the only thing to control is
- * whether a crossing lands ON a frame or BETWEEN two.
- *
- * Apparent width is |cos(spin)|. Sampling that on the 30fps grid for candidate
- * durations, worst frame in the whole turn:
- *
- *     0.90s (27f)   0.030   <- 270deg lands on f10. Rendered, that frame is a
- *                              hairline: 220 lit px against 7100 settled. It
- *                              reads as a blink, not a flip.
- *     0.87s (26f)   0.061
- *     0.75s (22f)   0.141
- *     0.85s (25f)   0.119   <- both crossings straddled (f3 0.119, f10 0.122)
- *
- * 0.85 keeps every frame at or above 12% width while staying closest to the
- * ~26 frames measured off the reference. This is a constraint of rendering a
- * flat mark at 30fps, not something the reference had to solve — if the mark is
- * ever replaced with real 3D geometry, this can go back to the measured 0.90.
+ * corner-on hexagon that the reference's frames 6-9 clearly are; a tilted axis
+ * does. (1, 1, 0) is the simplest tilt that reproduces the sequence.
  */
-export const LOGO_TUMBLE_S = 0.85;
-export const LOGO_TUMBLE_TURNS = 1;
-/** Tilted rotation axis, as an (x, y, z) triple for rotate3d. */
 export const LOGO_TUMBLE_AXIS: readonly [number, number, number] = [1, 1, 0];
 /**
  * Perspective distance in design px. Three times the mark's own height: enough
@@ -647,9 +439,6 @@ export const LOGO_TUMBLE_AXIS: readonly [number, number, number] = [1, 1, 0];
  * perspective gives a plane at 45 degrees.
  */
 export const LOGO_PERSPECTIVE = 276;
-/** Residual drift after the settle: px/frame at 30fps, and how long it runs. */
-export const LOGO_DRIFT_PX_PER_FRAME = 2;
-export const LOGO_DRIFT_FRAMES = 14;
 
 /**
  * A VERTICAL LOCKUP WAS TRIED HERE AND REJECTED — recorded so it is not
@@ -671,61 +460,41 @@ export const LOGO_DRIFT_FRAMES = 14;
  * size, no third line.
  */
 
-/** Recap card geometry and cadence live with the other card timing. */
-export const RECAP_LEAD_S = 0.17;
-export const RECAP_LOCKUP_STAGGER_S = 0.27;
-export const RECAP_ITEMS_LEAD_S = 0.37;
-/** One list item every 16 frames at 30fps — labels to read, not prose to scan. */
-export const RECAP_ITEM_STAGGER_S = 0.533;
-
-/** Seconds of card needed for `n` items, before any exit push. */
-export function recapDurationS(n: number, holdS: number = 1.23): number {
-  const lastItemS =
-    RECAP_LEAD_S +
-    RECAP_LOCKUP_STAGGER_S +
-    RECAP_ITEMS_LEAD_S +
-    Math.max(0, n - 1) * RECAP_ITEM_STAGGER_S;
-  return lastItemS + holdS;
+/**
+ * When each element of a recap card lands, in seconds from its first frame.
+ * The cadence is the style's `recap` group; see src/RecapCard.tsx for the
+ * layout it is measured against.
+ */
+export function recapSchedule(
+  n: number,
+  recap: RecapStyle,
+): { markS: number; wordmarkS: number; itemsS: number[] } {
+  const markS = recap.leadS;
+  const wordmarkS = markS + recap.lockupStaggerS;
+  const first = wordmarkS + recap.itemsLeadS;
+  return {
+    markS,
+    wordmarkS,
+    itemsS: Array.from({ length: n }, (_, i) => first + i * recap.itemStaggerS),
+  };
 }
 
-
-/** Tightest measured word cadence — 3 frames at 30fps. The compression floor. */
-export const WORD_STAGGER_MIN_S = 0.1;
-
-/**
- * Shortest a sentence card may run.
- *
- * With CARD_MAX_S this brackets the reference's measured 95-97 frames from both
- * sides. Without the floor a short card collapses to its own reveal plus the
- * hold — a 7-word card came out 10 frames under the reference, which breaks the
- * metronomic 15-cuts-per-minute the film runs on. An explicit `holdS` still
- * wins, so an author can deliberately sit longer.
- */
-export const CARD_MIN_S = 3.2;
-
-/**
- * Card entrance: the text block rises into place.
- *
- * 56 design px over ~14 frames, measured identically on both reference cards
- * whose entrance was a rise (shot 2: y 526->470; shot 6: y 528->474). It is the
- * one entrance shape the reference's cards share; the varied moves are all on
- * the way OUT.
- */
-export const CARD_RISE = 56;
-export const CARD_RISE_FRAMES = 14;
-
-/** Default exit: a short leftward slide, the reference's most common. */
-export const CARD_EXIT_DEFAULT = {
-  axis: "x" as const,
-  dist: -72,
-  frames: 13,
-};
+/** Seconds of card needed for `n` items, before any exit push. */
+export function recapDurationS(
+  n: number,
+  recap: RecapStyle,
+  holdS: number = 1.23,
+): number {
+  const { wordmarkS, itemsS } = recapSchedule(Math.max(1, n), recap);
+  return (n > 0 ? itemsS[itemsS.length - 1] : wordmarkS + recap.itemsLeadS) + holdS;
+}
 
 /**
  * Stagger that lands the last word in time for the full hold.
  *
- * Returns WORD_STAGGER_S when the copy already fits, so short cards keep the
- * unhurried cadence and only long ones tighten.
+ * Returns the cadence's own stagger when the copy already fits, so short cards
+ * keep the unhurried rhythm and only long ones tighten — and always when the
+ * grammar sets no ceiling (`maxS: null`), since then nothing needs fitting.
  */
 export function fittedStagger(
   wordCount: number,
@@ -733,9 +502,8 @@ export function fittedStagger(
   cadence: WordCadence = STYLE_PRESETS.proof.card.cadence,
   length: CardLength = STYLE_PRESETS.proof.card.length,
 ): number {
-  // The ceiling and floor come from the grammar being fitted, not from the
-  // full-bleed constants — a second fitted style would otherwise silently
-  // inherit Film A's card band.
+  // The ceiling and floor come from the grammar being fitted — a second fitted
+  // style must not silently inherit Film A's card band.
   // A typewriter has no word stagger to fit — it runs at a constant character
   // rate and its length falls out of the copy. Returning 0 keeps this callable
   // from a shared path without the caller having to know the kind.
@@ -743,8 +511,8 @@ export function fittedStagger(
   const maxStaggerS = cadence.staggerS;
   const minStaggerS = cadence.kind === "fitted" ? cadence.minStaggerS : maxStaggerS;
   const beats = wordCount - 1;
-  if (beats <= 0) return maxStaggerS;
-  const room = (length.maxS ?? CARD_MAX_S) - length.holdS + trimInS;
+  if (beats <= 0 || length.maxS == null) return maxStaggerS;
+  const room = length.maxS - length.holdS + trimInS;
   const fitted = room / beats;
   return Math.max(minStaggerS, Math.min(maxStaggerS, fitted));
 }
@@ -759,24 +527,6 @@ export function fittedStagger(
 export const HEADLINE_LEAD_S = 0;
 
 /**
- * Slow push across the card, as a fraction of scale.
- *
- * MOVE, REST, MOVE — not a constant rate, and the difference matters.
- *
- * A linear push does keep the cut alive, but it also means the card never rests,
- * and a first attempt at this shipped exactly that: measured against the
- * reference, our film sat still for 11% of its runtime where the reference sits
- * still for 34%. Rest is not dead air, it is what makes the movement legible —
- * the reference alternates hard between still and strongly moving, spending only
- * 11% of its frames in between.
- *
- * So the card arrives, holds genuinely still through the beat where the copy is
- * read, then accelerates into its own cut. The two ramps have deliberately
- * different curves: the first decelerates to zero so it settles without a kick,
- * the second is accelerating at u=1 so the frame the cut lands on still has
- * velocity. Same reasoning as punchEase.
- */
-/**
  * Opacity the first element starts at, rather than zero.
  *
  * A card is cut to, not faded up, so frame 0 has to already carry something.
@@ -789,98 +539,45 @@ export const ENTRY_FLOOR = 0.3;
 export const flooredEntry = (p: number): number =>
   ENTRY_FLOOR + (1 - ENTRY_FLOOR) * p;
 
-export const CARD_PUSH = 0.04;
 /**
- * Length of the exit ramp, in seconds.
+ * The accelerating half of the move-rest-move ramp: the Film-A-era answer to a
+ * card that must still be moving when the cut lands, without travelling.
  *
- * Absolute, not a fraction of the card. A first attempt used fractions and the
- * rest landed at 32-68% of the duration — which on a 1.5s interstitial is
- * exactly when the last words are still arriving, so those cards measured 0%
- * still. Keying the rest to `settledS` instead puts it where the copy is
- * actually being read, whatever the card's length.
+ * Only the EXIT ramps. With a written headline the card has to be genuinely
+ * still BETWEEN word arrivals, or the words land on a drifting field and the
+ * writing stops reading as writing. Measured, an in-ramp kept per-frame change
+ * at 74-250 throughout; the reference sits at 2-12 between its arrivals and
+ * spikes to 255 on each one. Putting the whole ramp on the exit gives both: a
+ * still card while it writes, and a camera already moving when the cut lands.
  */
-export const PUSH_OUT_S = 0.35;
-/**
- * Share of the push spent on the way in. Zero — it all goes to the exit.
- *
- * With a written headline the card has to be genuinely still BETWEEN word
- * arrivals, or the words land on a drifting field and the writing stops reading
- * as writing. Measured, an in-ramp kept per-frame change at 74-250 throughout;
- * the reference sits at 2-12 between its arrivals and spikes to 255 on each one.
- * Moving the whole push to the exit gives both: a still card while it writes,
- * and a camera already moving when the cut lands.
- */
-const PUSH_IN_SHARE = 0;
-
-const clamp01 = (x: number): number => Math.min(1, Math.max(0, x));
-/** Decelerates to zero — settles into the rest without a kick. */
-const easeOut = (x: number): number => 1 - (1 - x) * (1 - x);
-/** Still accelerating at x=1 — the cut lands on a moving frame. */
 const easeIn = (x: number): number => x * x;
+const clamp01 = (x: number): number => Math.min(1, Math.max(0, x));
 
 /**
- * Scale of the card's content at `tS`. Moves in, rests while the copy is read,
- * then accelerates into its own cut.
+ * Scale of the card's content at `tS` under a `ramp` exit: 1 while the copy
+ * writes and is read, then accelerating by `ramp.scale` into the cut over the
+ * last `ramp.durationS` — still accelerating at the final frame, so the frame
+ * the cut lands on has velocity. Same reasoning as punchEase.
  *
  * The rest runs from `settledS` — when the last word has landed — to the start
- * of the exit ramp. On a card too short to contain both, the ramps simply meet
- * and there is no rest; that is a signal the card needs a longer hold, not a
- * reason to shorten the ramps.
+ * of the ramp. On a card too short to contain both, the ramp starts at
+ * `settledS` and there is no rest; that is a signal the card needs a longer
+ * hold, not a reason to shorten the ramp.
  */
 export const pushAt = (
   tS: number,
   settledS: number,
   totalS: number,
+  ramp: { scale: number; durationS: number },
 ): number => {
   if (!(totalS > 0)) return 1;
-  const outStart = Math.max(settledS, totalS - PUSH_OUT_S);
-  const inP = easeOut(settledS > 0 ? clamp01(tS / settledS) : 1);
+  const outStart = Math.max(settledS, totalS - ramp.durationS);
   const outP = easeIn(
     totalS > outStart ? clamp01((tS - outStart) / (totalS - outStart)) : 0,
   );
-  return 1 + CARD_PUSH * (PUSH_IN_SHARE * inP + (1 - PUSH_IN_SHARE) * outP);
+  return 1 + ramp.scale * outP;
 };
 
-/** Pointer glide to the chip. It lands as the punch settles. */
-export const CHIP_TRAVEL_S = 0.62;
-/** Beat between the sentence settling and the camera starting to move. */
-export const CHIP_PUNCH_LEAD_S = 0.18;
-/**
- * The punch. Measured off the reference: ~13 frames of movement at 30fps.
- */
-export const CHIP_PUNCH_S = 0.45;
-/**
- * Gap between the camera stopping and the press. One frame, not four.
- *
- * At 0.12s the card had three dead-still frames between the punch ending and
- * the press starting — measured at 7-14 per-frame change, a visible hitch. In
- * the reference the press is already underway as the punch decays (255 -> 107
- * -> 61 into the cut), with no still gap at all.
- */
-export const CHIP_SETTLE_S = 0.03;
-/**
- * Held after the press, before the cut.
- *
- * The camera is STOPPED through this beat; the only thing moving is the click
- * ripple, which is still expanding when the cut lands. Counted off the
- * reference: its punch finishes and then it sits at that framing for ~17 frames
- * while the press plays out, with per-frame change decaying 255 -> 107 -> 61
- * into the cut rather than accelerating.
- */
-export const CHIP_AFTER_PRESS_S = 0.3;
-/**
- * How far the camera pushes into the chip.
- *
- * Four, and the number is a COMPOSITION target, not a zoom factor.
- *
- * The reference stops where its chip takes roughly 40% of the frame width and
- * the neighbouring words are still legible at both edges — the control is the
- * subject, but it is visibly still IN a sentence. Copying its ~6x directly
- * overshot, because our chip is more than twice as wide at rest, so the same
- * factor put it at 60% of frame with the sentence gone. Match the framing, not
- * the multiplier: if the chip type size changes, this has to be re-checked.
- */
-export const CHIP_PUNCH_SCALE = 4;
 /**
  * Character budget for a chip headline.
  *
@@ -1058,10 +755,14 @@ export function progressAt(
 }
 
 export function introTiming(intro: IntroStoryboard): IntroTiming {
+  // Everything below reads FIELDS off the resolved choreography preset. There is
+  // deliberately no `if (style === ...)` here — see src/lib/style.ts for why.
+  const preset = resolveStylePreset(intro);
+
   // A recap card is a list on a timer, not a sentence: its length comes from
   // how many items it has to show, and it has no word schedule at all.
   if (intro.items?.length) {
-    const totalS = recapDurationS(intro.items.length, intro.holdS);
+    const totalS = recapDurationS(intro.items.length, preset.recap, intro.holdS);
     return {
       words: [],
       wordmarkEndS: 0,
@@ -1074,9 +775,6 @@ export function introTiming(intro: IntroStoryboard): IntroTiming {
     };
   }
 
-  // Everything below reads FIELDS off the resolved choreography preset. There is
-  // deliberately no `if (style === ...)` here — see src/lib/style.ts for why.
-  const preset = resolvePreset(intro);
   const { cadence, length } = preset.card;
 
   // A grammar that cuts INTO the reveal starts the word clock before frame 0, so
@@ -1087,30 +785,40 @@ export function introTiming(intro: IntroStoryboard): IntroTiming {
   // A grammar with no trim ignores an authored `trimInS` rather than honouring
   // it, which is what the framed look has always done; changing that would move
   // cards in the back catalogue.
-  const trimInS = length.trimInS > 0 ? (intro.trimInS ?? length.trimInS) : 0;
+  const authoredTrimS = length.trimInS > 0 ? (intro.trimInS ?? length.trimInS) : 0;
 
   // A wordmark already puts something on screen at frame 0, so the headline can
   // take its beat. Without one, waiting means opening on an empty field.
-  const headlineStartS =
-    (intro.wordmark ? HEADLINE_START_S : HEADLINE_LEAD_S) - trimInS;
-  const staggerS =
-    cadence.kind === "fitted"
-      ? fittedStagger(wordsOf(intro.headline).length, trimInS, cadence, length)
-      : cadence.kind === "typed"
-        ? 0
-        : cadence.staggerS;
-  const words = wordSchedule(
-    intro.headline,
-    headlineStartS,
-    staggerS,
-    cadence.fadeS,
-    cadence.kind === "typed" ? cadence.perCharS : undefined,
-  );
+  const leadS = intro.wordmark ? HEADLINE_START_S : HEADLINE_LEAD_S;
+  const schedule = (trimS: number): WordCue[] =>
+    wordSchedule(
+      intro.headline,
+      leadS - trimS,
+      cadence.kind === "fitted"
+        ? fittedStagger(wordsOf(intro.headline).length, trimS, cadence, length)
+        : cadence.kind === "typed"
+          ? 0
+          : cadence.staggerS,
+      cadence.fadeS,
+      cadence.kind === "typed" ? cadence.perCharS : undefined,
+    );
+  // `openOn` lengthens the trim until that many units are already complete on
+  // the first frame — for a typewriter, where the time a word takes depends on
+  // the word. Measured on the untrimmed schedule: trimming by a unit's end time
+  // puts that end exactly on frame 0. A logo card's headline is its lockup,
+  // which is not written from this schedule, so it is exempt.
+  const units = wordsOf(intro.headline).length;
+  const opening =
+    length.openOn > 0 && !intro.logo
+      ? schedule(0)[Math.min(length.openOn, units) - 1]
+      : undefined;
+  const trimInS = Math.max(authoredTrimS, opening?.endS ?? 0);
+  const words = schedule(trimInS);
   const last = words[words.length - 1];
   // An empty headline still has to produce a coherent schedule, or Studio
   // cannot open a half-written storyboard.
-  const lastStartS = last ? last.startS : headlineStartS;
-  const lastEndS = last ? last.endS : headlineStartS;
+  const lastStartS = last ? last.startS : leadS - trimInS;
+  const lastEndS = last ? last.endS : leadS - trimInS;
 
   const wordmarkEndS = intro.wordmark ? WORDMARK_IN_S : 0;
   const subheadStartS = lastStartS + SUBHEAD_LAG_S;
@@ -1142,9 +850,9 @@ export function introTiming(intro: IntroStoryboard): IntroTiming {
   const chip: ChipTiming | null = intro.chip
     ? (() => {
         const travelStartS = outStartS;
-        const punchStartS = travelStartS + CHIP_PUNCH_LEAD_S;
-        const punchEndS = punchStartS + CHIP_PUNCH_S;
-        const pressS = punchEndS + CHIP_SETTLE_S;
+        const punchStartS = travelStartS + preset.chip.leadS;
+        const punchEndS = punchStartS + preset.chip.punchS;
+        const pressS = punchEndS + preset.chip.settleS;
         return {
           travelStartS,
           // The pointer arrives exactly as the camera settles.
@@ -1167,8 +875,95 @@ export function introTiming(intro: IntroStoryboard): IntroTiming {
     subheadEndS,
     settledS,
     outStartS,
-    totalS: chip ? chip.pressS + CHIP_AFTER_PRESS_S : outStartS,
+    totalS: chip ? chip.pressS + preset.chip.afterPressS : outStartS,
     chip,
+  };
+}
+
+/**
+ * Everything src/Intro.tsx and src/RecapCard.tsx take from the style, resolved
+ * once and in one place.
+ *
+ * Pure, so the renderers read no preset fields of their own — which is what
+ * lets style.test.ts check that every field a preset carries is read by
+ * something, by running this rather than rendering a frame.
+ */
+export type CardRender = {
+  /** Colours, from the style's palette. */
+  look: IntroLook;
+  /** Flat, full-bleed grammar: no backdrop, a larger logo settle, balanced wraps. */
+  fullbleed: boolean;
+  /** Whether inline `==markup==` renders; see CardStyle.emphasis. */
+  emphasis: boolean;
+  /** The card's travel, or undefined for a card that does not travel. */
+  push: PushSpec | undefined;
+  /**
+   * The style's scale ramp into the cut, or null. Dropped when the card
+   * travels out instead — an authored exit replaces the style's.
+   */
+  ramp: { scale: number; durationS: number } | null;
+  /** Residual rise after a logo card's entrance; see BookendStyle. */
+  drift: { pxPerFrame: number; frames: number };
+  type: { sizePx: number; lineHeight: number; letterSpacing: string; fontFamily: string };
+  lockup: {
+    tumbleS: number;
+    turns: number;
+    letterSpacing: string;
+    solo: MarkSolo | null;
+  };
+  punchScale: number;
+  recap: RecapStyle;
+};
+
+export function resolveCard(intro: IntroStoryboard): CardRender {
+  const preset = resolveStylePreset(intro);
+  const { card, bookend } = preset;
+  const pEnter = card.enter.kind === "push" ? card.enter : null;
+  const pExit = card.exit.kind === "push" ? card.exit : null;
+  // A card's own enter/exit override its style's, field by field — an authored
+  // axis with no distance travels the style's distance. Honoured in EVERY
+  // style: a card that authors a move on a grammar whose cards hold still has
+  // said it wants to move, and ignoring that silently was the old behaviour.
+  const travels = pEnter || pExit || intro.enter || intro.exit;
+  const push: PushSpec | undefined = travels
+    ? {
+        in: {
+          axis: intro.enter?.axis ?? pEnter?.axis ?? "none",
+          dist: intro.enter?.dist ?? pEnter?.dist ?? 0,
+          frames: intro.enter?.frames ?? pEnter?.frames ?? 0,
+        },
+        out: {
+          axis: intro.exit?.axis ?? pExit?.axis ?? "none",
+          dist: intro.exit?.dist ?? pExit?.dist ?? 0,
+          frames: intro.exit?.frames ?? pExit?.frames ?? 0,
+        },
+      }
+    : undefined;
+  const ramp =
+    card.exit.kind === "ramp" && !(push?.out && push.out.axis !== "none")
+      ? { scale: card.exit.scale, durationS: card.exit.durationS }
+      : null;
+  return {
+    look: introLook(intro.background ?? card.background, preset.palette),
+    fullbleed: preset.look === "fullbleed",
+    emphasis: card.emphasis,
+    push,
+    ramp,
+    drift: { pxPerFrame: bookend.driftPxPerFrame, frames: bookend.driftFrames },
+    type: {
+      sizePx: preset.type.sizePx,
+      lineHeight: preset.type.lineHeight,
+      letterSpacing: preset.type.letterSpacing,
+      fontFamily: preset.type.fontFamily,
+    },
+    lockup: {
+      tumbleS: bookend.tumbleS,
+      turns: bookend.turns,
+      letterSpacing: bookend.letterSpacing,
+      solo: bookend.markSolo,
+    },
+    punchScale: preset.chip.punchScale,
+    recap: preset.recap,
   };
 }
 
@@ -1255,11 +1050,6 @@ export function compositionSize(log: ClickLog): {
   const aspect = log.viewport.height / log.viewport.width;
   const even = (n: number) => Math.round(n / 2) * 2;
   return { width: even(OUTPUT_WIDTH), height: even(OUTPUT_WIDTH * aspect) };
-}
-
-/** Stand-in card for a demo with no storyboard yet, so a render still runs. */
-export function fallbackIntro(name: string): IntroStoryboard {
-  return { name, headline: name.replace(/-/g, " ") };
 }
 
 /**

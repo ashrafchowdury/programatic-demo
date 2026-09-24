@@ -1,16 +1,18 @@
 import React from "react";
-import { AbsoluteFill, Img, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
 import {
-  introLook,
+  AbsoluteFill,
+  Img,
+  staticFile,
+  useCurrentFrame,
+  useVideoConfig,
+} from "remotion";
+import {
   LOGO_FILE,
-  RECAP_ITEM_STAGGER_S,
-  RECAP_ITEMS_LEAD_S,
-  RECAP_LEAD_S,
-  RECAP_LOCKUP_STAGGER_S,
+  recapSchedule,
+  resolveCard,
   type IntroStoryboard,
 } from "./lib/intro";
 import { settle } from "./lib/push";
-import { resolvePreset } from "./lib/style";
 import { useDesignScale } from "./WindowFrame";
 
 /**
@@ -22,10 +24,9 @@ import { useDesignScale } from "./WindowFrame";
  *
  *   lockup   x124, band y136-218   (mark + wordmark on one line)
  *   items    x124, first band y308, pitch 120px
- *   cadence  one item every 16 frames — three times slower than the sentence
- *            cards' words, because these are labels to be read, not prose to
- *            be scanned
- *   lead     5 completely empty frames before anything appears
+ *   cadence  one item every 16 frames, after 5 completely empty frames —
+ *            the style's `recap` group, scheduled by recapSchedule in
+ *            src/lib/intro.ts
  *
  * That empty lead is deliberate and worth keeping. The cut into this card is
  * dark-to-dark (measured luma delta 3.1 against ~200 at every other cut), so it
@@ -49,7 +50,7 @@ export const RECAP_RISE_S = 0.2;
  * ITEMS RISE TOO — the same 8px, on the same clock. The constant was already
  * here; only the mark was using it.
  *
- * An item's APPEARANCE is binary, which is what docs/reel/02-motion.md records:
+ * An item's APPEARANCE is binary, which is what docs/reel/cursor/02-motion.md records:
  * ink goes 0 -> 14749 between two frames. But it is not finished when it
  * appears. Tracking the ink band of the reference's first recap item across its
  * reveal, the top edge reads
@@ -61,34 +62,15 @@ export const RECAP_RISE_S = 0.2;
  * larger than the 8px already in RECAP_RISE"; the items simply never got it.
  */
 
-/** When each element lands, in seconds from the card's first frame. */
-export function recapSchedule(n: number): {
-  markS: number;
-  wordmarkS: number;
-  itemsS: number[];
-} {
-  const markS = RECAP_LEAD_S;
-  const wordmarkS = markS + RECAP_LOCKUP_STAGGER_S;
-  const first = wordmarkS + RECAP_ITEMS_LEAD_S;
-  return {
-    markS,
-    wordmarkS,
-    itemsS: Array.from(
-      { length: n },
-      (_, i) => first + i * RECAP_ITEM_STAGGER_S,
-    ),
-  };
-}
-
 export const RecapCard: React.FC<{ intro: IntroStoryboard }> = ({ intro }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const k = useDesignScale();
   const tS = frame / fps;
-  const preset_ = resolvePreset(intro);
-  const look = introLook(intro.background, preset_.look, preset_.palette);
+  const style = resolveCard(intro);
+  const { look } = style;
   const items = intro.items ?? [];
-  const at = recapSchedule(items.length);
+  const at = recapSchedule(items.length, style.recap);
 
   // Presence is binary — an item is on screen or it is not, never part-way —
   // but what happens AFTER it lands is a settle. See RECAP_ITEM_RISE.
@@ -104,7 +86,10 @@ export const RecapCard: React.FC<{ intro: IntroStoryboard }> = ({ intro }) => {
     // from Intro *before* the wrapper that sets it, so without this the card
     // falls back to the browser default serif.
     <AbsoluteFill
-      style={{ backgroundColor: look.ground, fontFamily: preset_.type.fontFamily }}
+      style={{
+        backgroundColor: look.ground,
+        fontFamily: style.type.fontFamily,
+      }}
     >
       <div
         style={{
