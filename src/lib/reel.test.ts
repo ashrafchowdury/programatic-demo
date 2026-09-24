@@ -1,11 +1,20 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { resolvePreset } from "./style";
+import { resolveStyle, STYLE_PRESETS } from "./style";
+import type { ClickLog } from "./click-log";
 import {
   DEMO_LOOK,
   LOOKS,
   audioProblem,
   clipFrameCount,
+  findBeat,
+  ignoredClipFields,
+  pacing,
+  reelCard,
+  reelDemo,
+  resolveClipRange,
+  resolveReel,
+  segmentJoins,
   clipFrames,
   coldOpenIndex,
   defineReel,
@@ -316,7 +325,7 @@ describe("reel look", () => {
   // standalone clip renders in, it must be one that runs the camera the click
   // log was recorded for. Assert the resolved preset, not the label.
   it("renders a standalone demo clip in a grammar that runs the camera", () => {
-    const shot = resolvePreset({ look: DEMO_LOOK }).shot;
+    const shot = STYLE_PRESETS[resolveStyle({ look: DEMO_LOOK })].shot;
     assert.equal(shot.framing, "window");
     assert.equal(shot.zoom, true);
   });
@@ -331,5 +340,207 @@ describe("reel look", () => {
       String(reelProblem({ ...base, look: "cinematic" }, 300)),
       /look must be one of/,
     );
+  });
+});
+
+// A click log with a repeated label, a unique one, and a shoot-clock offset —
+// the three things beat anchors have to get right.
+const LOG = {
+  name: "demo",
+  viewport: { width: 1920, height: 1080 },
+  durationMs: 20000,
+  offsetMs: 200,
+  clicks: [
+    { label: "Add provider", tMs: 2700, tDownMs: 2575 },
+    { label: "open cadence", tMs: 5000 },
+    { label: "Open cadence", tMs: 9000, tDownMs: 8950 },
+    { label: "Save", tMs: 12700, tDownMs: 12575 },
+  ],
+} as unknown as ClickLog;
+
+describe("beat anchors (R7)", () => {
+  it("places a beat on its press, on the DEMO clock (speed and offset applied)", () => {
+    // 2575 ms on the shoot clock at 1.25x is 2.06 s of demo, less the 0.2 s
+    // offset. Reading tMs (2700) or forgetting the speed is the old 25% error.
+    const hit = findBeat("Add provider", LOG, 1.25);
+    assert.ok("s" in hit);
+    assert.ok(Math.abs(hit.s - 1.86) < 1e-9, String(hit.s));
+  });
+
+  it("matches labels exactly, ignoring case", () => {
+    assert.ok("s" in findBeat("save", LOG, 1));
+    assert.ok("problem" in findBeat("Sav", LOG, 1));
+  });
+
+  it("refuses an ambiguous label and lists every candidate", () => {
+    const r = findBeat("open cadence", LOG, 1);
+    assert.ok("problem" in r);
+    assert.match(r.problem, /ambiguous — 2 beats/);
+    assert.match(r.problem, /#1 at 4\.80s, #2 at 8\.75s/);
+    assert.match(r.problem, /"open cadence#2"/);
+  });
+
+  it("takes the n-th occurrence with #n", () => {
+    const r = findBeat("open cadence#2", LOG, 1);
+    assert.ok("s" in r && Math.abs(r.s - 8.75) < 1e-9);
+    assert.match(
+      (findBeat("open cadence#3", LOG, 1) as { problem: string }).problem,
+      /occurs 2 time/,
+    );
+  });
+
+  it("names near misses when a label is missing", () => {
+    const r = findBeat("cadence", LOG, 1);
+    assert.ok("problem" in r);
+    assert.match(r.problem, /no beat is labelled "cadence"/);
+    assert.match(r.problem, /Near misses: "open cadence"/);
+  });
+
+  it("resolves from/to beats with signed lead and tail", () => {
+    const r = resolveClipRange(
+      { fromBeat: "Add provider", leadS: -0.4, toBeat: "Save", tailS: 0.3 },
+      LOG,
+      1,
+    );
+    assert.ok(!("problem" in r));
+    assert.ok(Math.abs(r.fromS - (2.375 - 0.4)) < 1e-9, String(r.fromS));
+    assert.ok(Math.abs(r.toS - (12.375 + 0.3)) < 1e-9, String(r.toS));
+  });
+
+  it("frames one action from a single beat plus a tail", () => {
+    const r = resolveClipRange({ fromBeat: "Save", leadS: -1, tailS: 0.5 }, LOG, 1);
+    assert.ok(!("problem" in r));
+    assert.ok(Math.abs(r.toS - r.fromS - 1.5) < 1e-9);
+  });
+
+  it("lets plain seconds win and mix with anchors", () => {
+    const r = resolveClipRange({ fromBeat: "Save", leadS: -1, toS: 14 }, LOG, 1);
+    assert.ok(!("problem" in r) && r.toS === 14);
+    assert.deepEqual(resolveClipRange({ fromS: 1, toS: 2 }, LOG, 1), { fromS: 1, toS: 2 });
+  });
+
+  it("says what is missing rather than guessing an end", () => {
+    const r = resolveClipRange({ fromBeat: "Save" }, LOG, 1);
+    assert.match((r as { problem: string }).problem, /toS`, `toBeat` or `tailS/);
+    assert.match(
+      (resolveClipRange({ leadS: 1, fromS: 2, toS: 3 }, LOG, 1) as { problem: string }).problem,
+      /leadS/,
+    );
+  });
+
+  it("resolves a whole reel and names the failing segment", () => {
+    const reel = defineReel({
+      name: "cut",
+      segments: [card("t"), { clip: { fromBeat: "Add provider", leadS: -0.4, tailS: 1 } }],
+    });
+    const r = resolveReel(reel, LOG, 1);
+    assert.ok("reel" in r);
+    const seg = r.reel.segments[1];
+    assert.ok(isClip(seg));
+    assert.equal(typeof seg.clip.fromS, "number");
+    assert.equal("fromBeat" in seg.clip, false, "anchors are spent once resolved");
+    assert.equal(reelProblem(r.reel, 600), null);
+
+    const bad = resolveReel(
+      defineReel({ name: "cut", segments: [card("t"), { clip: { fromBeat: "Nope", tailS: 1 } }] }),
+      LOG,
+      1,
+    );
+    assert.ok("problem" in bad);
+    assert.match(bad.problem, /^segment 2 \(clip\) fromBeat: no beat/);
+  });
+
+  it("passes a plain-seconds reel through unchanged", () => {
+    const r = resolveReel(REEL, LOG, 1.25);
+    assert.ok("reel" in r);
+    assert.deepEqual(r.reel.segments, REEL.segments);
+  });
+});
+
+describe("demo (R5)", () => {
+  it("defaults to the reel's name", () => {
+    assert.equal(reelDemo({ name: "agent-schedule" }), "agent-schedule");
+    assert.equal(reelDemo({ name: "agent-schedule-stage", demo: "agent-schedule" }), "agent-schedule");
+  });
+
+  it("sizes every card from the DEMO, whatever the card calls itself", () => {
+    // A card takes its size from public/<name>.clicks.json and has to match
+    // the clips it is concatenated with.
+    const c = reelCard(
+      { name: "agent-schedule-stage", demo: "agent-schedule", style: "stage" },
+      { name: "agent-schedule-stage", headline: "x" },
+    );
+    assert.equal(c.name, "agent-schedule");
+    assert.equal(c.style, "stage");
+  });
+
+  it("lets a card keep its own style over the reel's", () => {
+    const c = reelCard({ name: "r", style: "proof" }, { name: "r", headline: "x", style: "classic" });
+    assert.equal(c.style, "classic");
+  });
+
+  it("rejects an empty demo", () => {
+    assert.match(String(reelProblem({ ...REEL, demo: "" })), /`demo`/);
+  });
+});
+
+describe("framing-ignored clip fields (R11)", () => {
+  const shot = (style: "classic" | "stage" | "proof" | "ledger") => STYLE_PRESETS[style].shot;
+
+  it("windowed styles cannot crop, plate or freeze", () => {
+    const clip = { crop: { k: 1.2 }, pageBg: "#fff", freeze: true, cursor: true, ripple: false };
+    assert.deepEqual(ignoredClipFields(clip as never, shot("classic")), ["crop", "pageBg", "freeze"]);
+    assert.deepEqual(ignoredClipFields(clip as never, shot("stage")), ["crop", "pageBg", "freeze"]);
+  });
+
+  it("drift needs the zoom camera", () => {
+    assert.deepEqual(ignoredClipFields({ drift: 0.3 }, shot("classic")), []);
+    assert.deepEqual(ignoredClipFields({ drift: 0.3 }, shot("stage")), ["drift"]);
+    assert.deepEqual(ignoredClipFields({ drift: 0.3 }, shot("proof")), ["drift"]);
+  });
+
+  it("cursor, ripple and push are honoured everywhere", () => {
+    for (const s of ["classic", "stage", "proof", "ledger"] as const)
+      assert.deepEqual(
+        ignoredClipFields({ cursor: true, ripple: true, push: {} } as never, shot(s)),
+        [],
+        s,
+      );
+  });
+
+  it("reelProblem names the field and the style", () => {
+    const reel = { name: "x", style: "stage", segments: [card("t"), { clip: { fromS: 0, toS: 2, pageBg: "#fff" } }] };
+    const p = String(reelProblem(reel, 300));
+    assert.match(p, /segment 2 \(clip\) sets `pageBg`/);
+    assert.match(p, /"stage" style ignores/);
+    assert.equal(reelProblem(reel, 300, 30, { framing: false }), null, "--style demotes it to a warning");
+  });
+
+  it("accepts a freeze under a full-bleed style", () => {
+    const reel = { name: "x", style: "proof", segments: [card("t"), { clip: { fromS: 0, toS: 2, freeze: true } }] };
+    assert.equal(reelProblem(reel, 300), null);
+  });
+});
+
+describe("segmentJoins / pacing (--check)", () => {
+  it("cuts by default and dissolves where a segment asks", () => {
+    const segs = [card("a"), { ...clip(0, 1), join: "dissolve" as const }, card("b")];
+    assert.deepEqual(segmentJoins(segs, { kind: "cut" }), [6, 0]);
+    assert.deepEqual(segmentJoins(segs, { kind: "dissolve", frames: 8 }), [8, 8]);
+    assert.deepEqual(
+      segmentJoins([card("a"), { ...card("b"), join: "cut" as const }], { kind: "dissolve", frames: 8 }),
+      [0],
+    );
+  });
+
+  it("measures what a style's targets are written in", () => {
+    // 4 shots of 90 frames, one 6-frame dissolve: 354 frames = 11.8 s.
+    const segs = [card("a"), clip(0, 3), card("b"), clip(3, 6)];
+    const p = pacing(segs, [90, 90, 90, 90], [0, 6, 0], 30);
+    assert.ok(Math.abs(p.runtimeS - 11.8) < 1e-9);
+    assert.ok(Math.abs(p.meanShotS - 2.95) < 1e-9);
+    assert.ok(Math.abs(p.cutsPerMin - (3 / 11.8) * 60) < 1e-9);
+    assert.equal(p.dissolves, 1);
+    assert.equal(p.clipShare, 0.5);
   });
 });

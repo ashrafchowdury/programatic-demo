@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { compareStreams, type FileProbe } from "./stitch";
+import { compareStreams, missingFilters, type FileProbe } from "./ffmpeg";
 
 const video = (over: Record<string, unknown> = {}) => ({
   codec_type: "video",
@@ -58,5 +58,15 @@ describe("compareStreams", () => {
   it("reports a missing video stream instead of comparing nothing", () => {
     const problems = compareStreams(probe(), probe(video()));
     assert.ok(problems.some((p) => /expected 1 video stream, found 0/.test(p)));
+  });
+});
+
+describe("missingFilters", () => {
+  const dump = " ... xfade            VV->V      Cross dissolve\n ... overlay   VV->V  Overlay\n";
+  it("names only the filters the build lacks", () => {
+    assert.deepEqual(missingFilters(dump, ["xfade", "overlay", "concat"]), ["concat"]);
+  });
+  it("matches whole words, so `fade` is not found inside `xfade`", () => {
+    assert.deepEqual(missingFilters(dump, ["fade"]), ["fade"]);
   });
 });

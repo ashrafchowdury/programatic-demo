@@ -127,7 +127,7 @@ field changed film when it moved, so pin `style` on any reel that must not.
     44s and is the better film for it — the tonal ping-pong IS the structure.
     It only works at a metronomic cut rate; one dark card dropped into an
     otherwise light reel still reads as an accident. See
-    `docs/design/reels/fullbleed.md`.
+    `docs/reel/design/fullbleed.md`.
 - **Cut on motion**, not stillness — the picture should be moving on both sides
   of a cut. A cut onto a frozen card reads as the film stalling.
 - Cards: `background`, `headline` (with markup), `wordmark`, `holdS`, optional
@@ -250,7 +250,7 @@ Calibration, all three films through the identical chain:
 | our `harness.mp4` | 1440p 502k | 19.8% | 86 f |
 
 The first row independently reproduces the 111-frame still run recorded in
-`docs/design/reels/fullbleed.md`, which is what tells you the metric is sound.
+`docs/reel/design/fullbleed.md`, which is what tells you the metric is sound.
 
 **Its blind spot: one small element animating on an otherwise empty card.** The
 0.2% floor is set for full-frame motion — footage, and cards that push. A logo
@@ -273,12 +273,40 @@ pnpm capture:session          # once — auth the live platform (headed)
 pnpm record:live <flow>       # shoot   → recordings + clicks.json
 pnpm convert <flow>           # webm → public/<flow>.mp4
 pnpm render <flow>            # → out/demo/<flow>.mp4
-pnpm reel <flow>              # cut cards+clips → out/reel/<flow>.mp4
+pnpm reel <name>              # cut cards+clips → out/reel/<name>.mp4
+pnpm reel <name> --check      # resolve + report, render nothing (seconds)
+pnpm reel <name> --style=X    # same cut in another grammar → out/reel/<name>.X.mp4
+pnpm intro <name>             # one title card → out/reel/<name>.intro.mp4
 ```
 
+`--check` prints every segment's reel and demo range, its length and moves,
+then runtime, mean shot and cut rate against the style's `targets`, clip/card
+share and every SFX hit. Run it before every render. Under `--style=`, clip
+fields the new framing ignores are warnings, not errors.
+
 Reel-level: `style` ("classic" | "proof" | "ledger" | "stage"; default
-`proof`), `audio`, `sfx`, `duck`, `loudnessLUFS`, `hud`, `chips`. `look`
-("framed" | "fullbleed") is legacy — read only when `style` is absent.
+`proof`), `demo` (the demo the clips come from; default the reel's `name` — so
+one demo can be cut into several reels without copying footage), `audio`,
+`sfx`, `duck`, `loudnessLUFS`, `hud`, `chips`. `look` ("framed" | "fullbleed")
+is legacy — read only when `style` is absent.
+
+Clip ranges: plain seconds (`fromS`/`toS`, demo time) or BEAT ANCHORS into the
+demo's click log, which survive a re-shoot:
+
+```ts
+{ clip: { fromBeat: "Add provider", leadS: -0.4, toBeat: "Save", tailS: 0.3 } }
+```
+
+A beat sits on its press, on the demo clock (playback speed applied).
+`leadS`/`tailS` are signed offsets; without `toBeat` the end is `fromBeat` +
+`tailS`. Labels match exactly, ignoring case; a repeated label is ambiguous —
+name one with `"open cadence#2"`. A clip field the style's framing ignores
+(`crop`/`pageBg`/`freeze` under a windowed style, `drift` without the zoom
+camera) is an error that names the field and the style.
+
+Card exits and entrances are sequenced by the style (`sequence` in the preset:
+an exit cycle and direction continuity); an authored `enter`/`exit`/`push`
+always wins.
 
 Cards author as JSON or TS (`intros/<name>.json` | reel cards). Markup:
 `*bold*` `_italic_` `==highlight==` `==word|#hex==` `{chip}`.

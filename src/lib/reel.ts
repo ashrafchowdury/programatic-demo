@@ -8,14 +8,29 @@
  * land on the action they describe.
  *
  * Clip ranges are authored in SECONDS of the rendered demo, because that is what
- * you read off a scrubber. Frames are derived — see clipFrames.
+ * you read off a scrubber — or, better, as BEAT ANCHORS into the demo's click
+ * log (`fromBeat: "Add provider"`), which survive a re-shoot that moves the
+ * action. resolveReel turns anchors into seconds; frames are derived from
+ * seconds — see clipFrames.
  *
  * Pure by design: no ffmpeg, no Remotion. scripts/reel.ts does the rendering.
  */
-import { introProblem, type IntroStoryboard } from "./intro";
+import {
+  introDurationInFrames,
+  introProblem,
+  type IntroStoryboard,
+} from "./intro";
 import type { ReelChip } from "./chips";
+import type { ClickLog } from "./click-log";
 import { DEMO_LOOK, LOOKS, type ReelLook } from "./look";
-import { styleProblem, type ReelStyle } from "./style";
+import {
+  resolveStyle,
+  STYLE_PRESETS,
+  styleProblem,
+  type ReelStyle,
+  type ShotJoin,
+  type ShotStyle,
+} from "./style";
 import type { PushSpec } from "./push";
 import type { CropSpec } from "./crop";
 
@@ -23,71 +38,110 @@ import type { CropSpec } from "./crop";
 export { DEMO_LOOK, LOOKS, type ReelLook };
 
 export type ReelCard = { card: IntroStoryboard };
-/** Inclusive start, EXCLUSIVE end, in seconds of out/<name>.mp4. */
-export type ReelClip = {
-  clip: {
-    fromS: number;
-    toS: number;
-    label?: string;
-    /**
-     * Slow push inside long holds, 0..1. Off by default.
-     *
-     * Reaches the camera as a DemoClip prop; see driftPose in src/lib/zoom.ts.
-     * out/<name>.mp4 never gets it, so the demo render is untouched.
-     */
-    drift?: number;
-    /**
-     * Static framing for the full-bleed look. Ignored under "framed", which
-     * derives its camera from the click log instead.
-     *
-     * Two spellings, and `rect` is the one to reach for: name the component's
-     * box in the footage and the magnification follows from it. `k`/`dx` frame
-     * by panning a barely-magnified page, which is how our first cut left the
-     * settings drawer at 32% of frame width against the reference's 80-90%.
-     * See src/lib/crop.ts.
-     *
-     * Authored per clip because nothing in the click log says which component
-     * a shot is about — but the click RECTS do say where that component is, so
-     * a `rect` can be read off them rather than guessed.
-     */
-    crop?: CropSpec;
-    /** Entrance/exit push. Full-bleed only; absent = the clip does not move. */
-    push?: PushSpec;
-    /** Colour behind the plate if the crop leaves a gap. Full-bleed only. */
-    pageBg?: string;
-    /**
-     * Draw the synthetic pointer. Full-bleed only, where it defaults to OFF.
-     *
-     * Turn it ON for any mouse-driven flow. The reference film hides the pointer
-     * because its feature is keyboard-driven; over a flow that clicks, a hidden
-     * pointer shows the UI reacting to nothing.
-     */
-    cursor?: boolean;
-    /**
-     * Draw the pointer's click ripple. Defaults to OFF.
-     *
-     * Neither reference film has one — the feedback is the real control's own
-     * press state, which the capture already records. Turn it on only for a
-     * target with no visible press state of its own.
-     */
-    ripple?: boolean;
-    /**
-     * Hold this range's LAST frame for the range's length: a still of the end
-     * state, with no pointer.
-     *
-     * The reference film spends one shot in eleven perfectly frozen, directly
-     * before the recap — 95 frames on which nothing crosses the motion
-     * threshold. It is the only place the film stops, and having somewhere to
-     * stop is what its otherwise metronomic cutting needs.
-     *
-     * A still does not play, so it is exempt from the ranges-move-forward rule
-     * below on the same grounds as a cold open: it cannot read as a jump cut
-     * backwards. What it must not do is show a state OLDER than the shot before
-     * it, and that is checked.
-     */
-    freeze?: boolean;
-  };
+
+/** Inclusive start, EXCLUSIVE end, in seconds of out/demo/<demo>.mp4. */
+export type ClipRange = { fromS: number; toS: number };
+
+/**
+ * A clip range as AUTHORED: plain seconds, beat anchors, or a mix.
+ *
+ * Hand-typed seconds break silently on a re-shoot or a label drift, and three
+ * clocks are in play (25 fps capture, 30 fps output, 1.25x playback) — which
+ * is where the earlier "25% late" error came from. An anchor names a beat in
+ * public/<demo>.clicks.json instead, and resolveReel places it with the same
+ * playback rate the demo renders at:
+ *
+ *   { fromBeat: "Add provider", leadS: -0.4, toBeat: "Save", tailS: 0.3 }
+ *
+ * - `fromS`/`toS` win when given; otherwise the beat side is used.
+ * - A beat sits on its PRESS (`tDownMs`, else `tMs`) — the frame the pointer
+ *   squashes and the SFX tick lands on.
+ * - `leadS`/`tailS` are SIGNED offsets added to the beat: `leadS: -0.4` starts
+ *   0.4s before the press, `tailS: 0.3` ends 0.3s after it.
+ * - The end is `toBeat` (else `fromBeat`) plus `tailS`, so `{ fromBeat, leadS,
+ *   tailS }` alone frames one action.
+ * - Labels match the click log's `label` exactly, ignoring case. A label used
+ *   more than once is ambiguous and must say which: `"open cadence#2"`.
+ */
+export type ClipAnchors = {
+  fromS?: number;
+  toS?: number;
+  fromBeat?: string;
+  leadS?: number;
+  toBeat?: string;
+  tailS?: number;
 };
+
+/** Everything on a clip except where it starts and ends. */
+export type ClipFields = {
+  label?: string;
+  /**
+   * Slow push inside long holds, 0..1. Off by default.
+   *
+   * Reaches the camera as a DemoClip prop; see driftPose in src/lib/zoom.ts.
+   * out/demo/<demo>.mp4 never gets it, so the demo render is untouched. Only the
+   * click-log zoom camera reads it (checked).
+   */
+  drift?: number;
+  /**
+   * Static framing for the full-bleed styles. A windowed style (`classic`,
+   * `stage`) cannot honour it, so reelProblem rejects it there.
+   *
+   * Two spellings, and `rect` is the one to reach for: name the component's
+   * box in the footage and the magnification follows from it. `k`/`dx` frame
+   * by panning a barely-magnified page, which is how our first cut left the
+   * settings drawer at 32% of frame width against the reference's 80-90%.
+   * See src/lib/crop.ts.
+   *
+   * Authored per clip because nothing in the click log says which component
+   * a shot is about — but the click RECTS do say where that component is, so
+   * a `rect` can be read off them rather than guessed.
+   */
+  crop?: CropSpec;
+  /** Entrance/exit push; absent = the style's own shot arrival, if any. */
+  push?: PushSpec;
+  /** Colour behind the plate if the crop leaves a gap. Full-bleed only (checked). */
+  pageBg?: string;
+  /**
+   * Draw the synthetic pointer. Honoured by every framing: absent = OFF
+   * full-bleed, the style's `shot.cursor` windowed.
+   *
+   * Turn it ON for any mouse-driven flow. The reference film hides the pointer
+   * because its feature is keyboard-driven; over a flow that clicks, a hidden
+   * pointer shows the UI reacting to nothing.
+   */
+  cursor?: boolean;
+  /**
+   * Draw the pointer's click ripple. Absent = OFF full-bleed, the style's
+   * `shot.ripple` windowed.
+   *
+   * Neither reference film has one — the feedback is the real control's own
+   * press state, which the capture already records. Turn it on only for a
+   * target with no visible press state of its own.
+   */
+  ripple?: boolean;
+  /**
+   * Hold this range's LAST frame for the range's length: a still of the end
+   * state, with no pointer. Full-bleed only (checked).
+   *
+   * The reference film spends one shot in eleven perfectly frozen, directly
+   * before the recap — 95 frames on which nothing crosses the motion
+   * threshold. It is the only place the film stops, and having somewhere to
+   * stop is what its otherwise metronomic cutting needs.
+   *
+   * A still does not play, so it is exempt from the ranges-move-forward rule
+   * below on the same grounds as a cold open: it cannot read as a jump cut
+   * backwards. What it must not do is show a state OLDER than the shot before
+   * it, and that is checked.
+   */
+  freeze?: boolean;
+};
+
+/** A clip whose range is resolved to seconds — what everything downstream reads. */
+export type ReelClip = { clip: ClipRange & ClipFields };
+/** A clip as authored in reels/<name>.ts. See ClipAnchors. */
+export type ReelClipInput = { clip: ClipAnchors & ClipFields };
+
 /**
  * How a segment arrives from the one before it, overriding its style's default.
  *
@@ -119,7 +173,10 @@ export type ReelHud = {
   skipLabels?: string[];
 };
 
+/** A resolved segment: every clip range in seconds. */
 export type ReelSegment = (ReelCard | ReelClip) & { join?: SegmentJoin };
+/** A segment as authored — a clip may still carry beat anchors. */
+export type ReelSegmentInput = (ReelCard | ReelClipInput) & { join?: SegmentJoin };
 
 /**
  * One audio piece laid onto the finished reel's timeline.
@@ -138,7 +195,7 @@ export type ReelSegment = (ReelCard | ReelClip) & { join?: SegmentJoin };
 export type ReelAnchor = { segment: number; edge?: "start" | "end" };
 
 export type ReelAudioPiece = {
-  /** Path under public/, e.g. "audio/bed.mp3". Supplied locally (gitignored). */
+  /** Path under public/, e.g. "audio/intro.mp3" (the committed stock lives in public/audio/). */
   src: string;
   /** Source sub-range in seconds — use 12–25s of a file, say. Omit = whole file. */
   trim?: { fromS: number; toS?: number };
@@ -217,9 +274,18 @@ export type ReelDuck = {
 };
 
 export type Reel = {
-  /** The demo these clips come from: out/<name>.mp4 and the DemoClip props. */
+  /** The reel's own name: reels/<name>.ts -> out/reel/<name>.mp4. */
   name: string;
-  segments: ReelSegment[];
+  /**
+   * The demo the clips are cut from — public/<demo>.mp4, its click log, and
+   * out/demo/<demo>.mp4. Absent = `name`.
+   *
+   * Exists so one demo can be cut into several films. Before it, the reel's
+   * name WAS the demo's, and the only way to cut agent-schedule a second time
+   * was to byte-copy its footage under a new name.
+   */
+  demo?: string;
+  segments: ReelSegmentInput[];
   /** Audio pieces mixed onto the finished reel. Absent = silent (unchanged). */
   audio?: ReelAudioPiece[];
   /**
@@ -249,20 +315,31 @@ export type Reel = {
    *
    * Absent falls back to `look`, and then to the default, so every reel written
    * before styles existed renders unchanged. A card may override it. See
-   * src/lib/style.ts, and docs/design/reels/choreography-styles.md.
+   * src/lib/style.ts, and docs/reel/design/choreography-styles.md.
    */
   style?: ReelStyle;
 };
+
+/** A reel after resolveReel: every clip range is plain seconds. */
+export type ResolvedReel = Omit<Reel, "segments"> & { segments: ReelSegment[] };
 
 export { STYLES, type ReelStyle } from "./style";
 
 export const defineReel = (reel: Reel): Reel => reel;
 
+/** The demo a reel cuts from. */
+export const reelDemo = (reel: Pick<Reel, "name" | "demo">): string =>
+  reel.demo ?? reel.name;
+
 /** Longest a leading clip can be and still read as a tease rather than a scene. */
 export const COLD_OPEN_MAX_S = 1.2;
 
-export const isCard = (s: ReelSegment): s is ReelCard => "card" in s;
-export const isClip = (s: ReelSegment): s is ReelClip => "clip" in s;
+export const isCard = <S extends ReelSegmentInput>(
+  s: S,
+): s is Extract<S, ReelCard> => "card" in s;
+export const isClip = <S extends ReelSegmentInput>(
+  s: S,
+): s is Extract<S, { clip: unknown }> => "clip" in s;
 
 /**
  * Frame range for a clip, as Remotion's --frames wants it: inclusive on both
@@ -316,6 +393,7 @@ export function reelProblem(
   value: unknown,
   totalFrames?: number,
   fps = 30,
+  opts: { framing?: boolean } = {},
 ): string | null {
   if (typeof value !== "object" || value === null) return "not an object";
   const reel = value as Partial<Reel>;
@@ -325,9 +403,13 @@ export function reelProblem(
     return "has no `segments`";
   if (reel.look !== undefined && !LOOKS.includes(reel.look))
     return `look must be one of ${LOOKS.join(", ")}`;
-  const style = styleProblem({ style: reel.style, look: reel.look });
-  if (style) return style;
+  const badStyle = styleProblem({ style: reel.style, look: reel.look });
+  if (badStyle) return badStyle;
+  if (reel.demo !== undefined && (typeof reel.demo !== "string" || reel.demo === ""))
+    return "`demo` must be a non-empty string (the demo's name)";
 
+  const style = resolveStyle({ style: reel.style, look: reel.look });
+  const shot = STYLE_PRESETS[style].shot;
   const cold = coldOpenIndex(reel.segments as ReelSegment[]);
   let previousLast = -1;
   for (let i = 0; i < reel.segments.length; i++) {
@@ -348,6 +430,10 @@ export function reelProblem(
       !(typeof drift === "number" && drift >= 0 && drift <= 1)
     )
       return `${at} (clip) drift must be a number between 0 and 1`;
+    if (opts.framing !== false) {
+      const ignored = ignoredClipFields(segment.clip, shot);
+      if (ignored.length) return `${at} (clip) ${framingMessage(ignored, style, shot)}`;
+    }
     if (!(toS > fromS)) return `${at} (clip) ends at or before it starts`;
     if (fromS < 0) return `${at} (clip) starts before the demo does`;
     const { first, last } = clipFrames(segment.clip, fps);
@@ -518,4 +604,277 @@ export function audioProblem(
       return `${at} starts at ${piece.start}s, after the reel ends (${totalS.toFixed(2)}s)`;
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Framing: which clip fields the resolved style can honour
+// ---------------------------------------------------------------------------
+
+/**
+ * Clip fields the style's FRAMING would silently drop.
+ *
+ * A windowed style renders footage through DemoClip's framed path, which reads
+ * `push`, `cursor`, `ripple` and — only while its zoom camera runs — `drift`.
+ * It has no static crop, no plate behind one and no still, so `crop`,
+ * `pageBg` and `freeze` do nothing there: a `freeze` on a classic clip just
+ * played. The full-bleed path has no camera, so it cannot drift.
+ *
+ * Returned rather than thrown so a `--style=` override can print them as
+ * warnings: cutting a proof reel in `stage` to compare is legitimate, and its
+ * crops are expected to fall away.
+ */
+export function ignoredClipFields(clip: ClipFields, shot: ShotStyle): string[] {
+  const out: string[] = [];
+  if (shot.framing === "window") {
+    for (const k of ["crop", "pageBg", "freeze"] as const)
+      if (clip[k] !== undefined && clip[k] !== false) out.push(k);
+    if (clip.drift !== undefined && !shot.zoom) out.push("drift");
+  } else if (clip.drift !== undefined) {
+    out.push("drift");
+  }
+  return out;
+}
+
+/** "sets `crop`, which the "stage" style ignores (...)" — one sentence. */
+export function framingMessage(
+  fields: string[],
+  style: ReelStyle,
+  shot: ShotStyle,
+): string {
+  const names = fields.map((f) => `\`${f}\``).join(", ");
+  const why =
+    shot.framing === "window"
+      ? shot.zoom
+        ? "its footage is a window driven by the click-log camera"
+        : "its footage is a window with no camera"
+      : "its footage is full-bleed with no camera";
+  return (
+    `sets ${names}, which the "${style}" style ignores (${why}). Remove ` +
+    `${fields.length > 1 ? "them" : "it"}, or cut this reel in a style that reads ` +
+    `${fields.length > 1 ? "them" : "it"}.`
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Beat anchors
+// ---------------------------------------------------------------------------
+
+/** A click-log beat's press, in seconds of the rendered demo. */
+export function beatDemoS(
+  beat: { tMs: number; tDownMs?: number },
+  log: Pick<ClickLog, "offsetMs">,
+  speed: number,
+): number {
+  return (beat.tDownMs ?? beat.tMs) / 1000 / speed - (log.offsetMs ?? 0) / 1000;
+}
+
+const s2 = (x: number): string => x.toFixed(2);
+
+/**
+ * The demo second a beat anchor names, or a sentence saying why it names none.
+ *
+ * Exact label, case-insensitive. `"label#n"` picks the n-th (1-based) beat
+ * carrying that label; a bare label carried by several beats is ambiguous and
+ * the error lists every one with its time. A miss lists near misses (labels
+ * containing the text) or, failing that, every label in the log.
+ */
+export function findBeat(
+  anchor: string,
+  log: ClickLog,
+  speed: number,
+): { s: number } | { problem: string } {
+  const m = /^(.*?)#(\d+)$/.exec(anchor);
+  const want = (m ? m[1] : anchor).trim().toLowerCase();
+  const nth = m ? Number(m[2]) : null;
+  const hits = log.clicks.filter((b) => b.label?.trim().toLowerCase() === want);
+  const at = (b: ClickLog["clicks"][number]) =>
+    `"${b.label}" at ${s2(beatDemoS(b, log, speed))}s`;
+  if (hits.length === 0) {
+    const near = log.clicks.filter((b) => b.label?.toLowerCase().includes(want));
+    const pool = near.length ? near : log.clicks.filter((b) => b.label);
+    return {
+      problem:
+        `no beat is labelled "${anchor}". ` +
+        `${near.length ? "Near misses" : "Labels in the log"}: ` +
+        (pool.length ? pool.map(at).join(", ") : "none — the log has no labelled beats"),
+    };
+  }
+  if (nth != null) {
+    if (nth < 1 || nth > hits.length)
+      return {
+        problem: `"${anchor}" asks for occurrence ${nth}, but the label occurs ${hits.length} time(s): ${hits.map(at).join(", ")}`,
+      };
+    return { s: beatDemoS(hits[nth - 1], log, speed) };
+  }
+  if (hits.length > 1)
+    return {
+      problem:
+        `"${anchor}" is ambiguous — ${hits.length} beats carry it: ` +
+        hits.map((b, i) => `#${i + 1} at ${s2(beatDemoS(b, log, speed))}s`).join(", ") +
+        `. Name one, e.g. "${anchor}#2".`,
+    };
+  return { s: beatDemoS(hits[0], log, speed) };
+}
+
+/** One authored range -> seconds, or a sentence. */
+export function resolveClipRange(
+  clip: ClipAnchors,
+  log: ClickLog,
+  speed: number,
+): ClipRange | { problem: string } {
+  const num = (v: unknown) => v === undefined || (typeof v === "number" && Number.isFinite(v));
+  for (const k of ["fromS", "toS", "leadS", "tailS"] as const)
+    if (!num(clip[k])) return { problem: `\`${k}\` must be a number of seconds` };
+  for (const k of ["fromBeat", "toBeat"] as const)
+    if (clip[k] !== undefined && (typeof clip[k] !== "string" || clip[k] === ""))
+      return { problem: `\`${k}\` must be a click-log label` };
+  if (clip.fromS === undefined && clip.fromBeat === undefined)
+    return { problem: "needs `fromS` or `fromBeat`" };
+  if (clip.leadS !== undefined && clip.fromBeat === undefined)
+    return { problem: "`leadS` offsets `fromBeat`, which is not set" };
+
+  let fromS = clip.fromS;
+  let fromBeatS: number | undefined;
+  if (clip.fromBeat !== undefined) {
+    const hit = findBeat(clip.fromBeat, log, speed);
+    if ("problem" in hit) return { problem: `fromBeat: ${hit.problem}` };
+    fromBeatS = hit.s;
+    fromS ??= hit.s + (clip.leadS ?? 0);
+  }
+
+  let toS = clip.toS;
+  if (toS === undefined) {
+    let endBeatS = fromBeatS;
+    if (clip.toBeat !== undefined) {
+      const hit = findBeat(clip.toBeat, log, speed);
+      if ("problem" in hit) return { problem: `toBeat: ${hit.problem}` };
+      endBeatS = hit.s;
+    } else if (clip.tailS === undefined) {
+      return { problem: "needs `toS`, `toBeat` or `tailS` to say where it ends" };
+    }
+    if (endBeatS === undefined)
+      return { problem: "`tailS` offsets `toBeat` (or `fromBeat`), and neither is set" };
+    toS = endBeatS + (clip.tailS ?? 0);
+  }
+  return { fromS: fromS!, toS };
+}
+
+/**
+ * Every clip range resolved to seconds, or the first reason one cannot be.
+ *
+ * Pure: the click log and the playback rate are all it needs, so it runs — and
+ * fails — before anything renders. Plain-second clips pass through untouched,
+ * so a reel with no anchors resolves to itself.
+ */
+export function resolveReel(
+  reel: Reel,
+  log: ClickLog,
+  speed: number,
+): { reel: ResolvedReel } | { problem: string } {
+  if (!Array.isArray(reel.segments)) return { problem: "has no `segments`" };
+  const segments: ReelSegment[] = [];
+  for (let i = 0; i < reel.segments.length; i++) {
+    const seg = reel.segments[i];
+    if (!isClip(seg)) {
+      segments.push(seg as ReelSegment);
+      continue;
+    }
+    if (typeof seg.clip !== "object" || seg.clip === null)
+      return { problem: `segment ${i + 1} (clip) is not an object` };
+    const r = resolveClipRange(seg.clip, log, speed);
+    if ("problem" in r) return { problem: `segment ${i + 1} (clip) ${r.problem}` };
+    // The anchors are spent: downstream reads seconds only, and the cache key
+    // hashes the resolved range, so a re-shoot that moves a beat re-renders.
+    const fields: ClipFields & ClipAnchors = { ...seg.clip };
+    for (const k of ["fromBeat", "leadS", "toBeat", "tailS"] as const) delete fields[k];
+    segments.push({ ...seg, clip: { ...fields, fromS: r.fromS, toS: r.toS } });
+  }
+  return { reel: { ...reel, segments } };
+}
+
+// ---------------------------------------------------------------------------
+// Timeline: what the finished film will measure, before it is rendered
+// ---------------------------------------------------------------------------
+
+/** How long a dissolve lasts when a segment asks for one its style lacks. */
+export const DEFAULT_DISSOLVE_F = 6;
+
+/**
+ * One entry per BOUNDARY: joins[i] joins segment i to segment i+1, in frames
+ * (0 = cut). A segment's own `join` overrides its style's, so a dissolving
+ * style can still cut inside a section and blend only where a section changes
+ * — which is what the reference does. See SegmentJoin.
+ */
+export function segmentJoins(
+  segments: ReelSegmentInput[],
+  styleJoin: ShotJoin,
+): number[] {
+  const styleF = styleJoin.kind === "dissolve" ? styleJoin.frames : 0;
+  return segments.slice(1).map((seg) => {
+    if (seg.join === "cut") return 0;
+    if (seg.join === "dissolve") return styleF || DEFAULT_DISSOLVE_F;
+    return styleF;
+  });
+}
+
+/**
+ * The storyboard a card renders with: the reel's look/style unless the card
+ * overrides them, and the DEMO's name, because a card takes its size from
+ * public/<name>.clicks.json and has to match the clips it is concatenated
+ * with. (A reel card's `name` has no other use.)
+ */
+export function reelCard(
+  reel: Pick<Reel, "name" | "demo" | "look" | "style">,
+  card: IntroStoryboard,
+): IntroStoryboard {
+  return {
+    ...(reel.look ? { look: reel.look } : {}),
+    ...(reel.style ? { style: reel.style } : {}),
+    ...card,
+    name: reelDemo(reel),
+  };
+}
+
+/** Frames each segment will render to, without rendering it. */
+export function segmentFrameCounts(reel: ResolvedReel, fps: number): number[] {
+  return reel.segments.map((seg) =>
+    isCard(seg)
+      ? introDurationInFrames(reelCard(reel, seg.card), fps)
+      : clipFrameCount(seg.clip, fps),
+  );
+}
+
+export type Pacing = {
+  runtimeS: number;
+  shots: number;
+  meanShotS: number;
+  /** Boundaries per minute of film, dissolves included. */
+  cutsPerMin: number;
+  dissolves: number;
+  /** Share of the film's frames that are clips / cards. */
+  clipShare: number;
+  cardShare: number;
+};
+
+/** The numbers a style's `targets` are written in. */
+export function pacing(
+  segments: ReelSegment[],
+  counts: number[],
+  joins: number[],
+  fps: number,
+): Pacing {
+  const raw = counts.reduce((a, b) => a + b, 0);
+  const runtimeF = raw - joins.reduce((a, b) => a + b, 0);
+  const runtimeS = runtimeF / fps;
+  const clipF = counts.reduce((a, c, i) => a + (isClip(segments[i]) ? c : 0), 0);
+  const shots = counts.length;
+  return {
+    runtimeS,
+    shots,
+    meanShotS: shots ? runtimeS / shots : 0,
+    cutsPerMin: runtimeS > 0 ? ((shots - 1) / runtimeS) * 60 : 0,
+    dissolves: joins.filter((j) => j > 0).length,
+    clipShare: raw ? clipF / raw : 0,
+    cardShare: raw ? 1 - clipF / raw : 0,
+  };
 }

@@ -4,7 +4,7 @@
  * Pure by design: no ffmpeg, no fs, no Remotion (same discipline as reel.ts), so
  * every number and every filter string is unit-testable without spawning
  * anything. scripts/reel.ts probes durations, runs the graph on the SYSTEM
- * ffmpeg, and muxes — see docs/design/reels/audio.md.
+ * ffmpeg, and muxes — see docs/reel/design/audio.md.
  *
  * Audio is one post-concat pass: the finished silent reel is input 0, each piece
  * is a later input trimmed at the input level, and a single `-filter_complex`

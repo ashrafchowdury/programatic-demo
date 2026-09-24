@@ -1,12 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
-  buildXfadeArgs,
-  buildXfadeFilter,
+  buildFinishArgs,
+  buildJoinFilter,
   dissolvedFrameCount,
   dissolvedStarts,
-  joinable,
-  MIN_JOIN_F,
+  runs,
 } from "./xfade";
 import { segmentBoundsSeconds } from "../../src/lib/reel-audio";
 
@@ -48,21 +47,22 @@ describe("dissolvedStarts", () => {
   });
 });
 
-describe("buildXfadeFilter", () => {
+describe("buildJoinFilter (dissolves)", () => {
   it("chains N-1 nodes and names the last one [v]", () => {
-    const f = buildXfadeFilter(COUNTS, FPS, OVERLAP);
-    assert.equal(f.split(";").length, 2);
+    const f = buildJoinFilter(COUNTS, FPS, OVERLAP);
+    const fades = f.split(";").filter((n) => n.includes("xfade"));
+    assert.equal(fades.length, 2);
     assert.ok(f.endsWith("[v]"), f);
-    assert.match(f, /^\[0:v\]\[1:v\]xfade/);
+    assert.match(fades[0], /^\[r0\]\[r1\]xfade/);
     // The middle node feeds the next one rather than the output.
-    assert.match(f, /\[x1\];\[x1\]\[2:v\]xfade/);
+    assert.match(f, /\[x1\];\[x1\]\[r2\]xfade/);
   });
 
   it("offsets each fade on the ACCUMULATED chain, not the raw segment", () => {
     // First join starts at 1.0 - 0.2 = 0.8s. Second at 0.8 + 30/30 - 0.2 = 1.6s.
     // Using the raw segment start (2.0 - 0.2 = 1.8) is the natural mistake and
     // plays the second dissolve 0.2s late.
-    const f = buildXfadeFilter(COUNTS, FPS, OVERLAP);
+    const f = buildJoinFilter(COUNTS, FPS, OVERLAP);
     const offsets = [...f.matchAll(/offset=([0-9.]+)/g)].map((m) => Number(m[1]));
     assert.deepEqual(offsets, [0.8, 1.6]);
   });
@@ -70,7 +70,7 @@ describe("buildXfadeFilter", () => {
   it("agrees with dissolvedStarts on where each join lands", () => {
     // The two are used in different places — one drives the picture, the other
     // places SFX — so they drifting apart is the bug worth guarding.
-    const f = buildXfadeFilter(COUNTS, FPS, OVERLAP);
+    const f = buildJoinFilter(COUNTS, FPS, OVERLAP);
     const offsets = [...f.matchAll(/offset=([0-9.]+)/g)].map((m) => Number(m[1]));
     const starts = dissolvedStarts(COUNTS, FPS, OVERLAP);
     for (let i = 0; i < offsets.length; i++)
@@ -78,15 +78,15 @@ describe("buildXfadeFilter", () => {
   });
 
   it("emits the fade duration in seconds, not frames", () => {
-    assert.match(buildXfadeFilter(COUNTS, FPS, OVERLAP), /duration=0\.2/);
+    assert.match(buildJoinFilter(COUNTS, FPS, OVERLAP), /duration=0\.2/);
   });
 
-  it("is empty for a single segment — nothing to join", () => {
-    assert.equal(buildXfadeFilter([30], FPS, OVERLAP), "");
+  it("passes a single segment through — nothing to join", () => {
+    assert.equal(buildJoinFilter([30], FPS, []), "[0:v]null[v]");
   });
 
   it("handles uneven segments", () => {
-    const f = buildXfadeFilter([96, 99, 126], FPS, OVERLAP);
+    const f = buildJoinFilter([96, 99, 126], FPS, OVERLAP);
     const offsets = [...f.matchAll(/offset=([0-9.]+)/g)].map((m) => Number(m[1]));
     // 96/30 - 0.2 = 3.0, then 3.0 + 99/30 - 0.2 = 6.1
     assert.deepEqual(offsets, [3, 6.1]);
@@ -116,9 +116,9 @@ describe("selective dissolves", () => {
     // The reference dissolves 2 of ~4 boundaries. Blending all of them
     // cross-fades cards into live UI, which is what the first ledger cut of
     // harness looked like.
-    const f = buildXfadeFilter([30, 30, 30], FPS, [0, 6]);
+    const f = buildJoinFilter([30, 30, 30], FPS, [0, 6]);
     const durs = [...f.matchAll(/duration=([0-9.]+)/g)].map((m) => Number(m[1]));
-    assert.deepEqual(durs, [0, 0.2]);
+    assert.deepEqual(durs, [0.2], f);
   });
 
   it("counts only the frames the blended joins actually eat", () => {
@@ -142,34 +142,68 @@ describe("selective dissolves", () => {
   });
 });
 
-describe("MIN_JOIN_F", () => {
-  it("never emits a zero-duration fade", () => {
+describe("cuts inside a dissolving film (R16)", () => {
+  it("groups cut-joined segments into runs", () => {
+    assert.deepEqual(runs(3, [0, 6]), [[0, 1], [2]]);
+    assert.deepEqual(runs(4, [6, 0, 0]), [[0], [1, 2, 3]]);
+    assert.deepEqual(runs(3, [0, 0]), [[0, 1, 2]]);
+    assert.deepEqual(runs(1, []), [[0]]);
+  });
+
+  it("never hands xfade a zero-duration fade", () => {
     // xfade=duration=0 does not butt two shots together, it degenerates and
     // silently drops everything before it in the chain. Measured: an 897-frame
     // film with two zero joins rendered as 556 — exactly its longest segment.
-    const f = buildXfadeFilter([30, 30, 30], FPS, joinable([0, 6]));
+    const f = buildJoinFilter([30, 30, 30, 30], FPS, [0, 6, 0]);
     const durs = [...f.matchAll(/duration=([0-9.]+)/g)].map((m) => Number(m[1]));
-    assert.ok(
-      durs.every((d) => d > 0),
-      `zero-duration fade in ${f}`,
-    );
+    assert.deepEqual(durs, [0.2], f);
   });
 
-  it("charges the frame count for the minimum it actually used", () => {
-    // The filter and the arithmetic read the SAME clamped list, or the render
-    // is rejected as a frame-count mismatch — which is how this was found.
-    const joins = joinable([0, 6]);
-    assert.deepEqual(joins, [MIN_JOIN_F, 6]);
-    assert.equal(dissolvedFrameCount([30, 30, 30], joins), 90 - MIN_JOIN_F - 6);
+  it("puts every run on one timebase before xfade sees it", () => {
+    // concat outputs 1/1000000, a lone segment 1/90000, and xfade refuses the
+    // pair — the first mixed smoke reel failed exactly there.
+    const f = buildJoinFilter([30, 30, 30], FPS, [0, 6]);
+    assert.match(f, /\[2:v\]settb=AVTB\[r1\]/);
   });
 
-  it("leaves a real dissolve alone", () => {
-    assert.deepEqual(joinable([6, 6]), [6, 6]);
+  it("joins a cut with concat, so the incoming shot keeps its first frame", () => {
+    // The old chain clamped every cut to a one-frame xfade, which ate that
+    // frame. Concat is frame-exact: a cut costs nothing.
+    const f = buildJoinFilter([30, 30, 30], FPS, [0, 6]);
+    assert.match(f, /^\[0:v\]\[1:v\]concat=n=2:v=1:a=0,settb=AVTB\[r0\]/);
+    assert.equal(dissolvedFrameCount([30, 30, 30], [0, 6]), 84);
+  });
+
+  it("offsets a dissolve after a cut run on the run's full length", () => {
+    // Run [0,1] is 60 frames = 2.0s; the 6-frame dissolve starts at 1.8s.
+    const f = buildJoinFilter([30, 30, 30], FPS, [0, 6]);
+    assert.match(f, /\[r0\]\[r1\]xfade=transition=fade:duration=0\.2:offset=1\.8\[v\]$/);
+    assert.equal(1.8, dissolvedStarts([30, 30, 30], FPS, [0, 6])[2]);
+  });
+
+  it("is a plain concat for an all-cut film with a layer", () => {
+    const f = buildJoinFilter([30, 30], FPS, [0], 1);
+    assert.equal(f, "[0:v][1:v]concat=n=2:v=1:a=0,settb=AVTB[r0];[r0][2:v]overlay=format=auto[v]");
   });
 });
 
-describe("buildXfadeArgs (R1)", () => {
-  const args = buildXfadeArgs(["/a.mp4", "/b.mp4"], [60, 60], 30, [6], "/out.mp4");
+describe("overlay layers (R15)", () => {
+  it("composites every layer in the same graph, last on top", () => {
+    const f = buildJoinFilter([30, 30], FPS, [6], 2);
+    const nodes = f.split(";");
+    assert.equal(nodes.length, 5);
+    assert.match(nodes[2], /xfade/);
+    assert.equal(nodes[3], "[x1][2:v]overlay=format=auto[o0]");
+    assert.equal(nodes[4], "[o0][3:v]overlay=format=auto[v]");
+  });
+
+  it("overlays a single segment without joining anything", () => {
+    assert.equal(buildJoinFilter([30], FPS, [], 1), "[0:v][1:v]overlay=format=auto[v]");
+  });
+});
+
+describe("buildFinishArgs (R1)", () => {
+  const args = buildFinishArgs(["/a.mp4", "/b.mp4"], [60, 60], 30, [6], ["/hud.mov"], "/out.mp4");
   const flag = (k: string) => args[args.indexOf(k) + 1];
 
   it("encodes 4:2:0 h264 at the segments' CRF, not ffmpeg's defaults", () => {
@@ -186,9 +220,9 @@ describe("buildXfadeArgs (R1)", () => {
     assert.equal(flag("-color_range"), "tv");
   });
 
-  it("wires every part as an input and the filter's [v] as the output", () => {
-    assert.deepEqual(args.slice(0, 5), ["-y", "-i", "/a.mp4", "-i", "/b.mp4"]);
-    assert.equal(flag("-filter_complex"), buildXfadeFilter([60, 60], 30, [6]));
+  it("wires parts then layers as inputs and the filter's [v] as the output", () => {
+    assert.deepEqual(args.slice(0, 7), ["-y", "-i", "/a.mp4", "-i", "/b.mp4", "-i", "/hud.mov"]);
+    assert.equal(flag("-filter_complex"), buildJoinFilter([60, 60], 30, [6], 1));
     assert.equal(flag("-map"), "[v]");
     assert.equal(args[args.length - 1], "/out.mp4");
   });
