@@ -1,0 +1,17 @@
+<!-- proof: the sentence on the left, the real screen that proves it bleeding off right and bottom.
+     Swap the mock for a real capture: <img src="assets/screen.png" style="width:100%"> from `pnpm still <shot>`. -->
+<main class="post paper" data-archetype="proof">
+  <div class="lockup" data-logo="agenta"><img src="{{kit}}/logos/agenta-logo-light.svg" alt="Agenta"></div>
+  <h1 class="title" style="left:var(--mx);top:50%;transform:translateY(-50%);max-width:calc(var(--W) * 0.4)">Every run, traced end to end.</h1>
+  <div class="frame fade-b" data-bleed data-texture style="left:calc(var(--W) * 0.5);top:calc(var(--H) * 0.22);width:calc(var(--W) * 0.62);height:calc(var(--H) * 0.95);box-shadow:var(--shadow-float);font-size:calc(var(--u) * 2.4 / 0.68)">
+    <div style="padding:72px 80px;display:flex;flex-direction:column;gap:40px;color:var(--c-ink-600)">
+      <div style="display:flex;gap:24px;color:var(--c-ink-900)"><span>Trace</span><span style="color:var(--c-ink-300)">run_7f3a9c · 4.2 s</span></div>
+      <div style="height:2px;background:var(--c-paper-line)"></div>
+      <div style="display:flex;gap:24px;align-items:center"><span style="width:44%;height:48px;border-radius:8px;background:var(--c-ink-900)"></span><span>agent.run</span></div>
+      <div style="display:flex;gap:24px;align-items:center;padding-left:8%"><span style="width:22%;height:48px;border-radius:8px;background:var(--c-terracotta-500)"></span><span>search_orders</span></div>
+      <div style="display:flex;gap:24px;align-items:center;padding-left:30%"><span style="width:14%;height:48px;border-radius:8px;background:var(--c-ink-300)"></span><span>llm.call</span></div>
+      <div style="display:flex;gap:24px;align-items:center;padding-left:44%"><span style="width:18%;height:48px;border-radius:8px;background:var(--c-ink-300)"></span><span>approve_refund</span></div>
+      <div style="display:flex;gap:24px;align-items:center;padding-left:62%"><span style="width:10%;height:48px;border-radius:8px;background:var(--c-ink-300)"></span><span>reply</span></div>
+    </div>
+  </div>
+</main>

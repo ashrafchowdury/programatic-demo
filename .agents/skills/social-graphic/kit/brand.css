@@ -1,0 +1,170 @@
+/*
+ * Agenta social-graphic kit.
+ *
+ * Every colour, radius and shadow here is a token from the design-system
+ * artifact's project/tokens.json (synced from web/website/src/styles). Sizes
+ * are the website's 1440 px values at 2x, because a 2839 px post is a 2x
+ * page. Do not add a colour here that is not in tokens.json: render.ts audits
+ * every rendered pixel colour against the --c-* list below.
+ */
+
+@font-face { font-family: "GT Alpina"; src: url("fonts/GT-Alpina-Standard-Light.otf"); font-weight: 300; font-style: normal; }
+@font-face { font-family: "GT Alpina"; src: url("fonts/GT-Alpina-Standard-Light-Italic.otf"); font-weight: 300; font-style: italic; }
+@font-face { font-family: "GT Alpina"; src: url("fonts/GT-Alpina-Standard-Regular.ttf"); font-weight: 400; font-style: normal; }
+@font-face { font-family: "GT Alpina"; src: url("fonts/GT-Alpina-Standard-Regular-Italic.otf"); font-weight: 400; font-style: italic; }
+@font-face { font-family: "GT Alpina"; src: url("fonts/GT-Alpina-Standard-Medium.otf"); font-weight: 500 700; font-style: normal; }
+@font-face { font-family: "PP Mondwest"; src: url("fonts/PPMondwest-Regular.otf"); font-weight: 400; }
+
+:root {
+  /* tokens.json colour primitives — the audit's allow-list */
+  --c-paper-0: #ffffff;
+  --c-paper-50: #fcfbfa;
+  --c-paper-80: #f7f6f5;
+  --c-paper-100: #f6f5f3;
+  --c-paper-120: #f1eeec;
+  --c-paper-150: #f0efed;
+  --c-paper-200: #e5e5e3;
+  --c-paper-line: #e5e0dd;
+  --c-ink-900: #242424;
+  --c-ink-700: #343434;
+  --c-ink-600: #676770;
+  --c-ink-500: #848b8c;
+  --c-ink-450: #595f61;
+  --c-ink-300: #a3a19f;
+  --c-yellow-400: #f2f25c;
+  --c-yellow-500: #e7e712;
+  --c-yellow-border: #e2e224;
+  --c-terracotta-500: #d97757;
+  --c-carbon-950: #1e1d1c;
+  --c-carbon-900: #1e1c1d;
+  --c-carbon-800: #242220;
+  --c-carbon-750: #413f3e;
+  --c-carbon-700: #3c3a38;
+  --c-carbon-border: #9c9693;
+  --c-success: #6fbf8e;
+  --c-warning: #e7b45c;
+  --c-error: #e0735c;
+  --c-info: #6fa8e0;
+  /* component-internal stops (button, highlight chip, mat frame) from bundle.css / shadow tokens */
+  --c-btn-yellow-end: #eeee40;
+  --c-hchip-top: #f4f2f0;
+  --c-hchip-bottom: #e9e5e2;
+  --c-mat: #f6f4f2;
+  --c-mat-edge: #e7e5e3;
+
+  /* canvas: set by data-preset; everything below scales from --W and --H */
+  --W: 2839px;
+  --H: 1596px;
+  --u: calc(var(--H) / 100);          /* 1 % of canvas height */
+  --mx: calc(var(--W) * 0.0634);       /* side margin, 180 px at 2839 */
+  --my: calc(var(--H) * 0.094);        /* top/bottom margin, 150 px at 1596 */
+  --gutter: 24px;                      /* site-gutter 12 px at 2x */
+  --hair: 2px;                         /* 1 px hairline at 2x */
+
+  /* type, specified by cap height. GT Alpina cap = 0.680 em, Mondwest 0.640 em (measured) */
+  --cap-title: 8;                      /* % of H */
+  --fs-title: calc(var(--u) * var(--cap-title) / 0.68);
+  --fs-read: calc(var(--u) * 3.2 / 0.68);   /* smallest text that must be read in the feed */
+  --fs-texture: calc(var(--u) * 2 / 0.68);  /* UI text that is only texture: mark it data-texture */
+
+  /* geometry, tokens at 2x */
+  --r-sm: 16px;
+  --r-md: 20px;
+  --r-lg: 24px;
+  --r-xl: 32px;
+  --r-pill: 999px;
+  --shadow-ring-soft: 0 0 0 2px rgba(72, 70, 68, 0.08), 0 2px 6px 0 rgba(72, 70, 68, 0.08);
+  --shadow-frame: 0 0 0 2px rgba(72, 70, 68, 0.08), 0 2px 6px 0 rgba(72, 70, 68, 0.02), 0 0 0 12px var(--c-mat), 0 0 0 14px var(--c-mat-edge);
+  --shadow-float: 0 0 0 2px rgba(36, 34, 32, 0.08), 0 40px 96px rgba(36, 34, 32, 0.18);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+svg, img { display: block; }
+
+/* ── canvas ─────────────────────────────────────────────── */
+.post {
+  position: relative;
+  width: var(--W);
+  height: var(--H);
+  overflow: hidden;
+  font-family: "GT Alpina", serif;
+  font-weight: 300;
+  color: var(--c-ink-900);
+  background: var(--c-paper-120);
+  -webkit-font-smoothing: antialiased;
+}
+.post[data-preset="x"]      { --W: 2839px; --H: 1596px; }
+.post[data-preset="card"]   { --W: 2400px; --H: 1260px; }
+.post[data-preset="square"] { --W: 2160px; --H: 2160px; }
+
+/* The signature ground: the site's paper page with one raised panel inside a
+   gutter, bound by a hairline. This frame is the fixed furniture of every post. */
+.post.paper { background: var(--c-paper-120); }
+.post.paper::before {
+  content: ""; position: absolute; inset: var(--gutter);
+  background: var(--c-paper-0); box-shadow: 0 0 0 var(--hair) var(--c-paper-line);
+}
+.post.carbon { background: var(--c-carbon-950); color: #ffffff; }
+.post.carbon::before {
+  content: ""; position: absolute; inset: var(--gutter);
+  box-shadow: 0 0 0 var(--hair) rgba(255, 255, 255, 0.07);
+}
+.post > * { position: absolute; }
+
+/* fixed lockup slot: top-left inside the margins */
+.lockup { left: var(--mx); top: var(--my); height: calc(var(--u) * 3.8); }
+.lockup img { height: 100%; width: auto; }
+
+/* ── type ───────────────────────────────────────────────── */
+.title {
+  margin: 0;
+  font-family: "GT Alpina", serif;
+  font-weight: 300;
+  font-size: var(--fs-title);
+  line-height: 1.08;
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+}
+.post.carbon .title { color: #ffffff; }
+/* one bitmap word per post, at the title's cap height */
+.mw { font-family: "PP Mondwest", monospace; font-weight: 400; font-size: 1.0625em; letter-spacing: 0; }
+.hchip {
+  display: inline-block; padding: 0.02em 0.1em 0.08em; border-radius: var(--r-md);
+  background: linear-gradient(180deg, var(--c-hchip-top) 0%, var(--c-hchip-bottom) 100%);
+  box-shadow: inset 0 4px 0.8px #ffffff;
+  font-family: "PP Mondwest", monospace; font-weight: 400; font-size: 1.0625em; line-height: 1.06; letter-spacing: 0;
+}
+.post.carbon .hchip { background: rgba(255, 255, 255, 0.07); color: var(--c-yellow-400); box-shadow: inset 0 2px 0.8px rgba(255, 255, 255, 0.25), 0 0 0 2px rgba(255, 255, 255, 0.06); }
+
+.read { font-size: var(--fs-read); line-height: 1.25; font-weight: 400; letter-spacing: -0.01em; }
+[data-texture] { font-size: var(--fs-texture); }
+
+/* ── surfaces ───────────────────────────────────────────── */
+.card { position: absolute; background: var(--c-paper-0); border-radius: var(--r-xl); box-shadow: var(--shadow-float); }
+.card.dark { background: var(--c-carbon-800); color: #ffffff; }
+.frame { position: absolute; background: var(--c-paper-0); border-radius: var(--r-lg); box-shadow: var(--shadow-frame); overflow: hidden; }
+.tile {
+  position: absolute; display: flex; align-items: center; justify-content: center;
+  background: var(--c-paper-0); border-radius: 22%; box-shadow: var(--shadow-ring-soft);
+}
+.tile.dark { background: var(--c-carbon-900); }
+.tile > * { width: 56%; height: 56%; }
+
+/* keycap buttons, from bundle.css .ag-btn at 2x */
+.ag-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: calc(var(--u) * 7); padding: 0 calc(var(--u) * 2.4); border-radius: var(--r-sm);
+  border: 2px solid transparent; font-family: "GT Alpina", serif; font-weight: 400;
+  font-size: var(--fs-read); letter-spacing: -0.01em; white-space: nowrap;
+}
+.ag-btn.primary { background: linear-gradient(180deg, var(--c-yellow-400) 0%, var(--c-btn-yellow-end) 100%); border-color: var(--c-yellow-border); box-shadow: inset 0 6px 12px 0 #ffffff; color: var(--c-ink-900); }
+.ag-btn.outline { background: linear-gradient(180deg, var(--c-paper-80) 0%, var(--c-paper-120) 100%); border-color: var(--c-paper-line); box-shadow: inset 0 6px 12px #ffffff; color: var(--c-ink-900); }
+.ag-btn.dark { background: linear-gradient(180deg, var(--c-carbon-750) 0%, var(--c-carbon-950) 100%); border-color: var(--c-carbon-border); box-shadow: inset 0 6px 12px 0 rgba(255, 255, 255, 0.3); color: #ffffff; }
+
+/* proof that runs off the canvas fades into the ground over its last 28 % */
+.fade-b { -webkit-mask-image: linear-gradient(180deg, #000 72%, transparent 100%); mask-image: linear-gradient(180deg, #000 72%, transparent 100%); }
+.fade-r { -webkit-mask-image: linear-gradient(90deg, #000 72%, transparent 100%); mask-image: linear-gradient(90deg, #000 72%, transparent 100%); }
+
+/* the one yellow block (cover component: yellow-400 bleeding top-right) */
+.sun { background: var(--c-yellow-400); }

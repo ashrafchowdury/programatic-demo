@@ -17,3 +17,4 @@ Read the skill for what you are making:
 | a demo video | [`.agents/skills/shoot-demo-video/SKILL.md`](./.agents/skills/shoot-demo-video/SKILL.md) |
 | a launch reel | [`.agents/skills/intro-reel/SKILL.md`](./.agents/skills/intro-reel/SKILL.md) |
 | a still image | [`.agents/skills/shoot-still/SKILL.md`](./.agents/skills/shoot-still/SKILL.md) |
+| a social post graphic | [`.agents/skills/social-graphic/SKILL.md`](./.agents/skills/social-graphic/SKILL.md) |
