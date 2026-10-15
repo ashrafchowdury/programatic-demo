@@ -146,7 +146,9 @@ svg, img { display: block; }
 .frame { position: absolute; background: var(--c-paper-0); border-radius: var(--r-lg); box-shadow: var(--shadow-frame); overflow: hidden; }
 .tile {
   position: absolute; display: flex; align-items: center; justify-content: center;
-  background: var(--c-paper-0); border-radius: 22%; box-shadow: var(--shadow-ring-soft);
+  background: var(--c-paper-0); border-radius: 22%;
+  /* a paper-line ring: on the white panel a white tile has no edge without it, and the partner logo floats */
+  box-shadow: 0 0 0 2px var(--c-paper-line), var(--shadow-ring-soft);
 }
 .tile.dark { background: var(--c-carbon-900); }
 .tile > * { width: 56%; height: 56%; }
