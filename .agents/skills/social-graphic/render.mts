@@ -181,6 +181,16 @@ async function audit(page: Page, W: number, H: number) {
         }
         if (isAccent(s.backgroundColor) || B.accentClasses.some((c: string) => el.matches(c))) yellow++;
       }
+      // light stays inside the palette: every gradient stop and every SVG paint in a light layer is a brand colour (any alpha)
+      for (const el of Array.from(root.querySelectorAll("*")).concat(root)) {
+        if (el.closest("[data-third-party], img, script, style")) continue;
+        const s = getComputedStyle(el);
+        if (/gradient\(/.test(s.backgroundImage)) for (const c of s.backgroundImage.match(/rgba?\([^)]*\)/g) ?? []) if (!onPalette(c)) errors.push(`off-palette gradient stop ${c} on ${label(el)}`);
+        if (el.closest("[data-light]") && el.closest("svg")) {
+          const paints = [el.hasAttribute("fill") ? s.fill : "", el.hasAttribute("stroke") ? s.stroke : "", el.tagName.toLowerCase() === "stop" ? s.stopColor : ""];
+          for (const c of paints) if (c.startsWith("rgb") && !onPalette(c)) errors.push(`off-palette light colour ${c} on ${label(el)}`);
+        }
+      }
       for (const img of Array.from(root.querySelectorAll<HTMLImageElement>("img[src*='accent']"))) if (!img.closest("[data-third-party]")) yellow++;
       if (yellow > B.accentMax) errors.push(`${yellow} accent moments; ${B.name} allows ${B.accentMax} per post`);
 

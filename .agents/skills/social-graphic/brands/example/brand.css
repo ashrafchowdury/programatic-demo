@@ -63,3 +63,6 @@
   --shadow-frame: 0 0 0 2px rgba(0, 0, 0, 0.06), 0 0 0 12px var(--c-paper), 0 0 0 14px var(--c-line);
   --shadow-float: 0 0 0 2px rgba(0, 0, 0, 0.06), 0 40px 96px rgba(0, 0, 0, 0.16);
 }
+
+/* this brand never puts its logo on the accent (logoNeverOnAccent), so on an accent ground the lockup sits on a panel plate */
+.post.yellow .lockup { background: var(--panel); padding: calc(var(--u) * 1.3) calc(var(--u) * 1.8); box-sizing: content-box; }

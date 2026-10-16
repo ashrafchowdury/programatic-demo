@@ -1,3 +1,4 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap");
 /*
  * Agenta brand pack for the social-graphic kit.
  *
@@ -8,11 +9,12 @@
  * colour against the --c-* list below.
  */
 
-@font-face { font-family: "GT Alpina"; src: url("fonts/GT-Alpina-Standard-Light.otf"); font-weight: 300; font-style: normal; }
-@font-face { font-family: "GT Alpina"; src: url("fonts/GT-Alpina-Standard-Light-Italic.otf"); font-weight: 300; font-style: italic; }
-@font-face { font-family: "GT Alpina"; src: url("fonts/GT-Alpina-Standard-Regular.ttf"); font-weight: 400; font-style: normal; }
-@font-face { font-family: "GT Alpina"; src: url("fonts/GT-Alpina-Standard-Regular-Italic.otf"); font-weight: 400; font-style: italic; }
-@font-face { font-family: "GT Alpina"; src: url("fonts/GT-Alpina-Standard-Medium.otf"); font-weight: 500 700; font-style: normal; }
+/* GT Alpina: the exact files agenta.ai serves (/fonts/*.woff2). The design-system artifact's Light .otf is a trial cut. */
+@font-face { font-family: "GT Alpina"; src: url("fonts/GT-Alpina-Light.woff2") format("woff2"); font-weight: 300; font-style: normal; }
+@font-face { font-family: "GT Alpina"; src: url("fonts/GT-Alpina-Light-Italic.woff2") format("woff2"); font-weight: 300; font-style: italic; }
+@font-face { font-family: "GT Alpina"; src: url("fonts/GT-Alpina-Regular.woff2") format("woff2"); font-weight: 400; font-style: normal; }
+@font-face { font-family: "GT Alpina"; src: url("fonts/GT-Alpina-Regular-Italic.woff2") format("woff2"); font-weight: 400; font-style: italic; }
+@font-face { font-family: "GT Alpina"; src: url("fonts/GT-Alpina-Medium.woff2") format("woff2"); font-weight: 500; font-style: normal; }
 @font-face { font-family: "PP Mondwest"; src: url("fonts/PPMondwest-Regular.otf"); font-weight: 400; }
 
 :root {
@@ -68,6 +70,8 @@
   --on-dark: #ffffff;
   --on-dark-2: rgba(255, 255, 255, 0.64);
   --accent: var(--c-yellow-400);
+  --accent-2: var(--c-yellow-500);      /* deeper accent tones, for light-led dunes */
+  --accent-3: var(--c-yellow-border);
   --accent-ink: var(--c-ink-900);
   --data: var(--c-terracotta-500);
   --data-muted: var(--c-paper-200);
@@ -77,6 +81,8 @@
   /* type: GT Alpina cap = 0.680 em, PP Mondwest 0.640 em (measured) */
   --font-display: "GT Alpina", serif;
   --font-accent: "PP Mondwest", monospace;
+  --font-ui: "Inter", sans-serif;        /* card and UI text, per the README's type roles */
+  --cap-ui: 0.7275;                       /* measured */
   --display-weight: 300;
   --read-weight: 400;
   --cap-display: 0.68;
@@ -107,7 +113,7 @@
 .ag-btn {
   display: inline-flex; align-items: center; justify-content: center;
   height: calc(var(--u) * 7); padding: 0 calc(var(--u) * 2.4); border-radius: var(--r-sm);
-  border: 2px solid transparent; font-family: var(--font-display); font-weight: 400;
+  border: 2px solid transparent; font-family: var(--font-ui); font-weight: 400;
   font-size: var(--fs-read); letter-spacing: -0.01em; white-space: nowrap;
 }
 .btn.primary, .ag-btn.primary { background: linear-gradient(180deg, var(--c-yellow-400) 0%, var(--c-btn-yellow-end) 100%); border-color: var(--c-yellow-border); box-shadow: inset 0 6px 12px 0 #ffffff; color: var(--c-ink-900); }

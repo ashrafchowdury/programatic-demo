@@ -1,0 +1,39 @@
+<!-- daylight: a pale sky warming into tone-on-tone accent dunes, rim light on the crests, grain; the product floats centred over it.
+     Measured against Raycast, Resend and Granola: they leave 29-49 % of the canvas as bare ground with the mass centred; flat posts leave 73-79 %.
+     Light-led and optional: use it for a channel, integration or launch that should stop the scroll, never as the house default.
+     Needs "allowLight". Dunes take --accent, --accent-2, --accent-3 (deeper tones of the accent; each falls back to the one before). -->
+<main class="post paper" data-archetype="daylight">
+  <svg data-light viewBox="0 0 2839 1596" preserveAspectRatio="none" style="left:0;top:0;width:100%;height:100%">
+    <defs>
+      <linearGradient id="dl-sky" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" style="stop-color:var(--panel-2)"/><stop offset="0.42" style="stop-color:var(--panel-2)"/><stop offset="0.66" style="stop-color:var(--accent);stop-opacity:0.55"/><stop offset="1" style="stop-color:var(--accent)"/></linearGradient>
+      <radialGradient id="dl-sun" cx="0.5" cy="0.64" r="0.5">
+        <stop offset="0" style="stop-color:var(--panel)"/><stop offset="0.35" style="stop-color:var(--panel);stop-opacity:0.7"/><stop offset="1" style="stop-color:var(--panel);stop-opacity:0"/></radialGradient>
+      <linearGradient id="dl-d1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--accent);stop-opacity:0.75"/><stop offset="1" style="stop-color:var(--accent)"/></linearGradient>
+      <linearGradient id="dl-d2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" style="stop-color:var(--accent)"/><stop offset="0.55" style="stop-color:var(--accent-2, var(--accent))"/><stop offset="1" style="stop-color:var(--accent-3, var(--accent-2, var(--accent)))"/></linearGradient>
+      <linearGradient id="dl-d3" x1="1" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--accent)"/><stop offset="0.5" style="stop-color:var(--accent-2, var(--accent))"/><stop offset="1" style="stop-color:var(--accent-2, var(--accent))"/></linearGradient>
+      <filter id="dl-soft"><feGaussianBlur stdDeviation="5"/></filter>
+    </defs>
+    <rect width="2839" height="1596" fill="url(#dl-sky)"/>
+    <ellipse cx="1420" cy="1020" rx="1500" ry="700" fill="url(#dl-sun)"/>
+    <path d="M0 1030 C 420 950, 800 975, 1200 1035 S 1990 1110, 2839 975 L2839 1596 L0 1596Z" fill="url(#dl-d1)"/>
+    <path d="M0 1030 C 420 950, 800 975, 1200 1035 S 1990 1110, 2839 975" fill="none" style="stroke:var(--panel)" stroke="currentColor" stroke-opacity="0.8" stroke-width="6" filter="url(#dl-soft)"/>
+    <path d="M0 1215 C 560 1100, 1020 1140, 1530 1235 S 2420 1270, 2839 1150 L2839 1596 L0 1596Z" fill="url(#dl-d2)"/>
+    <path d="M0 1215 C 560 1100, 1020 1140, 1530 1235 S 2420 1270, 2839 1150" fill="none" style="stroke:var(--panel)" stroke="currentColor" stroke-opacity="0.85" stroke-width="7" filter="url(#dl-soft)"/>
+    <path d="M0 1450 C 640 1330, 1140 1360, 1700 1450 S 2520 1490, 2839 1405 L2839 1596 L0 1596Z" fill="url(#dl-d3)"/>
+    <path d="M0 1450 C 640 1330, 1140 1360, 1700 1450 S 2520 1490, 2839 1405" fill="none" style="stroke:var(--panel)" stroke="currentColor" stroke-opacity="0.9" stroke-width="8" filter="url(#dl-soft)"/>
+  </svg>
+  <div class="lockup" data-logo="brand"><img src="{{brand}}/logos/logo-light.svg" alt="Logo"></div>
+  <h1 class="title" style="left:50%;top:17%;transform:translateX(-50%);text-align:center;white-space:nowrap">Agents on any channel</h1>
+  <div class="card" style="left:50%;top:39%;transform:translateX(-50%);width:calc(var(--W) * 0.5);padding:calc(var(--u) * 3.4) calc(var(--u) * 3.6);box-shadow:0 0 0 2px rgba(36,36,36,0.05), 0 40px 96px rgba(36,36,36,0.16);display:flex;flex-direction:column;gap:calc(var(--u) * 2.2)">
+    <div style="display:flex;align-items:center;gap:calc(var(--u) * 1.8);padding-bottom:calc(var(--u) * 2.2);border-bottom:2px solid var(--line)">
+      <span data-third-party style="display:inline-flex;align-items:center;justify-content:center;width:calc(var(--u) * 6);height:calc(var(--u) * 6);border-radius:22%;background:var(--panel);box-shadow:0 0 0 2px var(--line)"><img src="assets/partner.svg" alt="Partner" style="width:58%;height:58%"></span>
+      <span class="read">Order support</span><span data-texture style="margin-left:auto;color:var(--ink-3)">Channel</span></div>
+    <div class="read" style="max-width:72%;padding:calc(var(--u) * 1.6) calc(var(--u) * 2.2);border-radius:var(--r-lg);align-self:flex-start;background:var(--tint)">Where is order #4821?</div>
+    <div style="max-width:72%;padding:calc(var(--u) * 1.6) calc(var(--u) * 2.2);border-radius:var(--r-lg);align-self:flex-end;background:var(--panel);box-shadow:0 0 0 2px var(--line)">
+      <div class="read" style="display:flex;align-items:center;gap:calc(var(--u) * 1.2)"><img src="{{brand}}/logos/mark-light.svg" alt="" style="height:0.8em;width:auto">It shipped late. Refund the fee?</div>
+      <div style="display:flex;gap:calc(var(--u) * 1.2);margin-top:calc(var(--u) * 1.6)"><span class="btn dark">Approve</span><span class="btn outline">Deny</span></div>
+    </div>
+  </div>
+  <div class="grain" style="opacity:0.22;mix-blend-mode:soft-light"></div>
+</main>

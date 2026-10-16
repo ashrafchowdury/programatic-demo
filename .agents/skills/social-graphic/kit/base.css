@@ -7,8 +7,10 @@
  *             --ink --ink-2 --ink-3
  *             --dark --dark-2 --dark-3 --dark-line --on-dark --on-dark-2
  *             --accent --accent-ink --data --data-muted --ok --wait
+ *             optional --accent-2 --accent-3 (deeper accent tones; light-led daylight)
  *   type      --font-display --font-accent --display-weight --read-weight
  *             --cap-display --cap-accent        (cap height / em, measured per face)
+ *             optional --font-ui --cap-ui        (UI and card text; falls back to the display face)
  *   chips     --chip-top --chip-bottom --chip-dark
  *   geometry  --r-sm --r-md --r-lg --r-xl --shadow-ring --shadow-frame --shadow-float
  *
@@ -37,8 +39,8 @@ svg, img { display: block; }
   color: var(--ink); background: var(--ground);
   -webkit-font-smoothing: antialiased;
   --fs-title: calc(var(--u) * var(--cap-title) / var(--cap-display));
-  --fs-read: calc(var(--u) * 3.2 / var(--cap-display));    /* smallest text that must be read in the feed */
-  --fs-texture: calc(var(--u) * 2 / var(--cap-display));   /* UI text that is only texture */
+  --fs-read: calc(var(--u) * 3.2 / var(--cap-ui, var(--cap-display)));    /* smallest text that must be read in the feed */
+  --fs-texture: calc(var(--u) * 2 / var(--cap-ui, var(--cap-display)));   /* UI text that is only texture */
 }
 .post[data-preset="x"]      { --W: 2839px; --H: 1596px; }
 .post[data-preset="card"]   { --W: 2400px; --H: 1260px; }
@@ -68,8 +70,8 @@ svg, img { display: block; }
   font-size: calc(1em * var(--cap-display) / var(--cap-accent));
 }
 .post.carbon .hchip { background: var(--chip-dark); color: var(--accent); }
-.read { font-size: var(--fs-read); line-height: 1.25; font-weight: var(--read-weight); letter-spacing: -0.01em; }
-[data-texture] { font-size: var(--fs-texture); }
+.read { font-family: var(--font-ui, var(--font-display)); font-size: var(--fs-read); line-height: 1.25; font-weight: var(--read-weight); letter-spacing: -0.01em; }
+[data-texture] { font-family: var(--font-ui, var(--font-display)); font-size: var(--fs-texture); }
 
 /* ── surfaces ───────────────────────────────────────────── */
 .card { position: absolute; background: var(--panel); border-radius: var(--r-xl); box-shadow: var(--shadow-float); }
@@ -86,7 +88,7 @@ svg, img { display: block; }
 .btn {
   display: inline-flex; align-items: center; justify-content: center;
   height: calc(var(--u) * 7); padding: 0 calc(var(--u) * 2.4); border-radius: var(--r-sm);
-  border: 2px solid transparent; font-family: var(--font-display); font-weight: var(--read-weight);
+  border: 2px solid transparent; font-family: var(--font-ui, var(--font-display)); font-weight: var(--read-weight);
   font-size: var(--fs-read); letter-spacing: -0.01em; white-space: nowrap;
 }
 .btn.primary { background: var(--accent); color: var(--accent-ink); }
@@ -107,8 +109,8 @@ svg, img { display: block; }
 }
 
 /* yellow ground: the accent IS the ground, so nothing else on the post may be the accent.
-   Brands that never put the logo on the accent get it on a panel plate. */
+   A brand that never puts its logo on the accent adds class "plate" to the lockup. */
 .post.yellow { background: var(--accent); color: var(--accent-ink); }
 .post.yellow::before { content: ""; position: absolute; inset: var(--gutter); box-shadow: 0 0 0 var(--hair) rgba(36, 36, 36, 0.12); }
-.post.yellow .lockup { background: var(--panel); padding: calc(var(--u) * 1.3) calc(var(--u) * 1.8); box-sizing: content-box; }
+.post.yellow .lockup.plate { background: var(--panel); padding: calc(var(--u) * 1.3) calc(var(--u) * 1.8); box-sizing: content-box; }
 .post.yellow .card { box-shadow: 0 0 0 2px rgba(36, 36, 36, 0.06), 0 30px 80px rgba(36, 36, 36, 0.14); }

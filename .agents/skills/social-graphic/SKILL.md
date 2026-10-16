@@ -1,6 +1,6 @@
 ---
 name: social-graphic
-description: Make a social post image (X, LinkedIn; 2839×1596 by default) for any brand — pick the format from the post type, fill a template, render, and pass an audit driven by a brand pack (palette, faces, logos, rules). Fifteen formats, from quiet title cards to light-led launch art, reverse-engineered from 504 post images by eight product companies. Not for a screenshot of an app (shoot-still) or video (demo, reel). For Agenta's own posts, use agenta-social-graphic.
+description: Make a social post image (X, LinkedIn; 2839×1596 by default) for any brand — pick the format from the post type, fill a template, render, and pass an audit driven by a brand pack (palette, faces, logos, rules). Seventeen formats, from quiet title cards to light-led launch art, reverse-engineered from 504 post images by eight product companies. Not for a screenshot of an app (shoot-still) or video (demo, reel). For Agenta's own posts, use agenta-social-graphic.
 metadata:
   tags: social, image, brand, launch, x, linkedin
 ---
@@ -17,7 +17,7 @@ PNG, but it is authored here. The output is a PNG; there is no video.
 
 ```
 kit/base.css         layout and components, written against brand roles only
-kit/templates/       fifteen formats as HTML fragments
+kit/templates/       seventeen formats as HTML fragments
 brands/example/      a neutral brand pack (system faces) to copy from
 render.mts           render + audit + 20 % feed preview
 reference.md         the measured evidence; studies/ holds the eight full studies
@@ -78,6 +78,12 @@ need a brand that allows light (`"allowLight": true`):
 | Launch, milestone, countdown; 1–4 words | **lamplight** | An arc of light that the letters take where it crosses them, plus grain (Resend, Raycast) |
 | Cost, latency or eval win | **live-line** | One emissive stroke drawn from the real series, with no axes (Raycast) |
 | Concept with no screen | **construction** | The real structure as line art in three stroke weights, with one accent node (Linear) |
+| Channel, integration, launch; a product window | **daylight** | A pale sky warming into tone-on-tone accent dunes with rim light; the window floats centred |
+| Partner pair, milestone, one moment | **sunrise** | A white sun rising from the bottom of an accent ground, rays and rings; the subject sits in its glow |
+
+The light-led formats are part of the collection, not the default. Most posts
+stay in the everyday set; reach for light when one post in the series should
+stop the scroll, and don't run two light-led posts in a row.
 
 A launch usually needs two images: the post image and its link card (pair,
 mosaic or quiet).
@@ -135,8 +141,9 @@ mosaic or quiet).
 
 `class="post paper"` (panel in a gutter), `post carbon` (dark), or
 `post yellow` (the accent as the ground). On a yellow ground the ground is the
-accent moment, and the lockup gets a panel plate so it never sits on the
-accent. A brand can restrict grounds with `"grounds": ["paper", "yellow"]` in
+accent moment. A brand that never puts its logo on the accent adds class
+`plate` to the lockup (`<div class="lockup plate">`), which gives it a panel
+backing; set `logoNeverOnAccent` in `brand.json` and the audit enforces it. A brand can restrict grounds with `"grounds": ["paper", "yellow"]` in
 `brand.json`; the audit refuses any other.
 
 ### Light, gradients, grain, scripts
@@ -160,7 +167,9 @@ Copy `brands/example/` and replace:
     --dark --dark-2 --dark-3 --dark-line --on-dark --on-dark-2 --accent
     --accent-ink --data --data-muted --ok --wait`.
   - Type: `--font-display --font-accent --display-weight --read-weight
-    --cap-display --cap-accent`.
+    --cap-display --cap-accent`, and optionally `--font-ui --cap-ui` for card
+    and UI text (`.read`, `[data-texture]`, `.btn`); without them UI text
+    uses the display face.
   - Chips, radii and shadows.
   - Any `@font-face`. Font URLs resolve relative to the pack.
 - **`brand.json`:**
@@ -178,7 +187,7 @@ Copy `brands/example/` and replace:
 **Measure each face's cap ratio. Never guess it.** Render an "H" at 1000 px on
 a canvas and read `actualBoundingBoxAscent / 1000`. Load the face first with
 `document.fonts.load()`; a fallback face measures differently. Then check with
-`--templates --brand <dir>`, which renders all fifteen formats in the new brand.
+`--templates --brand <dir>`, which renders all seventeen formats in the new brand.
 
 ## Do not copy
 

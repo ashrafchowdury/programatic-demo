@@ -21,17 +21,24 @@ brand/fonts/       licensed, gitignored (see Setup)
 
 ## Setup (once per machine)
 
-GT Alpina and PP Mondwest are licensed and gitignored. Fetch them from the
-design-system artifact:
+GT Alpina and PP Mondwest are licensed and gitignored. Use the files agenta.ai
+itself serves, so posts match the site exactly:
 
-```
-Artifact read  url=https://claude.ai/code/artifact/58da9a6c-45d0-40ea-b04a-69a1d904b8ef
-               paths=project/fonts/GT-Alpina-Standard-{Light,Light-Italic,Regular-Italic,Medium}.otf,
-                     project/fonts/GT-Alpina-Standard-Regular.ttf, project/fonts/PPMondwest-Regular.otf
+```bash
+cd .agents/skills/agenta-social-graphic/brand/fonts
+for f in GT-Alpina-Light GT-Alpina-Light-Italic GT-Alpina-Regular GT-Alpina-Regular-Italic GT-Alpina-Medium; do
+  curl -sfLO "https://agenta.ai/fonts/$f.woff2"
+done
 ```
 
-Copy the saved files into `.agents/skills/agenta-social-graphic/brand/fonts/`.
-The renderer refuses to run without them.
+PP Mondwest comes from the design-system artifact
+(`https://claude.ai/code/artifact/58da9a6c-45d0-40ea-b04a-69a1d904b8ef`,
+`project/fonts/PPMondwest-Regular.otf`). Inter loads from Google Fonts. The
+renderer refuses to run without the GT Alpina and Mondwest files.
+
+The Light cut is a trial file (`GTAlpinaTrial-Light`) both on agenta.ai and in
+the artifact; only Regular is the full face. Flag this before a paid
+campaign.
 
 ## Make one
 
@@ -71,12 +78,14 @@ These are the only formats `brand.json` allows. Anything else fails the audit.
 | Integration, channel, customer story | **field-report** | paper-120 against carbon; the partner's official marks on paper; facts on carbon in Regular 400; the one Mondwest word in yellow. |
 | Evals, rollouts, milestones | **woven** | Cells in ink, paper-200 and terracotta, one yellow cell; every cell is one real thing. |
 | A feature that deserves weight | **graphite** | Carbon, a dim carbon-800 field of the product's own forms, one large title with the yellow bitmap word. |
+| Channel, integration, launch: the scroll-stopper (optional, light-led) | **daylight** | Paper sky warming into tone-on-tone yellow dunes, white rim light on the crests, grain; the product window floats centred over it. |
+| Partner pair, milestone, a single moment (optional, light-led) | **sunrise** | Yellow ground, a white sun rising from the bottom edge with rays and rings; the pair tiles or one card sit in its glow. |
 
 **Grounds: white (`post paper`) or yellow (`post yellow`) only.** No dark
 backgrounds (the user's decision, 2026-10-16); `brand.json` `grounds` enforces
 it. On yellow, the ground is the post's one yellow moment, so nothing else may
-be yellow (use the `dark` button, not `primary`), and the lockup sits on a
-white plate (`.post.yellow .lockup`) because the logo never goes on yellow.
+be yellow (use the `dark` button, not `primary`). The black lockup sits
+straight on the yellow.
 The carbon notes in the table above (mosaic, quiet, field-report, graphite,
 the pair tile) predate this rule; on those formats use paper or yellow
 instead. Alternate grounds across a series.
@@ -85,10 +94,15 @@ instead. Alternate grounds across a series.
 follower what kind of post it is, and repeating it makes a week read as one
 post.
 
-**Not for Agenta: lamplight, live-line and construction.** They depend on
-light, gradients, grain or abstract line art. Agenta's brand rules out all
-four: there are no gradients, no large blurs and no abstract illustration. The
-audit refuses them. Use them only through the general skill, for other brands.
+**Light is optional, not the default.** Daylight and sunrise are the only
+formats that use gradients, glow and grain; every other format stays flat. Use
+them for the posts in a series that should stop the scroll, never two in a
+row. Their light uses Agenta tokens only (yellow, paper, white, any alpha),
+never a new hue (the user's decision, 2026-10-16), and the audit checks every
+gradient stop and SVG paint.
+
+**Not for Agenta: lamplight, live-line and construction.** They need a dark
+ground or abstract line art, and Agenta posts are white or yellow only.
 
 ## Agenta rules the audit cannot check
 
@@ -100,11 +114,13 @@ audit refuses them. Use them only through the general skill, for other brands.
   dates or prices; the post text carries them (the user's decision,
   2026-10-16).
 - **Type.**
-  - All set type is GT Alpina, including the text in mock UI cards. Light 300
-    goes on titles and Regular 400 on readable UI lines.
+  - Titles are GT Alpina Light 300. Text inside product cards and UI (chat
+    bubbles, labels, buttons) is Inter 400, per the README's type roles (the
+    user's decision, 2026-10-16). `.read`, `[data-texture]` and `.btn` pick it
+    up through `--font-ui`.
   - PP Mondwest sets exactly one word.
-  - GT Alpina's cap height is 0.680 em and Mondwest's 0.640 em (measured), so
-    the chip scales Mondwest to match.
+  - Cap heights, measured: GT Alpina 0.680 em, Mondwest 0.640 em, Inter
+    0.7275 em. The chip scales Mondwest to match GT Alpina.
 - **Colour.**
   - Every value comes from `tokens.json`. Carbon is `#1e1d1c` or `#1e1c1d`;
     `#181010` is not a token.
@@ -112,8 +128,11 @@ audit refuses them. Use them only through the general skill, for other brands.
 - **Logos.**
   - File names name the ground: `-light` on paper, `-dark` on carbon,
     `-dark-accent` (the yellow mark) on carbon.
-  - Never put a logo on yellow, recolour it or stretch it. The `-dark` lockup is
-    the README's white-mark variant.
+  - On a yellow post the black `-light` lockup sits straight on the yellow, with
+    no plate. This overrides the README's never-on-yellow rule for social posts
+    only (the user's decision, 2026-10-16).
+  - Never recolour or stretch a logo. The `-dark` lockup is the README's
+    white-mark variant.
 - **Shape.**
   - Only pressable things are rounded. App tiles round at 22 % because they are
     app icons.
