@@ -17,5 +17,6 @@
   "minTextureCapPct": 1.6,
   "maxTitleWords": 8,
   "maxReadWords": 16,
-  "archetypes": ["statement", "proof", "pair", "exchange", "figure", "quiet", "context", "mosaic"]
+  "archetypes": ["statement", "proof", "pair", "exchange", "figure", "quiet", "context", "mosaic", "ledger", "field-report", "woven", "graphite"],
+  "grounds": ["paper", "yellow"]
 }

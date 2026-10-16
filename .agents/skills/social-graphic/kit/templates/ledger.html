@@ -1,0 +1,15 @@
+<!-- ledger: numbers as the picture. Flat paper, hairline rules, a row of numerals 2-5x the title's size,
+     the accent as one flat block behind the numeral that matters. From Perplexity's research cards.
+     Metrics, ranges, results. Use real numbers only. -->
+<main class="post paper" data-archetype="ledger">
+  <div class="lockup" data-logo="brand"><img src="{{brand}}/logos/logo-light.svg" alt="Logo"></div>
+  <div style="left:var(--mx);right:var(--mx);top:calc(var(--H) * 0.235);height:2px;background:var(--ink)"></div>
+  <h1 class="title" style="left:var(--mx);top:calc(var(--H) * 0.29);font-size:calc(var(--u) * 4.6 / var(--cap-display))">Cost and failures, per agent</h1>
+  <div style="left:var(--mx);right:var(--mx);top:calc(var(--H) * 0.47);height:calc(var(--H) * 0.38);display:grid;grid-template-columns:repeat(4, 1fr)">
+    <div style="padding:0 calc(var(--u) * 3.4);display:flex;flex-direction:column;justify-content:space-between"><span style="font-size:calc(var(--u) * 13 / var(--cap-display));line-height:1;letter-spacing:-0.03em">24h</span><span class="read" style="color:var(--ink-2)">Today</span></div>
+    <div style="padding:0 calc(var(--u) * 3.4);display:flex;flex-direction:column;justify-content:space-between;box-shadow:-2px 0 0 0 var(--line)"><span style="font-size:calc(var(--u) * 13 / var(--cap-display));line-height:1;letter-spacing:-0.03em">7d</span><span class="read" style="color:var(--ink-2)">This week</span></div>
+    <div style="padding:0 calc(var(--u) * 3.4);display:flex;flex-direction:column;justify-content:space-between;box-shadow:-2px 0 0 0 var(--line)"><span style="align-self:flex-start;font-size:calc(var(--u) * 13 / var(--cap-display));line-height:1;letter-spacing:-0.03em;background:var(--accent);padding:0 0.08em">30d</span><span class="read" style="color:var(--ink-2)">This month</span></div>
+    <div style="padding:0 calc(var(--u) * 3.4);display:flex;flex-direction:column;justify-content:space-between;box-shadow:-2px 0 0 0 var(--line)"><span style="font-size:calc(var(--u) * 13 / var(--cap-display));line-height:1;letter-spacing:-0.03em">90d</span><span class="read" style="color:var(--ink-2)">This quarter</span></div>
+  </div>
+  <div style="left:var(--mx);right:var(--mx);top:calc(var(--H) * 0.9);height:2px;background:var(--ink)"></div>
+</main>

@@ -1,0 +1,20 @@
+<!-- woven: a band of cells where every cell is one real thing (a run, an eval, an agent), coloured by its state.
+     The pattern carries the information; one accent cell is the one that matters. From Granola's woven posters,
+     made into data. Evals, rollouts, milestones. Edit data-cells: i ink, d data, m muted, p panel, y accent. -->
+<main class="post paper" data-archetype="woven">
+  <div class="lockup" data-logo="brand"><img src="{{brand}}/logos/logo-light.svg" alt="Logo"></div>
+  <h1 class="title" style="left:50%;top:calc(var(--H) * 0.33);transform:translate(-50%, -50%);text-align:center;width:calc(var(--W) * 0.74)">Every run, judged the same way.</h1>
+  <div id="weave" data-bleed style="left:var(--gutter);right:var(--gutter);top:calc(var(--H) * 0.58);bottom:var(--gutter);display:grid;grid-template-columns:repeat(20, 1fr);grid-auto-rows:1fr;gap:6px"
+    data-cells="mmimmmmimmmmdmmmimmm mmmmimmmmmmymmmmmimm mimmmmmdmmmmimmmmmmm mmmmmimmmmmmmmdmmmim"></div>
+  <script>
+    window.__ready = false;
+    const fill = { i: "var(--ink)", d: "var(--data)", m: "var(--data-muted)", p: "var(--panel-2)", y: "var(--accent)" };
+    const w = document.getElementById("weave");
+    for (const ch of w.dataset.cells.replace(/\s+/g, "")) {
+      const c = document.createElement("div");
+      c.style.background = fill[ch] || fill.m;
+      w.appendChild(c);
+    }
+    window.__ready = true;
+  </script>
+</main>

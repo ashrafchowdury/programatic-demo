@@ -67,6 +67,23 @@ These are the only formats `brand.json` allows. Anything else fails the audit.
 | Feature whose value is the surrounding workflow | **context** | Faded paper-120 cards around one centred title. The one full-colour detail is a yellow chip. |
 | Eval result, benchmark, metric | **figure** | "Us" in terracotta-500, the rest paper-200. Terracotta is for charts only. |
 | Link card for a post, guide, changelog | **quiet** | Carbon band, centred title, the bitmap word yellow on carbon. |
+| Metrics, ranges, results | **ledger** | Flat paper, ink hairlines, GT Alpina Light numerals; the yellow block sits behind one numeral. Real numbers only. |
+| Integration, channel, customer story | **field-report** | paper-120 against carbon; the partner's official marks on paper; facts on carbon in Regular 400; the one Mondwest word in yellow. |
+| Evals, rollouts, milestones | **woven** | Cells in ink, paper-200 and terracotta, one yellow cell; every cell is one real thing. |
+| A feature that deserves weight | **graphite** | Carbon, a dim carbon-800 field of the product's own forms, one large title with the yellow bitmap word. |
+
+**Grounds: white (`post paper`) or yellow (`post yellow`) only.** No dark
+backgrounds (the user's decision, 2026-10-16); `brand.json` `grounds` enforces
+it. On yellow, the ground is the post's one yellow moment, so nothing else may
+be yellow (use the `dark` button, not `primary`), and the lockup sits on a
+white plate (`.post.yellow .lockup`) because the logo never goes on yellow.
+The carbon notes in the table above (mosaic, quiet, field-report, graphite,
+the pair tile) predate this rule; on those formats use paper or yellow
+instead. Alternate grounds across a series.
+
+**No format two days in a row** when posting a series: the format tells the
+follower what kind of post it is, and repeating it makes a week read as one
+post.
 
 **Not for Agenta: lamplight, live-line and construction.** They depend on
 light, gradients, grain or abstract line art. Agenta's brand rules out all

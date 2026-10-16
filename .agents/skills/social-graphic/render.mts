@@ -49,6 +49,7 @@ type Brand = {
   maxTitleWords: number;
   maxReadWords: number;
   archetypes: string[] | "all";
+  grounds?: string[];
 };
 const ROOT = path.resolve(SKILL, "..", "..", "..");
 const PRESETS = { x: [2839, 1596], card: [2400, 1260], square: [2160, 2160] } as const;
@@ -159,6 +160,7 @@ async function audit(page: Page, W: number, H: number) {
         if (root.querySelector(".grain")) errors.push(`grain is outside the ${B.name} brand`);
       }
       const arch = root.dataset.archetype ?? "?";
+      if (B.grounds && !B.grounds.some((g: string) => root.classList.contains(g))) errors.push(`ground must be one of ${B.grounds.join(", ")} for ${B.name}; this post is "${root.className}"`);
       if (B.archetypes !== "all" && !B.archetypes.includes(arch)) errors.push(`direction "${arch}" is outside the ${B.name} brand; allowed: ${(B.archetypes as string[]).join(", ")}`);
 
       // colours, gradients, shadows
@@ -230,8 +232,13 @@ async function audit(page: Page, W: number, H: number) {
         const b = lg.getBoundingClientRect();
         if (!lg.closest("[data-bleed]") && (b.left < r.left + mx - 2 || b.top < r.top + my - 2 || b.right > r.right - mx + 2 || b.bottom > r.bottom - my + 2))
           errors.push(`${B.name} logo outside the safe area`);
+        // what is really behind the logo: the nearest ancestor (or the logo's own box) with an opaque fill
+        for (let a: HTMLElement | null = lg; a; a = a.parentElement) {
+          const bg = rgba(getComputedStyle(a).backgroundColor);
+          if (bg && bg.a > 0) { if (isAccent(getComputedStyle(a).backgroundColor) && B.logoNeverOnAccent) errors.push(`${B.name} logo sits on the accent colour`); break; }
+        }
         for (const y of yellowEls) {
-          if (y.contains(lg) || lg.contains(y)) { errors.push(`${B.name} logo sits on the accent colour`); continue; }
+          if (y.contains(lg) || lg.contains(y)) continue;
           const q = y.getBoundingClientRect();
           if (b.left < q.right && b.right > q.left && b.top < q.bottom && b.bottom > q.top) errors.push(`${B.name} logo overlaps an accent element`);
         }

@@ -51,7 +51,7 @@ title, a logo pair, a floating card, a chart), written as HTML in
 renders it to `out/social/<name>/` and audits it against a brand pack. It never
 drives the app, though a proof graphic may embed a still's PNG. Two skills:
 `.agents/skills/social-graphic/SKILL.md` is brand-neutral (any company, all
-eleven formats); `.agents/skills/agenta-social-graphic/SKILL.md` is Agenta's
+fifteen formats); `.agents/skills/agenta-social-graphic/SKILL.md` is Agenta's
 brand pack with a strict audit and only the on-brand formats. Agenta posts use
 the second.
 

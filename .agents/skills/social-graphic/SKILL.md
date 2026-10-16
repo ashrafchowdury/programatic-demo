@@ -1,6 +1,6 @@
 ---
 name: social-graphic
-description: Make a social post image (X, LinkedIn; 2839×1596 by default) for any brand — pick the format from the post type, fill a template, render, and pass an audit driven by a brand pack (palette, faces, logos, rules). Eleven formats, from quiet title cards to light-led launch art, reverse-engineered from 504 post images by eight product companies. Not for a screenshot of an app (shoot-still) or video (demo, reel). For Agenta's own posts, use agenta-social-graphic.
+description: Make a social post image (X, LinkedIn; 2839×1596 by default) for any brand — pick the format from the post type, fill a template, render, and pass an audit driven by a brand pack (palette, faces, logos, rules). Fifteen formats, from quiet title cards to light-led launch art, reverse-engineered from 504 post images by eight product companies. Not for a screenshot of an app (shoot-still) or video (demo, reel). For Agenta's own posts, use agenta-social-graphic.
 metadata:
   tags: social, image, brand, launch, x, linkedin
 ---
@@ -17,7 +17,7 @@ PNG, but it is authored here. The output is a PNG; there is no video.
 
 ```
 kit/base.css         layout and components, written against brand roles only
-kit/templates/       eleven formats as HTML fragments
+kit/templates/       fifteen formats as HTML fragments
 brands/example/      a neutral brand pack (system faces) to copy from
 render.mts           render + audit + 20 % feed preview
 reference.md         the measured evidence; studies/ holds the eight full studies
@@ -65,6 +65,10 @@ The format is the first thing a follower reads, so the mapping is fixed.
 | Feature whose value is the surrounding workflow | **context**: real UI faded to texture around one title (Cursor) |
 | Eval, benchmark, metric | **figure** |
 | Link card | **quiet** |
+| Metrics, ranges, results; real numbers only | **ledger**: numerals 2–5× the title on flat paper, hairline rules, the accent behind one numeral (Perplexity) |
+| Integration, channel, customer story | **field-report**: a hard paper/ink split, partner marks on paper, 3–4 labelled facts on ink (Linear) |
+| Evals, rollouts, milestones | **woven**: a band of cells, one per real run/eval/agent, coloured by state, one accent cell (Granola) |
+| A feature that deserves weight | **graphite**: one large title on dark over a dim field of the product's own forms (Resend, flat) |
 
 **The light-led set** is for posts that should stop the scroll. These formats
 need a brand that allows light (`"allowLight": true`):
@@ -113,7 +117,7 @@ mosaic or quiet).
    - too many accent moments
    - a blur over the brand's limit
    - light or grain in a brand that forbids them
-   - a format the brand doesn't allow
+   - a format or ground the brand doesn't allow
    - a font or image that failed to load
 
    Fix the post, never the audit.
@@ -126,6 +130,14 @@ mosaic or quiet).
    If not, cut an element before you shrink anything.
 7. **Deliver.** Send the PNGs with each one's format, ground and title. Flag any
    third-party mark you drew rather than downloaded.
+
+### Grounds
+
+`class="post paper"` (panel in a gutter), `post carbon` (dark), or
+`post yellow` (the accent as the ground). On a yellow ground the ground is the
+accent moment, and the lockup gets a panel plate so it never sits on the
+accent. A brand can restrict grounds with `"grounds": ["paper", "yellow"]` in
+`brand.json`; the audit refuses any other.
 
 ### Light, gradients, grain, scripts
 
@@ -159,13 +171,14 @@ Copy `brands/example/` and replace:
   - `allowLight`.
   - Shadow blur limit and size floors.
   - Allowed archetypes: a list, or `"all"`.
+  - Allowed grounds (optional): e.g. `["paper", "yellow"]`.
 - **`logos/`:** `logo-light`, `logo-dark`, `logo-dark-accent`, `mark-light`,
   `mark-dark` and `mark-dark-accent` (`.svg`). The file name names the ground.
 
 **Measure each face's cap ratio. Never guess it.** Render an "H" at 1000 px on
 a canvas and read `actualBoundingBoxAscent / 1000`. Load the face first with
 `document.fonts.load()`; a fallback face measures differently. Then check with
-`--templates --brand <dir>`, which renders all eleven formats in the new brand.
+`--templates --brand <dir>`, which renders all fifteen formats in the new brand.
 
 ## Do not copy
 
