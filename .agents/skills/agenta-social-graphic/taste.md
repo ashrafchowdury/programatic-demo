@@ -7,6 +7,13 @@ on review notes.
 
 ## Rejected
 
+- **2026-10-16 · A "so bad and broken" series from another session.** Title
+  Case titles, the bitmap chip on every title, small cards and arrow diagrams
+  on empty canvases, a bubble spilling past its card, whole screenshots
+  shrunk to mush. Every one of these is now an audit failure, kept as a
+  regression test (`review/regress.py`). The contact sheet that should have
+  shown it was blank (fixed).
+
 - **2026-10-16 · Isometric,** dropped on white and then on yellow. Removed from the Agenta formats.
 
 - **2026-10-16 · A narrow, phone-like chat column.** "Too narrow, and the

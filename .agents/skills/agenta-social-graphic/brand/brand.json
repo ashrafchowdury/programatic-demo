@@ -20,5 +20,7 @@
   "maxReadWords": 16,
   "archetypes": ["statement", "pair", "exchange", "quiet", "context", "daylight", "sunrise", "studio", "depth", "plate", "press", "grid", "window", "haze", "aurora", "connect", "spotlight", "milestone", "prompt", "monogram", "tiles"],
   "grounds": ["paper", "yellow"],
+  "properNouns": ["Agenta", "WhatsApp", "Slack", "Telegram", "Discord", "Teams", "Gmail", "Google", "GitHub", "GitLab", "Linear", "Notion", "Jira", "HubSpot", "Salesforce", "Stripe", "Shopify", "Zendesk", "Intercom", "OpenAI", "Claude", "Anthropic", "Gemini", "Opus", "Sonnet", "Haiku", "GPT", "Mistral", "Llama", "Marketplace", "I"],
+  "accentFaceShare": 0.25,
   "formatGrounds": { "haze": ["paper"], "monogram": ["paper", "yellow"] }
 }

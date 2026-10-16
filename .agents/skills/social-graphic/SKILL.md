@@ -21,6 +21,7 @@ kit/templates/       thirty-four formats as HTML fragments
 review/catalog.py    every format a brand allows, on every ground it allows, into social/_catalog/
 review/build.py      the review gallery: every poster with a Keep / Update / Drop mark and a note
 review/ab.py         the internal A/B: score three candidates per post, compare them, promote the winner
+review/regress.py    the audit's regression test: posters rebuilt from a real broken series must all fail
 brands/example/      a neutral brand pack (system faces) to copy from
 render.mts           render + audit + 20 % feed preview
 reference.md         the measured evidence; studies/ holds the eight full studies, the user's
@@ -157,13 +158,22 @@ quiet).
    - text or a card crowding the logo (2 %H clear space)
    - UI text or a button spilling out of its card, or cut off inside its box
 
+   - a title in Title Case (brand.json `properNouns` keep their capitals)
+   - a subject under 42 % of the width and height on a mostly bare canvas
+   - a screenshot drawn so small its UI text falls under the texture floor
+   - any box (a fill, ring or border) spilling out of its parent box; mark a
+     deliberate overlap `data-overhang`
+   - in a series, the accent face on more titles than `accentFaceShare`
+     allows
+
    It warns when a post reads empty (over 86 % bare ground; the striking
    references leave 14–49 %) or lopsided (visual weight outside 0.34–0.66 W).
    A run of more than one post also writes `_sheet.png`, a contact sheet of
    every feed preview, and a numbered series prints its formats and grounds
    day by day for review.
 
-   Fix the post, never the audit.
+   Fix the post, never the audit. After changing render.mts or the kit, run
+   `python3 .agents/skills/social-graphic/review/regress.py`; it must pass.
 6. **Look.** Open the PNG, then the `.feed.png`. At feed size, check that:
    - the title reads in one glance
    - the partner is identifiable

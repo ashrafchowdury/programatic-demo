@@ -79,10 +79,32 @@ in the gallery, not the process.
      composition. Never pad with a format that does not fit.
    - Repeating a format across days is fine (the user's decision,
      2026-10-16). Never take a weaker fit just to vary the series.
+   - When candidates tie on fit, prefer the flat one. Lit or flat is never a
+     goal in itself; the message decides.
    - The title is the claim in at most 8 words (rules below). If the claim
      needs more, it belongs in the post text. All three candidates carry the
      same title, so the test is about the picture.
-4. **Build the candidates** in `social/<name>/_candidates/`, named
+   - A title line holds about 30 characters at title size. Break a longer
+     claim at the phrase with a `<br>`, at most two lines. The audit fails
+     a title that runs past the safe area.
+4. **Build the candidates** from the templates, never from scratch. A
+   free-form layout of small cards and arrows is not a format; it was the
+   commonest way a series went wrong. Then:
+   - **Sentence case** titles, a claim not a label ("Your agent posts on its
+     own.", not "Agents That Post on Their Own"). The audit fails Title Case.
+   - **The bitmap word (PP Mondwest chip) is rare:** only when one word is the
+     point, at most one post in four. On every title it means nothing, and
+     the series check fails it.
+   - **Big subject:** the card, chat or screen takes at least 42 % of the
+     width or height. A small card on an empty canvas fails.
+   - **Crop screenshots** to the part that proves the claim. A whole app
+     shrunk to fit turns to mush, and the audit fails any capture whose UI
+     text lands under the texture floor.
+   - Channel posts use the kit's `.chat` component as it is; don't rebuild
+     bubbles by hand. Every box stays inside its parent box; mark a
+     deliberate overlap (a badge on a corner) `data-overhang`.
+
+   Write them in `social/<name>/_candidates/`, named
    `<nn>-<date>-<slug>--a.html`, `--b.html` and `--c.html`. Copy each
    template from `.agents/skills/social-graphic/kit/templates/` and replace
    the sample content with the post's own: its title, its channel, its UI.
@@ -131,8 +153,9 @@ in the gallery, not the process.
    Fix every ✗. Treat each ! as a design problem: fix it, or say in plan.md
    why the format wants it (quiet formats are meant to be sparse). A numbered
    series prints one line per day (format and ground); repeats are allowed.
-8. **Look.** Open `out/social/<name>/_sheet.png`, then any post that looks
-   off at full size. Check the general skill's "Look" list and the taste
+8. **Look.** Open `out/social/<name>/_sheet.png`; it must show every post.
+   A blank or broken sheet is a failed run, not a pass. Then open any post
+   that looks off at full size. Check the general skill's "Look" list and the taste
    ledger. Make at most two passes, then stop.
 9. **Publish the winners for review.** Only the final posts go to the user;
    the candidates stay in `_candidates/` as the record. Build the gallery and
@@ -208,8 +231,9 @@ it. Templates written on carbon are re-roled onto paper or yellow (see
 so nothing else may be yellow: use the `dark` button, not `primary`. The black
 lockup sits straight on the yellow.
 
-**Lit formats are optional, never the default.** A lit format uses
-gradients, glow or grain; every other format stays flat. Light uses Agenta
+**Lit or flat follows the message.** A lit format uses gradients, glow or
+grain; every other format stays flat. Neither is preferred for its own sake;
+on a tie in fit, take the flat one. Light uses Agenta
 tokens only (yellow, paper, white, ink, any alpha), never a new hue (the
 user's decision, 2026-10-16). The audit checks every gradient stop and SVG
 paint.
@@ -223,11 +247,17 @@ other brands.
 
 - **Voice.**
   - Sentence case, at most 8 words, no exclamation points, no emoji.
-  - Agents are "coworkers", and a trigger "runs".
+  - "Agent" is the product's word and fine in titles; "coworker" is for the
+    brand line ("AI coworkers that learn how you work"). Never "bot". A
+    trigger "runs".
   - A sentence ends with a period; a label does not.
 - **Words on the image.** At most one title. No taglines, subcopy, CTAs, URLs,
   dates or prices; the post text carries them (the user's decision,
   2026-10-16).
+- **Illustrative UI.** Composed screens may hold plausible names, times and
+  small counts, and nothing that reads as a claim: no currency, no
+  percentages, no totals. Milestone takes only real numbers. Record every
+  composed screen as illustrative in plan.md and RELEASE.md.
 - **Type.**
   - Titles are GT Alpina Light 300. Text inside product cards and UI (chat
     bubbles, labels, buttons) is Inter 400, per the README's type roles (the
@@ -253,7 +283,9 @@ other brands.
     app icons.
   - No blur over 96 px, the website's `th-menu-shadow` at 2×.
 - **Partner marks.**
-  - Use only official files.
+  - Use only official files, kept in the post folder's `assets/`. Where only a
+    drawn mark exists (the WhatsApp glyph in earlier series), use it and flag
+    it in RELEASE.md for replacement before posting.
   - Treat a WhatsApp, Slack or Telegram logo as the partner's to approve before
     a public post.
   - Flag any mark you drew rather than downloaded.

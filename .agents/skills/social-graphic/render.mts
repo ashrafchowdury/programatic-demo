@@ -51,6 +51,10 @@ type Brand = {
   archetypes: string[] | "all";
   grounds?: string[];
   formatGrounds?: Record<string, string[]>;
+  /** names that keep their capitals inside a sentence-case title (brands, partners, products) */
+  properNouns?: string[];
+  /** the share of a series that may use the accent face (the bitmap word); it is emphasis, not decoration */
+  accentFaceShare?: number;
 };
 const ROOT = path.resolve(SKILL, "..", "..", "..");
 const PRESETS = { x: [2839, 1596], card: [2400, 1260], square: [2160, 2160] } as const;
@@ -220,8 +224,10 @@ async function audit(page: Page, W: number, H: number) {
         if (texture && capPct < B.minTextureCapPct) errors.push(`texture text cap ${capPct.toFixed(2)}%H on ${label(el)}: below ${B.minTextureCapPct} %H it is noise, not texture`);
         if (!texture && capPct < B.minReadCapPct) errors.push(`text cap ${capPct.toFixed(2)}%H on ${label(el)} cannot be read in the feed (min ${B.minReadCapPct} %H); enlarge it or mark it data-texture`);
         // texture inside a title (an annotation, a proof mark) is not part of the title
+        // texture set at reading size is read anyway, so it counts toward the word budget
+        const readsAsText = !texture || capPct >= B.minReadCapPct;
         if (el.closest(".title") && !texture) titleWords += words;
-        else if (!texture) readWords += words;
+        else if (readsAsText) readWords += words;
         const range = document.createRange();
         range.selectNodeContents(n);
         const b = range.getBoundingClientRect();
@@ -231,6 +237,28 @@ async function audit(page: Page, W: number, H: number) {
           else if (!texture && (b.left < r.left + mx - 2 || b.right > r.right - mx + 2 || b.top < r.top + my - 2 || b.bottom > r.bottom - my + 2))
             errors.push(`text outside the safe area (${Math.round(mx)}/${Math.round(my)} px): ${label(el)}`);
         }
+      }
+      // Any box (a fill, a ring or a border) stays inside the box that holds it: a bubble poking past its window, a key past its
+      // panel. Mark a deliberate overlap (a badge on a tile's corner) data-overhang.
+      const isBox = (e: Element) => { const st = getComputedStyle(e); return (rgba(st.backgroundColor)?.a ?? 0) > 0.05 || st.boxShadow !== "none" || parseFloat(st.borderTopWidth) > 0 || parseFloat(st.borderLeftWidth) > 0; };
+      for (const el of Array.from(root.querySelectorAll<HTMLElement>("*"))) {
+        if (exempt(el) || el.closest("[data-bleed], [data-overhang], [data-light]") || !isBox(el)) continue;
+        let holder = el.parentElement;
+        while (holder && holder !== root && !isBox(holder)) holder = holder.parentElement;
+        if (!holder || holder === root) continue;
+        const e = el.getBoundingClientRect(), c = holder.getBoundingClientRect();
+        if (!e.width || !e.height) continue;
+        if (e.right > c.right + 2 || e.left < c.left - 2 || e.top < c.top - 2 || (e.bottom > c.bottom + 2 && c.bottom < r.bottom - 2)) errors.push(`${label(el)} spills out of ${label(holder)}`);
+      }
+      // A screenshot of the app shrunk to fit turns to mush in the feed. Captures are 1440 CSS px wide with 13 px body text, so the
+      // text's size on the canvas follows from how wide the capture is drawn; below the texture floor, crop to the part that proves
+      // the claim. (Pixel scale alone misleads: captures come at 2-5x.)
+      for (const img of Array.from(root.querySelectorAll<HTMLImageElement>("img"))) {
+        const src = img.getAttribute("src") || "";
+        if (img.closest("[data-logo]") || /\.svg($|\?)/.test(src) || src.startsWith("data:image/svg") || img.naturalWidth < 900) continue;
+        const shown = img.getBoundingClientRect().width;
+        const capPct = (shown / 1440) * 13 * 0.7275 / H * 100;
+        if (capPct < B.minTextureCapPct) errors.push(`a screenshot is drawn ${Math.round(shown)} px wide, so its 13 px UI text lands at ${capPct.toFixed(2)} %H cap (floor ${B.minTextureCapPct}): mush in the feed. Crop it to the part that proves the claim and draw that part larger`);
       }
       // UI text and buttons stay inside their card or frame (a label spilling past its card is the commonest layout bug)
       for (const el of Array.from(root.querySelectorAll<HTMLElement>(".read, .btn, [data-texture]"))) {
@@ -247,11 +275,59 @@ async function audit(page: Page, W: number, H: number) {
       if (subj && ttl) {
         const rg = document.createRange(); rg.selectNodeContents(ttl);
         const tb = Math.max(...Array.from(rg.getClientRects()).map((q) => q.bottom));
+        // measure the untilted layout box: a perspective tilt (studio) moves the projected top without moving the layout
+        const saved = subj.style.transform; subj.style.transform = "none";
         const gap = (subj.getBoundingClientRect().top - tb) / H * 100;
+        subj.style.transform = saved;
         gapPct = gap;
         if (gap < 4.5) errors.push(`title and subject crowd each other: the gap is ${gap.toFixed(1)} %H, keep 4.5-9 %H (use .stack)`);
         else if (gap > 9) errors.push(`title and subject drift apart: the gap is ${gap.toFixed(1)} %H, keep 4.5-9 %H (use .stack)`);
       }
+      // Nothing sits on the title: a card, chat, frame or screenshot over a title line is a collision, stack or no stack.
+      if (ttl) {
+        const rg = document.createRange(); rg.selectNodeContents(ttl);
+        const lines = Array.from(rg.getClientRects()).filter((q) => q.width > 4);
+        for (const box of Array.from(root.querySelectorAll<HTMLElement>(".card, .frame, .chat, [data-subject], img"))) {
+          if (ttl.contains(box) || box.contains(ttl) || box.closest("[data-logo], [data-light]") || exempt(box) && !box.matches("img")) continue;
+          // a blurred or faint layer behind everything is backdrop, not a collision
+          const bs = getComputedStyle(box);
+          if (/blur\(/.test(bs.filter) || parseFloat(bs.opacity) < 0.6) continue;
+          // only the part you can see: a screenshot cropped by its frame counts at the frame's edges
+          let q = { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 };
+          { const b0 = box.getBoundingClientRect(); q = { left: b0.left, top: b0.top, right: b0.right, bottom: b0.bottom, width: b0.width, height: b0.height }; }
+          for (let a = box.parentElement; a && a !== root; a = a.parentElement) {
+            const st = getComputedStyle(a);
+            if (st.overflow === "visible" && st.overflowX === "visible" && st.overflowY === "visible") continue;
+            const c = a.getBoundingClientRect();
+            q = { left: Math.max(q.left, c.left), top: Math.max(q.top, c.top), right: Math.min(q.right, c.right), bottom: Math.min(q.bottom, c.bottom), width: 0, height: 0 };
+            q.width = Math.max(0, q.right - q.left); q.height = Math.max(0, q.bottom - q.top);
+          }
+          if (!q.width || !q.height) continue;
+          if (lines.some((l) => l.left < q.right - 2 && l.right > q.left + 2 && l.top < q.bottom - 2 && l.bottom > q.top + 2)) { errors.push(`${label(box)} covers the title`); break; }
+        }
+      }
+      // Voice: sentence case. Title Case reads as a label, not a claim. Proper nouns, acronyms and the word after a full stop keep
+      // their capitals.
+      if (ttl && B.properNouns) {
+        const allowed = new Set(B.properNouns.map((w: string) => w.toLowerCase()));
+        const tokens = (ttl.textContent || "").split(/\s+/).filter(Boolean);
+        const caps: string[] = [];
+        tokens.forEach((t, i) => {
+          if (i === 0 || /[.!?:]$/.test(tokens[i - 1])) return;
+          const w = t.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+          if (/^\p{Lu}/u.test(w) && !/^[\p{Lu}\d]+$/u.test(w) && !/\d/.test(w) && !allowed.has(w.toLowerCase())) caps.push(w);
+        });
+        if (caps.length >= 2) errors.push(`the title is in Title Case (${caps.join(", ")}); write it in sentence case`);
+      }
+      // the subject's footprint, judged after the pixels (a small subject on a lit, full canvas is fine; on bare ground it is not)
+      const boxes = subj ? [subj] : Array.from(root.querySelectorAll<HTMLElement>(".card, .frame, .chat")).filter((e) => !e.parentElement?.closest(".card, .frame, .chat"));
+      let subjectW: number | null = null, subjectH: number | null = null;
+      if (boxes.length) {
+        const u = boxes.map((x) => x.getBoundingClientRect()).reduce((a, q) => ({ l: Math.min(a.l, q.left), t: Math.min(a.t, q.top), rr: Math.max(a.rr, q.right), b: Math.max(a.b, q.bottom) }), { l: 1e9, t: 1e9, rr: -1e9, b: -1e9 });
+        subjectW = (Math.min(u.rr, r.right) - Math.max(u.l, r.left)) / W;
+        subjectH = (Math.min(u.b, r.bottom) - Math.max(u.t, r.top)) / H;
+      }
+      const accentFace = Object.keys(faceWords).some((f) => B.fonts[f]?.maxWords !== undefined);
       const titles = root.querySelectorAll(".title").length;
       if (titles > 1) errors.push(`${titles} titles; a post has at most one`);
       if (titleWords > B.maxTitleWords) errors.push(`title is ${titleWords} words; keep it to ${B.maxTitleWords}`);
@@ -287,7 +363,7 @@ async function audit(page: Page, W: number, H: number) {
         }
       }
       const ground = ["paper", "yellow", "carbon"].find((g) => root.classList.contains(g)) ?? "?";
-      return { errors, warnings, stats: { titleWords, readWords, yellow, archetype: arch, ground, lit: !!root.querySelector("[data-light], .grain"), gap: gapPct } };
+      return { errors, warnings, stats: { titleWords, readWords, yellow, archetype: arch, ground, lit: !!root.querySelector("[data-light], .grain"), gap: gapPct, subjectW, subjectH, accentFace } };
     },
     { W, H, B: brand },
   );
@@ -346,7 +422,7 @@ async function pixels(page: Page, png: Buffer, W: number, H: number) {
 
 const browser = await chromium.launch();
 let failed = 0;
-const series: { variant: string; suffix: string; archetype: string; ground: string; lit: boolean; feed: string }[] = [];
+const series: { variant: string; suffix: string; archetype: string; ground: string; lit: boolean; accentFace: boolean; feed: string }[] = [];
 // one row per poster, for the A/B picker (review/ab.py) and anyone reading a run later
 const reportRows: Record<string, unknown>[] = [];
 for (const file of files) {
@@ -378,9 +454,12 @@ for (const file of files) {
     fs.writeFileSync(path.join(outDir, `${variant}${suffix}.feed.png`), Buffer.from(px.feed.split(",")[1], "base64"));
     // composition, measured against the striking references (bare ground 14-49 %, weight centred at 0.47-0.51 W)
     if (px.bare > 0.86 && !["quiet", "statement", "press"].includes(report.stats.archetype)) report.warnings.push(`reads empty: ${(px.bare * 100).toFixed(0)} % of the canvas is bare ground; the striking references leave 14-49 %`);
+    const sw = report.stats.subjectW, sh = report.stats.subjectH;
+    if (sw !== null && sh !== null && sw < 0.42 && sh < 0.42 && px.bare > 0.75)
+      report.errors.push(`the subject is too small for the canvas (${Math.round(sw * 100)} %W × ${Math.round(sh * 100)} %H on ${Math.round(px.bare * 100)} % bare ground); give it at least 42 % of the width or the height`);
     if (px.cx < 0.34 || px.cx > 0.66) report.warnings.push(`lopsided: the visual weight sits at ${px.cx.toFixed(2)} W; balance it toward the centre (references 0.47-0.51)`);
     reportRows.push({ variant: variant + suffix, archetype: report.stats.archetype, ground: report.stats.ground, lit: report.stats.lit, errors: report.errors, warnings: report.warnings, bare: px.bare, weight: px.cx, gap: report.stats.gap, titleWords: report.stats.titleWords, png: path.join(outDir, `${variant}${suffix}.png`), feed: path.join(outDir, `${variant}${suffix}.feed.png`) });
-    series.push({ variant, suffix, archetype: report.stats.archetype, ground: report.stats.ground, lit: report.stats.lit, feed: path.join(outDir, `${variant}${suffix}.feed.png`) });
+    series.push({ variant, suffix, archetype: report.stats.archetype, ground: report.stats.ground, lit: report.stats.lit, accentFace: report.stats.accentFace, feed: path.join(outDir, `${variant}${suffix}.feed.png`) });
     await page.close();
     const status = report.errors.length ? "FAIL" : "ok";
     if (report.errors.length) failed++;
@@ -397,13 +476,19 @@ const days = series.filter((s) => /^\d+[-_]/.test(s.variant) && !s.suffix);
 const isSeries = new Set(days.map((s) => s.variant.match(/^\d+/)![0])).size === days.length;
 if (days.length > 1 && isSeries) {
   console.log(`\nseries · ${days.length} posts`);
-  for (const d of days) console.log(`     ${d.variant.padEnd(48)} ${d.archetype} · ${d.ground}${d.lit ? " · lit" : ""}`);
+  for (const d of days) console.log(`     ${d.variant.padEnd(48)} ${d.archetype} · ${d.ground}${d.lit ? " · lit" : ""}${d.accentFace ? " · bitmap word" : ""}`);
+  // the bitmap word is emphasis: on every title it stops meaning anything
+  const share = brand.accentFaceShare ?? 1;
+  const used = days.filter((d) => d.accentFace).length;
+  const limit = Math.max(1, Math.floor(days.length * share));
+  if (used > limit) { console.log(`     ✗ ${used} of ${days.length} titles use the accent face; at most ${limit}. Keep it for the one word that is the point.`); failed++; }
 }
 
 // One contact sheet of every feed preview, so a whole run reviews as one image.
 if (series.length > 1) {
   const cols = series.length > 12 ? 4 : series.length > 4 ? 3 : 2;
-  const cells = series.map((s) => `<figure><img src="file://${s.feed}"><figcaption>${s.variant}${s.suffix} · ${s.archetype} · ${s.ground}</figcaption></figure>`).join("");
+  // inline the previews: a page set from a string cannot load file:// images, and a blank sheet hides every defect
+  const cells = series.map((s) => `<figure><img src="data:image/png;base64,${fs.readFileSync(s.feed).toString("base64")}"><figcaption>${s.variant}${s.suffix} · ${s.archetype} · ${s.ground}</figcaption></figure>`).join("");
   const page = await browser.newPage({ viewport: { width: cols * 588 + 24, height: 600 } });
   await page.setContent(`<style>body{margin:0;padding:12px;background:#e5e0dd;font:14px/1.3 system-ui;display:grid;grid-template-columns:repeat(${cols},568px);gap:20px}figure{margin:0}img{display:block;width:568px;height:auto}figcaption{padding:6px 2px;color:#343434}</style>${cells}`);
   await page.evaluate(async () => { await Promise.all(Array.from(document.images).map((i) => i.decode().catch(() => undefined))); });

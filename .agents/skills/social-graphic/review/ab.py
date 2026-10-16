@@ -37,8 +37,9 @@ def score(r):
     s = 100.0
     s -= 8 * len(r["warnings"])
     bare = r["bare"] * 100
-    if bare < 35: s -= (35 - bare) * 0.6        # crowded: little air around the subject
-    if bare > 75: s -= (bare - 75) * 0.6        # empty: the canvas reads unfinished
+    # only the extremes: flat formats on white are meant to be airy, so 25-88 % bare costs nothing
+    if bare < 25: s -= (25 - bare) * 0.6        # crowded: no air around the subject
+    if bare > 88: s -= (bare - 88) * 1.0        # empty: the canvas reads unfinished
     s -= abs(r["weight"] - 0.5) * 120           # off-centre weight
     if r.get("gap") is not None:
         s -= abs(r["gap"] - 6.5) * 3            # title and subject drifting from the house rhythm
