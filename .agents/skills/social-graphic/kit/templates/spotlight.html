@@ -1,0 +1,22 @@
+<!-- spotlight: three app tiles in a row, the brand's raised in the middle, a fan of white light behind it. Lit.
+     A launch that spans partners or models. From Lovable 3 (three icons in a beam), rebuilt on a yellow ground. -->
+<main class="post yellow" data-archetype="spotlight">
+  <div data-light style="left:-10%;right:-10%;top:-20%;bottom:-10%;background:repeating-conic-gradient(from -40deg at 50% 92%, rgba(255,255,255,0.5) 0deg 6deg, rgba(255,255,255,0) 6deg 16deg);-webkit-mask-image:radial-gradient(ellipse 46% 70% at 50% 92%, #000 20%, transparent 78%);mask-image:radial-gradient(ellipse 46% 70% at 50% 92%, #000 20%, transparent 78%)"></div>
+  <div data-light style="left:50%;top:66%;width:calc(var(--W) * 0.5);height:calc(var(--H) * 0.7);transform:translate(-50%,-50%);border-radius:50%;background:radial-gradient(closest-side, rgba(255,255,255,0.95), rgba(255,255,255,0))"></div>
+  <div class="grain" style="opacity:0.2;mix-blend-mode:soft-light"></div>
+  <div class="lockup" data-logo="brand"><img src="{{brand}}/logos/logo-light.svg" alt="Logo"></div>
+  <div class="stack" style="--stack-gap:calc(var(--H) * 0.085);--stack-shift:5%">
+  <h1 class="title">Every model, one workspace.</h1>
+  <div data-subject style="display:flex;align-items:center;gap:calc(var(--u) * 4.4)">
+    <span class="sp" data-third-party><img src="assets/partner.svg" alt="Partner"></span>
+    <span class="sp main"><img src="{{brand}}/logos/mark-light.svg" alt="Logo"></span>
+    <span class="sp" data-third-party><img src="assets/partner.svg" alt="Partner"></span>
+  </div>
+  </div>
+  <style>
+    .post[data-archetype="spotlight"] .sp { display:flex; align-items:center; justify-content:center; width:calc(var(--u) * 19); height:calc(var(--u) * 19); border-radius:22%; background:var(--panel); box-shadow:0 0 0 2px rgba(36,36,36,0.05), 0 26px 70px rgba(36,36,36,0.16); }
+    .post[data-archetype="spotlight"] .sp img { width:56%; height:56%; object-fit:contain; }
+    .post[data-archetype="spotlight"] .sp.main { width:calc(var(--u) * 25); height:calc(var(--u) * 25); transform:translateY(calc(var(--u) * -3)); box-shadow:0 0 0 2px rgba(36,36,36,0.06), 0 40px 96px rgba(36,36,36,0.22); }
+    .post[data-archetype="spotlight"] .sp.main img { width:50%; height:auto; }
+  </style>
+</main>

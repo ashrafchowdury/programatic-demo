@@ -18,6 +18,7 @@
   "minTextureCapPct": 1.6,
   "maxTitleWords": 8,
   "maxReadWords": 16,
-  "archetypes": ["statement", "proof", "pair", "exchange", "figure", "quiet", "context", "mosaic", "ledger", "field-report", "woven", "graphite", "daylight", "sunrise"],
-  "grounds": ["paper", "yellow"]
+  "archetypes": ["statement", "pair", "exchange", "quiet", "context", "daylight", "sunrise", "studio", "depth", "plate", "press", "grid", "window", "haze", "aurora", "connect", "spotlight", "milestone", "prompt", "monogram", "tiles"],
+  "grounds": ["paper", "yellow"],
+  "formatGrounds": { "haze": ["paper"], "monogram": ["paper", "yellow"] }
 }

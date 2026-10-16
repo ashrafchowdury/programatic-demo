@@ -1,0 +1,14 @@
+<!-- milestone: one real number at monumental size, its fill shading from ink to grey top to bottom, a short line under it and a
+     hairline frame of the teams or partners it belongs to. Funding, usage, milestones; real numbers only. From Clerk 1. -->
+<main class="post paper" data-archetype="milestone">
+  <div class="lockup" data-logo="brand"><img src="{{brand}}/logos/logo-light.svg" alt="Logo"></div>
+  <h1 class="title" style="left:50%;top:50%;transform:translate(-50%,-50%);text-align:center;white-space:nowrap;line-height:1">
+    <span data-light style="display:block;font-size:calc(var(--u) * 27 / var(--cap-display));letter-spacing:-0.045em;line-height:0.92;background:linear-gradient(180deg, var(--ink) 35%, var(--ink-3) 100%);-webkit-background-clip:text;background-clip:text;color:transparent">10,000</span>
+    <span style="display:block;margin-top:calc(var(--u) * 2.6)">agents at work.</span>
+  </h1>
+  <div class="frame-row"><span data-texture>Support</span><i></i><span data-texture>Sales</span><i></i><span data-texture>Operations</span><i></i><span data-texture>Engineering</span></div>
+  <style>
+    .post[data-archetype="milestone"] .frame-row { left:50%; bottom:calc(var(--my) - var(--u) * 1); transform:translateX(-50%); display:flex; align-items:center; gap:calc(var(--u) * 3); padding:calc(var(--u) * 1.6) calc(var(--u) * 4); box-shadow:0 0 0 2px var(--line); color:var(--ink-2); }
+    .post[data-archetype="milestone"] .frame-row i { width:2px; height:calc(var(--u) * 2.6); background:var(--line); }
+  </style>
+</main>

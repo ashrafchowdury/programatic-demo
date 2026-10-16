@@ -1,0 +1,24 @@
+<!-- depth: a real list in focus. One row sharp at 55-65 %H; the rows around it fall away in opacity and blur, like a shallow lens.
+     From Linear's depth-of-field posts (ladder: focus 1.0/0 px, +-1 0.42/5.5 px, +-2 0.16/16 px). Flat ground, no light.
+     A single-feature post about a row, a setting, a status. -->
+<main class="post paper" data-archetype="depth">
+  <div class="lockup" data-logo="brand"><img src="{{brand}}/logos/logo-light.svg" alt="Logo"></div>
+  <h1 class="title" style="left:50%;top:17%;transform:translateX(-50%);text-align:center;white-space:nowrap">Find the run that matters.</h1>
+  <div class="card" data-bleed style="left:10%;right:10%;top:36%;height:80%;padding:calc(var(--u) * 1.6) calc(var(--u) * 3.6);box-shadow:0 0 0 2px var(--line);border-radius:var(--r-lg) var(--r-lg) 0 0">
+    <div class="fade-b" style="position:absolute;inset:calc(var(--u) * 1.6) calc(var(--u) * 3.6) 0;display:flex;flex-direction:column">
+      <div class="row" style="opacity:0.16;filter:blur(16px)"><span class="dot"></span><span class="read">Weekly report</span><span data-texture>Slack · #product</span><span data-texture class="t">1.8 s</span></div>
+      <div class="row" style="opacity:0.42;filter:blur(5.5px)"><span class="dot"></span><span class="read">Triage new tickets</span><span data-texture>Telegram · ops</span><span data-texture class="t">3.1 s</span></div>
+      <div class="row focus"><span class="dot" style="background:var(--wait)"></span><span class="read" style="font-weight:500">Refund order #4821</span><span data-texture style="color:var(--ink-2)">WhatsApp · support</span><span class="btn primary" style="margin-left:auto">Open trace</span></div>
+      <div class="row" style="opacity:0.42;filter:blur(5.5px)"><span class="dot"></span><span class="read">Draft release notes</span><span data-texture>Slack · #eng</span><span data-texture class="t">6.4 s</span></div>
+      <div class="row" style="opacity:0.16;filter:blur(16px)"><span class="dot"></span><span class="read">Sync CRM contacts</span><span data-texture>Scheduled</span><span data-texture class="t">2.2 s</span></div>
+      <div class="row" style="opacity:0.16;filter:blur(16px)"><span class="dot"></span><span class="read">Answer pricing question</span><span data-texture>Website</span><span data-texture class="t">0.9 s</span></div>
+    </div>
+  </div>
+  <style>
+    .post[data-archetype="depth"] .row { display:flex; align-items:center; gap:calc(var(--u) * 2.4); height:calc(var(--H) * 0.105); border-bottom:2px solid var(--line); color:var(--ink); }
+    .post[data-archetype="depth"] .row .dot { width:calc(var(--u) * 1.4); height:calc(var(--u) * 1.4); border-radius:50%; background:var(--ok); flex:none; }
+    .post[data-archetype="depth"] .row [data-texture] { color:var(--ink-3); }
+    .post[data-archetype="depth"] .row .t { margin-left:auto; }
+    .post[data-archetype="depth"] .row.focus { padding:0 calc(var(--u) * 2); border-radius:var(--r-md); background:var(--panel); box-shadow:0 0 0 2px var(--line), 0 20px 56px rgba(36,36,36,0.12); border-bottom-color:transparent; }
+  </style>
+</main>

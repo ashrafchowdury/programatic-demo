@@ -50,6 +50,7 @@ type Brand = {
   maxReadWords: number;
   archetypes: string[] | "all";
   grounds?: string[];
+  formatGrounds?: Record<string, string[]>;
 };
 const ROOT = path.resolve(SKILL, "..", "..", "..");
 const PRESETS = { x: [2839, 1596], card: [2400, 1260], square: [2160, 2160] } as const;
@@ -61,6 +62,8 @@ const flag = (k: string) => {
   return i >= 0 ? argv[i + 1] : undefined;
 };
 const selfTest = argv.includes("--templates");
+// --candidates renders social/<name>/_candidates/ (the internal A/B drafts) against the post folder's brand and assets
+const cand = argv.includes("--candidates");
 const name = selfTest ? "_templates" : argv.find((a, i) => !a.startsWith("-") && argv[i - 1] !== "--preset");
 if (!name) {
   console.error("usage: render.mts <name> [--preset x|card|square|all] | --templates");
@@ -73,8 +76,9 @@ if (!presets.every((p) => p in PRESETS)) {
   process.exit(2);
 }
 
-const srcDir = selfTest ? path.join(KIT, "templates") : path.join(ROOT, "social", name);
-const brandFile = path.join(srcDir, "brand");
+const baseDir = selfTest ? path.join(KIT, "templates") : path.join(ROOT, "social", name);
+const srcDir = cand ? path.join(baseDir, "_candidates") : baseDir;
+const brandFile = path.join(baseDir, "brand");
 const BRAND = path.resolve(
   ROOT,
   flag("--brand") ??
@@ -87,7 +91,7 @@ if (!fs.existsSync(path.join(BRAND, "brand.json")) || !fs.existsSync(path.join(B
   process.exit(2);
 }
 const brand: Brand = JSON.parse(fs.readFileSync(path.join(BRAND, "brand.json"), "utf8"));
-const outDir = path.join(ROOT, "out", "social", selfTest ? `_templates-${brand.name.toLowerCase()}` : name);
+const outDir = path.join(ROOT, "out", "social", selfTest ? `_templates-${brand.name.toLowerCase()}` : name, cand ? "_candidates" : "");
 if (!fs.existsSync(srcDir)) {
   console.error(`no posts at ${path.relative(ROOT, srcDir)}/ — copy a template from ${path.relative(ROOT, KIT)}/templates/`);
   process.exit(2);
@@ -107,11 +111,11 @@ function build(file: string) {
     .replaceAll("{{kit}}", "file://" + KIT)
     // {{inline:assets/x.svg}} becomes a data URL, so a script can read the pixels without tainting its canvas under file://
     .replace(/\{\{inline:([^}]+)\}\}/g, (_, rel: string) => {
-      const f = path.join(srcDir, rel.trim());
+      const f = path.join(baseDir, rel.trim());
       const type = f.endsWith(".svg") ? "image/svg+xml" : f.endsWith(".png") ? "image/png" : "image/jpeg";
       return `data:${type};base64,${fs.readFileSync(f).toString("base64")}`;
     });
-  return `<!doctype html><html><head><meta charset="utf-8"><base href="file://${srcDir}/">
+  return `<!doctype html><html><head><meta charset="utf-8"><base href="file://${baseDir}/">
 <link rel="stylesheet" href="file://${KIT}/base.css"><link rel="stylesheet" href="file://${BRAND}/brand.css"></head><body>${fragment}</body></html>`;
 }
 
@@ -161,6 +165,8 @@ async function audit(page: Page, W: number, H: number) {
       }
       const arch = root.dataset.archetype ?? "?";
       if (B.grounds && !B.grounds.some((g: string) => root.classList.contains(g))) errors.push(`ground must be one of ${B.grounds.join(", ")} for ${B.name}; this post is "${root.className}"`);
+      const only = B.formatGrounds?.[arch];
+      if (only && !only.some((g: string) => root.classList.contains(g))) errors.push(`${arch} goes only on ${only.join(" or ")} for ${B.name}`);
       if (B.archetypes !== "all" && !B.archetypes.includes(arch)) errors.push(`direction "${arch}" is outside the ${B.name} brand; allowed: ${(B.archetypes as string[]).join(", ")}`);
 
       // colours, gradients, shadows
@@ -213,7 +219,8 @@ async function audit(page: Page, W: number, H: number) {
         const texture = !!el.closest("[data-texture]");
         if (texture && capPct < B.minTextureCapPct) errors.push(`texture text cap ${capPct.toFixed(2)}%H on ${label(el)}: below ${B.minTextureCapPct} %H it is noise, not texture`);
         if (!texture && capPct < B.minReadCapPct) errors.push(`text cap ${capPct.toFixed(2)}%H on ${label(el)} cannot be read in the feed (min ${B.minReadCapPct} %H); enlarge it or mark it data-texture`);
-        if (el.closest(".title")) titleWords += words;
+        // texture inside a title (an annotation, a proof mark) is not part of the title
+        if (el.closest(".title") && !texture) titleWords += words;
         else if (!texture) readWords += words;
         const range = document.createRange();
         range.selectNodeContents(n);
@@ -224,6 +231,26 @@ async function audit(page: Page, W: number, H: number) {
           else if (!texture && (b.left < r.left + mx - 2 || b.right > r.right - mx + 2 || b.top < r.top + my - 2 || b.bottom > r.bottom - my + 2))
             errors.push(`text outside the safe area (${Math.round(mx)}/${Math.round(my)} px): ${label(el)}`);
         }
+      }
+      // UI text and buttons stay inside their card or frame (a label spilling past its card is the commonest layout bug)
+      for (const el of Array.from(root.querySelectorAll<HTMLElement>(".read, .btn, [data-texture]"))) {
+        const box = el.parentElement?.closest<HTMLElement>(".card, .frame, .chat");
+        if (!box || el.closest("[data-bleed]") === box || exempt(el)) continue;
+        const e = el.getBoundingClientRect(), c = box.getBoundingClientRect();
+        if (e.right > c.right + 2 || e.left < c.left - 2 || (e.bottom > c.bottom + 2 && c.bottom < r.bottom)) errors.push(`${label(el)} spills out of its card`);
+        if (getComputedStyle(el).overflow !== "visible" && el.scrollWidth > el.clientWidth + 2) errors.push(`${label(el)} is cut off inside its box`);
+      }
+      // title to subject: one fixed rhythm. The user flagged both crowded and drifting pairs; 4.5-9 %H is the band they accepted.
+      const subj = root.querySelector<HTMLElement>("[data-subject]");
+      const ttl = root.querySelector<HTMLElement>(".title");
+      let gapPct: number | null = null;
+      if (subj && ttl) {
+        const rg = document.createRange(); rg.selectNodeContents(ttl);
+        const tb = Math.max(...Array.from(rg.getClientRects()).map((q) => q.bottom));
+        const gap = (subj.getBoundingClientRect().top - tb) / H * 100;
+        gapPct = gap;
+        if (gap < 4.5) errors.push(`title and subject crowd each other: the gap is ${gap.toFixed(1)} %H, keep 4.5-9 %H (use .stack)`);
+        else if (gap > 9) errors.push(`title and subject drift apart: the gap is ${gap.toFixed(1)} %H, keep 4.5-9 %H (use .stack)`);
       }
       const titles = root.querySelectorAll(".title").length;
       if (titles > 1) errors.push(`${titles} titles; a post has at most one`);
@@ -247,13 +274,20 @@ async function audit(page: Page, W: number, H: number) {
           const bg = rgba(getComputedStyle(a).backgroundColor);
           if (bg && bg.a > 0) { if (isAccent(getComputedStyle(a).backgroundColor) && B.logoNeverOnAccent) errors.push(`${B.name} logo sits on the accent colour`); break; }
         }
+        // nothing readable may touch the logo: keep a clear space of 2 % H around it
+        const pad = H * 0.02;
+        for (const t of Array.from(root.querySelectorAll<HTMLElement>(".title, .read, .card, .frame")).filter((e) => !e.closest("[data-logo]") && !e.contains(lg))) {
+          const rects = t.classList.contains("title") ? (() => { const rg = document.createRange(); rg.selectNodeContents(t); return Array.from(rg.getClientRects()); })() : [t.getBoundingClientRect()];
+          if (rects.some((q) => q.width && q.left < b.right + pad && q.right > b.left - pad && q.top < b.bottom + pad && q.bottom > b.top - pad)) errors.push(`${label(t)} crowds the ${B.name} logo; keep ${Math.round(pad)} px clear around it`);
+        }
         for (const y of yellowEls) {
           if (y.contains(lg) || lg.contains(y)) continue;
           const q = y.getBoundingClientRect();
           if (b.left < q.right && b.right > q.left && b.top < q.bottom && b.bottom > q.top) errors.push(`${B.name} logo overlaps an accent element`);
         }
       }
-      return { errors, warnings, stats: { titleWords, readWords, yellow, archetype: arch } };
+      const ground = ["paper", "yellow", "carbon"].find((g) => root.classList.contains(g)) ?? "?";
+      return { errors, warnings, stats: { titleWords, readWords, yellow, archetype: arch, ground, lit: !!root.querySelector("[data-light], .grain"), gap: gapPct } };
     },
     { W, H, B: brand },
   );
@@ -283,18 +317,28 @@ async function pixels(page: Page, png: Buffer, W: number, H: number) {
       const g = [(ground >> 10) << 3, ((ground >> 5) & 31) << 3, (ground & 31) << 3];
       let ink = 0;
       let total = 0;
+      let bare = 0;
+      let mass = 0;
+      let massX = 0;
+      // the outer 4 % is the gutter and frame, not composition
+      const inner = (i: number, y: number) => i > W * 0.04 && i < W * 0.96 && y > H * 0.04 && y < H * 0.96;
       for (let y = 0; y < H; y += step) for (let i = 0; i < W; i += step) {
         const o = (y * W + i) * 4;
         total++;
-        if (Math.abs(d[o] - g[0]) + Math.abs(d[o + 1] - g[1]) + Math.abs(d[o + 2] - g[2]) > 60) ink++;
+        const dist = Math.abs(d[o] - g[0]) + Math.abs(d[o + 1] - g[1]) + Math.abs(d[o + 2] - g[2]);
+        if (dist > 60) ink++;
+        if (!inner(i, y)) continue;
+        if (dist <= 24) bare++;
+        else { mass += dist; massX += dist * i; }
       }
+      const innerTotal = Math.round((W * 0.92) / step) * Math.round((H * 0.92) / step);
       const f = document.createElement("canvas");
       f.width = Math.round(W * 0.2);
       f.height = Math.round(H * 0.2);
       const fx = f.getContext("2d")!;
       fx.imageSmoothingQuality = "high";
       fx.drawImage(img, 0, 0, f.width, f.height);
-      return { density: (ink / total) * 100, feed: f.toDataURL("image/png") };
+      return { density: (ink / total) * 100, bare: bare / innerTotal, cx: mass ? massX / mass / W : 0.5, feed: f.toDataURL("image/png") };
     },
     { src: "data:image/png;base64," + png.toString("base64"), W, H },
   );
@@ -302,6 +346,9 @@ async function pixels(page: Page, png: Buffer, W: number, H: number) {
 
 const browser = await chromium.launch();
 let failed = 0;
+const series: { variant: string; suffix: string; archetype: string; ground: string; lit: boolean; feed: string }[] = [];
+// one row per poster, for the A/B picker (review/ab.py) and anyone reading a run later
+const reportRows: Record<string, unknown>[] = [];
 for (const file of files) {
   const variant = file.replace(/\.html$/, "");
   const html = build(file);
@@ -329,15 +376,41 @@ for (const file of files) {
     const png = await page.locator("main.post").screenshot({ path: path.join(outDir, `${variant}${suffix}.png`) });
     const px = await pixels(page, png, W, H);
     fs.writeFileSync(path.join(outDir, `${variant}${suffix}.feed.png`), Buffer.from(px.feed.split(",")[1], "base64"));
-    if (px.density > 14) report.warnings.push(`ink density ${px.density.toFixed(1)} %: the references sit at 2–5 % (text) and under 14 % (UI); cut something`);
+    // composition, measured against the striking references (bare ground 14-49 %, weight centred at 0.47-0.51 W)
+    if (px.bare > 0.86 && !["quiet", "statement", "press"].includes(report.stats.archetype)) report.warnings.push(`reads empty: ${(px.bare * 100).toFixed(0)} % of the canvas is bare ground; the striking references leave 14-49 %`);
+    if (px.cx < 0.34 || px.cx > 0.66) report.warnings.push(`lopsided: the visual weight sits at ${px.cx.toFixed(2)} W; balance it toward the centre (references 0.47-0.51)`);
+    reportRows.push({ variant: variant + suffix, archetype: report.stats.archetype, ground: report.stats.ground, lit: report.stats.lit, errors: report.errors, warnings: report.warnings, bare: px.bare, weight: px.cx, gap: report.stats.gap, titleWords: report.stats.titleWords, png: path.join(outDir, `${variant}${suffix}.png`), feed: path.join(outDir, `${variant}${suffix}.feed.png`) });
+    series.push({ variant, suffix, archetype: report.stats.archetype, ground: report.stats.ground, lit: report.stats.lit, feed: path.join(outDir, `${variant}${suffix}.feed.png`) });
     await page.close();
     const status = report.errors.length ? "FAIL" : "ok";
     if (report.errors.length) failed++;
-    console.log(`${status.padEnd(4)} ${variant}${suffix}  [${report.stats.archetype}]  ink ${px.density.toFixed(1)}%  title ${report.stats.titleWords}w  accent ${report.stats.yellow}`);
+    console.log(`${status.padEnd(4)} ${variant}${suffix}  [${report.stats.archetype} · ${report.stats.ground}${report.stats.lit ? " · lit" : ""}]  bare ${(px.bare * 100).toFixed(0)}%  weight ${px.cx.toFixed(2)}W  title ${report.stats.titleWords}w  accent ${report.stats.yellow}`);
     for (const e of report.errors) console.log(`     ✗ ${e}`);
     for (const w of report.warnings) console.log(`     ! ${w}`);
   }
 }
+
+// A numbered folder (01-…, 02-…) is a series posted one a day: print each day's format and ground so the plan reads at a
+// glance. Repeats are fine; the format is chosen for the message, not for variety.
+const days = series.filter((s) => /^\d+[-_]/.test(s.variant) && !s.suffix);
+// several files under one number are variants of one day (01-…-a, 01-…-b), not a series
+const isSeries = new Set(days.map((s) => s.variant.match(/^\d+/)![0])).size === days.length;
+if (days.length > 1 && isSeries) {
+  console.log(`\nseries · ${days.length} posts`);
+  for (const d of days) console.log(`     ${d.variant.padEnd(48)} ${d.archetype} · ${d.ground}${d.lit ? " · lit" : ""}`);
+}
+
+// One contact sheet of every feed preview, so a whole run reviews as one image.
+if (series.length > 1) {
+  const cols = series.length > 12 ? 4 : series.length > 4 ? 3 : 2;
+  const cells = series.map((s) => `<figure><img src="file://${s.feed}"><figcaption>${s.variant}${s.suffix} · ${s.archetype} · ${s.ground}</figcaption></figure>`).join("");
+  const page = await browser.newPage({ viewport: { width: cols * 588 + 24, height: 600 } });
+  await page.setContent(`<style>body{margin:0;padding:12px;background:#e5e0dd;font:14px/1.3 system-ui;display:grid;grid-template-columns:repeat(${cols},568px);gap:20px}figure{margin:0}img{display:block;width:568px;height:auto}figcaption{padding:6px 2px;color:#343434}</style>${cells}`);
+  await page.evaluate(async () => { await Promise.all(Array.from(document.images).map((i) => i.decode().catch(() => undefined))); });
+  await page.screenshot({ path: path.join(outDir, "_sheet.png"), fullPage: true });
+  await page.close();
+}
+fs.writeFileSync(path.join(outDir, "_report.json"), JSON.stringify(reportRows, null, 1));
 await browser.close();
-console.log(`\n${brand.name} brand · ${path.relative(ROOT, outDir)}/`);
+console.log(`\n${brand.name} brand · ${path.relative(ROOT, outDir)}/${series.length > 1 ? "  (contact sheet: _sheet.png)" : ""}`);
 process.exit(failed ? 1 : 0);

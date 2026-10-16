@@ -1,6 +1,6 @@
 ---
 name: agenta-social-graphic
-description: Make an Agenta social post image (X, LinkedIn; 2839×1596) strictly inside Agenta's brand assets — Agenta's tokens, GT Alpina and PP Mondwest, the Agenta logos, and only the on-brand formats. Use for any Agenta launch, feature, channel, integration, approval, eval-result or link-card post. For another brand, or for the light-led formats, use the general social-graphic skill.
+description: Make Agenta social post images (X, LinkedIn; 2839×1596) strictly inside Agenta's brand assets, from a single post to a month-long series, without asking the user — post copy in; three candidates per post A/B-tested internally; only the winners, audited, and a review gallery out. 21 on-brand formats, premium first. Use for any Agenta launch, feature, channel, integration, approval, eval-result or link-card post. For another brand, use the general social-graphic skill.
 metadata:
   tags: social, image, brand, agenta, launch, x, linkedin
 ---
@@ -14,7 +14,8 @@ its audit refuses anything outside the brand.
 
 ```
 brand/brand.css    tokens.json palette (--c-*), roles, GT Alpina + PP Mondwest, Agenta keycaps
-brand/brand.json   the strict audit: no light, no grain, only the formats below
+brand/brand.json   the strict audit: brand colours only, white or yellow grounds, only the formats below
+taste.md           every look the user approved or rejected; read it before every run
 brand/logos/       logo-{light,dark,dark-accent}.svg, mark-{light,dark,dark-accent}.svg
 brand/fonts/       licensed, gitignored (see Setup)
 ```
@@ -40,69 +41,183 @@ The Light cut is a trial file (`GTAlpinaTrial-Light`) both on agenta.ai and in
 the artifact; only Regular is the full face. Flag this before a paid
 campaign.
 
-## Make one
+## Autopilot: post copy in, reviewed series out
 
-1. Pick the format from the table below, and copy its template from
-   `.agents/skills/social-graphic/kit/templates/` into `social/<name>/`.
-2. Add a file `social/<name>/brand` containing this one line:
+Run this end to end without asking the user anything. They review the result
+in the gallery, not the process.
 
-   ```
-   .agents/skills/agenta-social-graphic/brand
-   ```
+1. **Read the brief.** Put the post copy in `social/<name>/brief.md`, one
+   `## <date>` section per post. Add the `brand` file (one line:
+   `.agents/skills/agenta-social-graphic/brand`).
+2. **Read the taste ledger.** [taste.md](./taste.md) lists every look the user
+   approved or rejected. A rejected look is never used again, in any form.
+3. **Plan the series** in `social/<name>/plan.md`, one row per post:
+   date, title, and three candidates (a, b, c), each a format and ground,
+   with one line on why each could fit the message.
+   - **Choose by fit, not by variety.** Read the message and ask what a
+     follower must see to believe it, then take the formats whose subject
+     shows exactly that:
 
-3. Write the title and fill the template, following the rules below.
-4. Render and audit:
+     | The message is about… | Best fit |
+     | --- | --- |
+     | a person and an agent talking, or an approval in a channel | daylight (chat), exchange |
+     | a partner, channel or model joining | connect, sunrise, spotlight, haze, pair |
+     | one feature with a hero card | studio, prompt |
+     | a feature with a real screen | window (real capture) |
+     | a row, status or setting inside a list | depth |
+     | a real number | milestone |
+     | a new option among existing ones | tiles |
+     | a short claim with no screen | statement, monogram, aurora |
+     | a story with results | plate |
+     | the workflow around a feature | context |
+     | change over time | grid |
+     | a link card or quiet announcement | quiet, press |
+
+   - The three candidates are the three best fits. When fewer than three
+     formats fit, vary the one that fits instead: its ground, its subject
+     (a different card, a different moment of the same flow) or its
+     composition. Never pad with a format that does not fit.
+   - Repeating a format across days is fine (the user's decision,
+     2026-10-16). Never take a weaker fit just to vary the series.
+   - The title is the claim in at most 8 words (rules below). If the claim
+     needs more, it belongs in the post text. All three candidates carry the
+     same title, so the test is about the picture.
+4. **Build the candidates** in `social/<name>/_candidates/`, named
+   `<nn>-<date>-<slug>--a.html`, `--b.html` and `--c.html`. Copy each
+   template from `.agents/skills/social-graphic/kit/templates/` and replace
+   the sample content with the post's own: its title, its channel, its UI.
+   - Put the title and its subject (the card, chat, tiles or object) in one
+     `.stack`, with the subject marked `data-subject`. They centre as one
+     group with a fixed gap, and the audit fails a gap outside 4.5–9 %H.
+   - A product post shows the real product screen of whoever the post is for
+     (`pnpm still <shot>`), not a composed mock. Where no screen exists,
+     compose UI from the brand's components and record it as illustrative in
+     plan.md.
+5. **Render the candidates.**
 
    ```bash
+   pnpm exec tsx .agents/skills/social-graphic/render.mts <name> --candidates
+   ```
+
+   A candidate with a ✗ is out of the test. Fix it only if it was the best
+   idea, and never loosen the audit.
+6. **A/B test them, internally.** The user never sees the candidates.
+
+   ```bash
+   python3 .agents/skills/social-graphic/review/ab.py <name>
+   ```
+
+   This scores every candidate and writes one sheet per post,
+   `out/social/<name>/_candidates/<post>.ab.png`, with a, b and c side by
+   side at feed size. The score ranks only what can be measured: audit
+   errors, warnings, empty or crowded canvases, off-centre weight, and the
+   title gap. Open every sheet and pick the winner in this order:
+   1. **Message.** The subject shows exactly what the title claims, for the
+      person the post is for, and reads in one glance at feed size.
+   2. **Clean.** One focal point, balanced, with even spacing. Nothing is
+      cramped, cut off or competing.
+   3. **Taste.** Nothing in it is on the taste ledger's Rejected list.
+
+   Take the top score when two candidates tie on all three. Take a
+   lower-scoring candidate when it tells the message better. Write the winner
+   and one line of why in plan.md.
+7. **Promote the winners and render the series.**
+
+   ```bash
+   python3 .agents/skills/social-graphic/review/ab.py <name> --promote 01-…=b 02-…=a …
    pnpm exec tsx .agents/skills/social-graphic/render.mts <name>
    ```
 
-5. Look at the PNG and the `.feed.png`, then deliver. The general skill's
-   "Look" step has the checklist.
+   Fix every ✗. Treat each ! as a design problem: fix it, or say in plan.md
+   why the format wants it (quiet formats are meant to be sparse). A numbered
+   series prints one line per day (format and ground); repeats are allowed.
+8. **Look.** Open `out/social/<name>/_sheet.png`, then any post that looks
+   off at full size. Check the general skill's "Look" list and the taste
+   ledger. Make at most two passes, then stop.
+9. **Publish the winners for review.** Only the final posts go to the user;
+   the candidates stay in `_candidates/` as the record. Build the gallery and
+   publish it as an Artifact with `capabilities: {"db": {}}`:
+
+   ```bash
+   python3 .agents/skills/social-graphic/review/build.py <scratch dir> "<Series title>=out/social/<name>"
+   ```
+
+   Pass `<scratch dir>/index.html` as `file_path`, the printed `files.json`
+   as `files`, and the scratch dir as `root`. Give the user the link.
+10. **Act on notes.** When the user says they're done, read
+    `ArtifactData list collection "notes"`. Each document has `status`
+    (keep, update or drop) and `note`. Rebuild each update and drop post
+    through the same A/B (three new candidates), and add each lasting
+    preference to taste.md with its date.
+11. **Release notes.** Write `out/social/<name>/RELEASE.md`. For each post,
+    give the date, file, format, ground and alt text. Add the checks a
+    person must make before publishing: drawn partner marks, illustrative
+    UI, capture dates.
+
+To see the whole collection in this brand, run `python3
+.agents/skills/social-graphic/review/catalog.py`, then render `_catalog`.
+
+## Make one
+
+The same A/B for a single post: three candidates, render with
+`--candidates`, run `ab.py`, pick, promote, render, look (steps 3–8). The user
+gets only the winner.
 
 ## The on-brand formats
 
 These are the only formats `brand.json` allows. Anything else fails the audit.
+Premium formats come first: they're the default pick for their post type.
+
+**Premium (first choice).** The haze, aurora, connect, spotlight, milestone, prompt, monogram and
+tiles formats come from the user's own reference picks (see
+`../social-graphic/studies/keep-picks.md`).
+
+| Post type | Format | What it is | Lit |
+| --- | --- | --- | --- |
+| Feature with one hero card or screen | **studio** | The card shot like a product photo: seamless sweep, key light, contact shadow | lit |
+| A setting, a row, a status in a list | **depth** | A real list with one row in focus and the rest falling away in blur | flat |
+| Customer story, case study, results | **plate** | Print plates: a paper title column, a grained yellow plate and a halftone plate, one card crossing the seam | lit |
+| Link card, quiet announcement | **press** | The post as a press sheet: crop marks, registration targets, a colour bar | flat |
+| Before/after, a timeline, learning over time | **grid** | The editorial grid left visible, the title split across it, one yellow block | flat |
+| Launch with a real screen | **window** | The whole workspace rising from the bottom edge over textured paper | lit |
+| Channel, integration, launch | **daylight** | A product window over tone-on-tone yellow dunes | lit |
+| Partner pair, single moment | **sunrise** | The subject in a white sun rising from the yellow ground | lit |
+| Partnership, event, launch | **haze** | White ground only. Paper, white and yellow blurred into one field; the ink lockup and partner name centred, split by a slash | lit |
+| Model or feature launch | **aurora** | A yellow wave rising out of paper; the title is a 1–3 word name with the mark, never a sentence | lit |
+| Integration, partner | **connect** | Two white lockup cards on a paper grid, one ink connector, a yellow node | flat |
+| Launch across partners or models | **spotlight** | The Agenta tile raised between partner tiles, white beams on yellow | lit |
+| Funding, usage, milestone (real numbers) | **milestone** | A GT Alpina numeral shading from ink to grey, a hairline frame of teams under it | flat |
+| Model availability, composer features | **prompt** | A model name above the composer, with the model chip and the yellow Run key, on a yellow bloom | lit |
+| Brand moment, announcement | **monogram** | A large title left, the black Agenta mark at 60 %H right | flat |
+| A new channel or option | **tiles** | Four option tiles with line icons, the new one with the yellow "New" badge | flat |
+
+**Everyday (second choice)**
 
 | Post type | Format | Agenta notes |
 | --- | --- | --- |
-| Feature, GA, capability, one-line claim | **statement** | Paper panel with the cover's yellow block top-right. One PP Mondwest word in the grey key-cap chip. |
-| Feature with a real screen | **proof** | Capture the screen with `pnpm still <shot>`; real UI beats a mock. |
-| Integration, partner, model | **pair** | The Agenta tile is carbon with the yellow mark, which is the post's yellow moment. The partner tile is white, with the partner's official file. |
-| Channel (WhatsApp, Slack, Telegram…) | **mosaic** | The partner's mark rebuilt from rounded pixels on carbon, with "Agents on" and the channel name in PP Mondwest yellow. This is the channel series' signature. |
+| Feature, GA, capability, one-line claim | **statement** | The title centred and set large, a yellow block in the top-right corner, one PP Mondwest word in the grey key-cap chip. |
+| Integration, partner, model | **pair** | The Agenta tile and the partner tile, no words. |
 | Approvals, human-in-the-loop, agent in a channel | **exchange** | The primary keycap button is the yellow moment. |
-| Feature whose value is the surrounding workflow | **context** | Faded paper-120 cards around one centred title. The one full-colour detail is a yellow chip. |
-| Eval result, benchmark, metric | **figure** | "Us" in terracotta-500, the rest paper-200. Terracotta is for charts only. |
-| Link card for a post, guide, changelog | **quiet** | Carbon band, centred title, the bitmap word yellow on carbon. |
-| Metrics, ranges, results | **ledger** | Flat paper, ink hairlines, GT Alpina Light numerals; the yellow block sits behind one numeral. Real numbers only. |
-| Integration, channel, customer story | **field-report** | paper-120 against carbon; the partner's official marks on paper; facts on carbon in Regular 400; the one Mondwest word in yellow. |
-| Evals, rollouts, milestones | **woven** | Cells in ink, paper-200 and terracotta, one yellow cell; every cell is one real thing. |
-| A feature that deserves weight | **graphite** | Carbon, a dim carbon-800 field of the product's own forms, one large title with the yellow bitmap word. |
-| Channel, integration, launch: the scroll-stopper (optional, light-led) | **daylight** | Paper sky warming into tone-on-tone yellow dunes, white rim light on the crests, grain; the product window floats centred over it. |
-| Partner pair, milestone, a single moment (optional, light-led) | **sunrise** | Yellow ground, a white sun rising from the bottom edge with rays and rings; the pair tiles or one card sit in its glow. |
+| Feature whose value is the surrounding workflow | **context** | Faded cards around one centred title; the one full-colour detail is a yellow chip. |
+| Link card for a post, guide, changelog | **quiet** | A centred title on an empty ground. |
 
 **Grounds: white (`post paper`) or yellow (`post yellow`) only.** No dark
 backgrounds (the user's decision, 2026-10-16); `brand.json` `grounds` enforces
-it. On yellow, the ground is the post's one yellow moment, so nothing else may
-be yellow (use the `dark` button, not `primary`). The black lockup sits
-straight on the yellow.
-The carbon notes in the table above (mosaic, quiet, field-report, graphite,
-the pair tile) predate this rule; on those formats use paper or yellow
-instead. Alternate grounds across a series.
+it. Templates written on carbon are re-roled onto paper or yellow (see
+`review/catalog.py`). On yellow, the ground is the post's one yellow moment,
+so nothing else may be yellow: use the `dark` button, not `primary`. The black
+lockup sits straight on the yellow.
 
-**No format two days in a row** when posting a series: the format tells the
-follower what kind of post it is, and repeating it makes a week read as one
-post.
+**Lit formats are optional, never the default.** A lit format uses
+gradients, glow or grain; every other format stays flat. Light uses Agenta
+tokens only (yellow, paper, white, ink, any alpha), never a new hue (the
+user's decision, 2026-10-16). The audit checks every gradient stop and SVG
+paint.
 
-**Light is optional, not the default.** Daylight and sunrise are the only
-formats that use gradients, glow and grain; every other format stays flat. Use
-them for the posts in a series that should stop the scroll, never two in a
-row. Their light uses Agenta tokens only (yellow, paper, white, any alpha),
-never a new hue (the user's decision, 2026-10-16), and the audit checks every
-gradient stop and SVG paint.
-
-**Not for Agenta: lamplight, live-line and construction.** They need a dark
-ground or abstract line art, and Agenta posts are white or yellow only.
+**Not for Agenta:** lamplight, live-line and construction need a dark ground.
+Mosaic, proof, woven, ledger, graphite, field, annotated, emboss, figure,
+field-report and isometric were dropped in review (see taste.md). Their templates stay in the general kit for
+other brands.
 
 ## Agenta rules the audit cannot check
 

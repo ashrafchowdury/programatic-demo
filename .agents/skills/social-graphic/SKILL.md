@@ -1,6 +1,6 @@
 ---
 name: social-graphic
-description: Make a social post image (X, LinkedIn; 2839×1596 by default) for any brand — pick the format from the post type, fill a template, render, and pass an audit driven by a brand pack (palette, faces, logos, rules). Seventeen formats, from quiet title cards to light-led launch art, reverse-engineered from 504 post images by eight product companies. Not for a screenshot of an app (shoot-still) or video (demo, reel). For Agenta's own posts, use agenta-social-graphic.
+description: Make a social post image (X, LinkedIn; 2839×1596 by default) for any brand — pick the format from the post type, fill a template, render, and pass an audit driven by a brand pack (palette, faces, logos, rules). Thirty-four formats, from quiet title cards to light-led launch art, reverse-engineered from 504 post images by eight product companies. Not for a screenshot of an app (shoot-still) or video (demo, reel). For Agenta's own posts, use agenta-social-graphic.
 metadata:
   tags: social, image, brand, launch, x, linkedin
 ---
@@ -17,10 +17,14 @@ PNG, but it is authored here. The output is a PNG; there is no video.
 
 ```
 kit/base.css         layout and components, written against brand roles only
-kit/templates/       seventeen formats as HTML fragments
+kit/templates/       thirty-four formats as HTML fragments
+review/catalog.py    every format a brand allows, on every ground it allows, into social/_catalog/
+review/build.py      the review gallery: every poster with a Keep / Update / Drop mark and a note
+review/ab.py         the internal A/B: score three candidates per post, compare them, promote the winner
 brands/example/      a neutral brand pack (system faces) to copy from
 render.mts           render + audit + 20 % feed preview
-reference.md         the measured evidence; studies/ holds the eight full studies
+reference.md         the measured evidence; studies/ holds the eight full studies, the user's
+                     reference picks (picks-2026-10.md) and their study (keep-picks.md)
 ```
 
 Brand packs that live elsewhere: `.agents/skills/agenta-social-graphic/brand`.
@@ -51,7 +55,33 @@ accounts; the numbers are in [reference.md](./reference.md).
 
 ## Pick the format from the post type
 
-The format is the first thing a follower reads, so the mapping is fixed.
+The format is the first thing a follower reads, so pick the one that fits the
+message best: what must a follower see to believe the post? Repeating a format
+across a series is fine; never take a weaker fit just to vary it.
+
+**The premium set** is the first choice wherever it fits. These formats are
+print and product-photography techniques that read as mature on any brand:
+
+| Post type | Format | The one technique |
+| --- | --- | --- |
+| Feature with one hero card or screen | **studio** | The card on a seamless sweep with a key light and a contact shadow (lit) |
+| A setting, a row, a status in a list | **depth** | One row in focus; the rows around it fall away in opacity and blur (Linear's ladder: 0.42/5.5 px, 0.16/16 px) |
+| Customer story, case study | **plate** | A flat title column against a grained accent plate and a halftone plate, one card crossing the seam (Granola; lit) |
+| Versions, releases, registries | **isometric** | Three versions of one artefact stacked in CSS 3D, the latest on top (Resend's specimen object) |
+| Milestone, eval result, event | **field** | Monumental eval rings in heavy ink over photocopy grain (Raycast's field poster; lit) |
+| Feature whose value is one word | **annotated** | A proofreader's box on the key word and a pointer to a short note |
+| Link card, quiet announcement | **press** | Crop marks, registration targets and a colour bar of the brand's own inks |
+| Before/after, a timeline | **grid** | The editorial grid left visible, the title split across it, one accent block |
+| A feature named by a verb | **emboss** | The verb blind-embossed into the ground, monumental and cropped |
+| Launch with a real screen | **window** | The whole workspace rising from the bottom edge over textured paper (Perplexity; lit) |
+| Partnership, event, launch | **haze** | The whole canvas one defocused light field; only the centred partner lockup is sharp (Runway; lit) |
+| Model or feature launch | **aurora** | A wave of accent light rising from the bottom edge, the title small above its crest (Lovable; lit) |
+| Integration, partner | **connect** | Two lockup cards on a blueprint grid joined by one connector with end nodes (Mistral) |
+| Launch across partners or models | **spotlight** | Three tiles, the brand's raised in the middle, a fan of light behind it (Lovable; lit) |
+| Funding, usage, milestone; real numbers only | **milestone** | One monumental numeral shading top to bottom, a hairline frame of names under it (Clerk) |
+| Model availability, composer features | **prompt** | A name above a large prompt box on a soft accent bloom (Bolt; lit) |
+| Brand moment, announcement | **monogram** | A large title left, the brand mark monumental on the right, one colour (v0) |
+| A new option among existing ones | **tiles** | A centred row of option tiles with line icons, the new one flagged (Bolt) |
 
 **The everyday set** works for any brand:
 
@@ -60,7 +90,6 @@ The format is the first thing a follower reads, so the mapping is fixed.
 | Feature, GA, capability, one-line claim | **statement** |
 | Feature with a real screen | **proof** |
 | Integration, partner, model | **pair** |
-| Channel or integration, as a signature | **mosaic**: the partner's mark rebuilt from 40×40 rounded pixels |
 | Approvals, human-in-the-loop | **exchange** |
 | Feature whose value is the surrounding workflow | **context**: real UI faded to texture around one title (Cursor) |
 | Eval, benchmark, metric | **figure** |
@@ -82,11 +111,11 @@ need a brand that allows light (`"allowLight": true`):
 | Partner pair, milestone, one moment | **sunrise** | A white sun rising from the bottom of an accent ground, rays and rings; the subject sits in its glow |
 
 The light-led formats are part of the collection, not the default. Most posts
-stay in the everyday set; reach for light when one post in the series should
-stop the scroll, and don't run two light-led posts in a row.
+stay in the everyday set; reach for light when the message is best told with
+it.
 
-A launch usually needs two images: the post image and its link card (pair,
-mosaic or quiet).
+A launch usually needs two images: the post image and its link card (pair or
+quiet).
 
 ## Make it
 
@@ -97,8 +126,8 @@ mosaic or quiet).
    fit, it belongs in the post text.
 3. **Build the variants.** Copy the template(s) into `social/<name>/`.
    `{{brand}}` resolves to the brand pack, `{{kit}}` to `kit/`, and
-   `{{inline:assets/x.svg}}` to a data URL, which a scripted format such as
-   mosaic needs. Other relative paths resolve against the post's folder. Make
+   `{{inline:assets/x.svg}}` to a data URL, which a format that draws an
+   image with a script needs. Other relative paths resolve against the post's folder. Make
    three variants unless the brief says one.
 4. **Add assets.** Put partner logos in `social/<name>/assets/` as official
    files only, and keep `data-third-party` on them. For proof, capture the real
@@ -125,6 +154,14 @@ mosaic or quiet).
    - light or grain in a brand that forbids them
    - a format or ground the brand doesn't allow
    - a font or image that failed to load
+   - text or a card crowding the logo (2 %H clear space)
+   - UI text or a button spilling out of its card, or cut off inside its box
+
+   It warns when a post reads empty (over 86 % bare ground; the striking
+   references leave 14–49 %) or lopsided (visual weight outside 0.34–0.66 W).
+   A run of more than one post also writes `_sheet.png`, a contact sheet of
+   every feed preview, and a numbered series prints its formats and grounds
+   day by day for review.
 
    Fix the post, never the audit.
 6. **Look.** Open the PNG, then the `.feed.png`. At feed size, check that:
@@ -145,6 +182,35 @@ accent moment. A brand that never puts its logo on the accent adds class
 `plate` to the lockup (`<div class="lockup plate">`), which gives it a panel
 backing; set `logoNeverOnAccent` in `brand.json` and the audit enforces it. A brand can restrict grounds with `"grounds": ["paper", "yellow"]` in
 `brand.json`; the audit refuses any other.
+
+### Internal A/B: three candidates, the user sees one
+
+Make every post three ways, test them internally and deliver only the winner.
+
+1. Write three candidates for the post into `social/<name>/_candidates/` as
+   `<post>--a.html`, `--b.html` and `--c.html`. Use the three formats that
+   best fit the message; when fewer fit, vary the one that does (ground,
+   subject, composition). Never pad with a weak fit. All three keep the same
+   title.
+2. Render them:
+   `pnpm exec tsx .agents/skills/social-graphic/render.mts <name> --candidates`.
+   Every run also writes `_report.json`, one row of measurements per poster.
+3. Score them: `python3 .agents/skills/social-graphic/review/ab.py <name>`.
+   - A candidate with an audit error is out. The rest lose points for
+     warnings, a crowded or empty canvas, off-centre weight, and a title gap
+     away from 6.5 %H.
+   - Each post gets a side-by-side sheet at feed size,
+     `out/social/<name>/_candidates/<post>.ab.png`.
+4. Judge every sheet yourself, in this order: the message (the subject shows
+   what the title claims, at a glance), then cleanliness (one focal point,
+   balance, even spacing, nothing cramped or cut), then the brand's taste
+   rules. The score breaks ties. A lower score that tells the message better
+   still wins; write down why.
+5. Promote and render the winners:
+   `python3 .agents/skills/social-graphic/review/ab.py <name> --promote <post>=b …`
+   (or `--promote auto` to take the top score). Then render `<name>`.
+
+Only the winners reach the user. `_candidates/` stays as the record.
 
 ### Light, gradients, grain, scripts
 
@@ -187,7 +253,12 @@ Copy `brands/example/` and replace:
 **Measure each face's cap ratio. Never guess it.** Render an "H" at 1000 px on
 a canvas and read `actualBoundingBoxAscent / 1000`. Load the face first with
 `document.fonts.load()`; a fallback face measures differently. Then check with
-`--templates --brand <dir>`, which renders all seventeen formats in the new brand.
+`--templates --brand <dir>`, which renders all thirty-four formats in the new brand.
+
+## Removed
+
+**Mosaic** (a partner's mark rebuilt from rounded pixels) was cut on
+2026-10-16: the user did not like the dotted-logo look. Don't rebuild it.
 
 ## Do not copy
 

@@ -1,0 +1,27 @@
+<!-- press: the post as a press sheet. Crop marks at the trim, registration targets on the margins, a colour bar of the brand's
+     own inks along the foot; the title centred inside the trim. Flat. Link cards, milestones, quiet announcements.
+     From the Agenta brand team's crop-mark style. -->
+<main class="post yellow" data-archetype="press">
+  <div class="trim"></div>
+  <i class="crop tl"></i><i class="crop tr"></i><i class="crop bl"></i><i class="crop br"></i>
+  <i class="reg l"><b></b><b></b></i><i class="reg r"><b></b><b></b></i>
+  <div class="lockup" data-logo="brand"><img src="{{brand}}/logos/logo-light.svg" alt="Logo"></div>
+  <h1 class="title" style="left:50%;top:50%;transform:translate(-50%,-50%);text-align:center;white-space:nowrap">Every run, judged<br>the same way.</h1>
+  <div class="bar"><i style="background:var(--ink)"></i><i style="background:var(--ink-2)"></i><i style="background:var(--tint)"></i><i style="background:var(--panel)"></i><i style="background:var(--data)"></i></div>
+  <style>
+    .post[data-archetype="press"]::before { display:none; }
+    .post[data-archetype="press"] .trim { left:calc(var(--W) * 0.042); right:calc(var(--W) * 0.042); top:calc(var(--H) * 0.075); bottom:calc(var(--H) * 0.075); box-shadow:0 0 0 2px rgba(36,36,36,0.18); }
+    .post[data-archetype="press"] .crop { width:calc(var(--u) * 5); height:calc(var(--u) * 5); border-color:var(--ink); border-style:solid; border-width:0; }
+    .post[data-archetype="press"] .crop.tl { left:calc(var(--W) * 0.042 - var(--u) * 6.5); top:calc(var(--H) * 0.075 - var(--u) * 6.5); border-right-width:3px; border-bottom-width:3px; }
+    .post[data-archetype="press"] .crop.tr { right:calc(var(--W) * 0.042 - var(--u) * 6.5); top:calc(var(--H) * 0.075 - var(--u) * 6.5); border-left-width:3px; border-bottom-width:3px; }
+    .post[data-archetype="press"] .crop.bl { left:calc(var(--W) * 0.042 - var(--u) * 6.5); bottom:calc(var(--H) * 0.075 - var(--u) * 6.5); border-right-width:3px; border-top-width:3px; }
+    .post[data-archetype="press"] .crop.br { right:calc(var(--W) * 0.042 - var(--u) * 6.5); bottom:calc(var(--H) * 0.075 - var(--u) * 6.5); border-left-width:3px; border-top-width:3px; }
+    .post[data-archetype="press"] .reg { top:50%; width:calc(var(--u) * 5); height:calc(var(--u) * 5); transform:translateY(-50%); border-radius:50%; box-shadow:inset 0 0 0 3px var(--ink); }
+    .post[data-archetype="press"] .reg b { position:absolute; background:var(--ink); left:50%; top:-20%; width:3px; height:140%; transform:translateX(-50%); }
+    .post[data-archetype="press"] .reg b + b { left:-20%; top:50%; width:140%; height:3px; transform:translateY(-50%); }
+    .post[data-archetype="press"] .reg.l { left:calc(var(--W) * 0.016); }
+    .post[data-archetype="press"] .reg.r { right:calc(var(--W) * 0.016); }
+    .post[data-archetype="press"] .bar { left:50%; bottom:calc(var(--H) * 0.022); transform:translateX(-50%); display:flex; gap:0; box-shadow:0 0 0 2px var(--ink); }
+    .post[data-archetype="press"] .bar i { width:calc(var(--u) * 4.4); height:calc(var(--u) * 2.6); box-shadow:inset -2px 0 0 var(--ink); }
+  </style>
+</main>
