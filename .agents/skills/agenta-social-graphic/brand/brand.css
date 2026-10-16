@@ -1,0 +1,118 @@
+/*
+ * Agenta brand pack for the social-graphic kit.
+ *
+ * Every colour, radius and shadow is a token from the design-system artifact's
+ * project/tokens.json (synced from web/website/src/styles). Sizes are the
+ * website's 1440 px values at 2x, because a 2839 px post is a 2x page. Do not
+ * add a colour that is not in tokens.json: the audit checks every rendered
+ * colour against the --c-* list below.
+ */
+
+@font-face { font-family: "GT Alpina"; src: url("fonts/GT-Alpina-Standard-Light.otf"); font-weight: 300; font-style: normal; }
+@font-face { font-family: "GT Alpina"; src: url("fonts/GT-Alpina-Standard-Light-Italic.otf"); font-weight: 300; font-style: italic; }
+@font-face { font-family: "GT Alpina"; src: url("fonts/GT-Alpina-Standard-Regular.ttf"); font-weight: 400; font-style: normal; }
+@font-face { font-family: "GT Alpina"; src: url("fonts/GT-Alpina-Standard-Regular-Italic.otf"); font-weight: 400; font-style: italic; }
+@font-face { font-family: "GT Alpina"; src: url("fonts/GT-Alpina-Standard-Medium.otf"); font-weight: 500 700; font-style: normal; }
+@font-face { font-family: "PP Mondwest"; src: url("fonts/PPMondwest-Regular.otf"); font-weight: 400; }
+
+:root {
+  /* tokens.json colour primitives: the audit's allow-list */
+  --c-paper-0: #ffffff;
+  --c-paper-50: #fcfbfa;
+  --c-paper-80: #f7f6f5;
+  --c-paper-100: #f6f5f3;
+  --c-paper-120: #f1eeec;
+  --c-paper-150: #f0efed;
+  --c-paper-200: #e5e5e3;
+  --c-paper-line: #e5e0dd;
+  --c-ink-900: #242424;
+  --c-ink-700: #343434;
+  --c-ink-600: #676770;
+  --c-ink-500: #848b8c;
+  --c-ink-450: #595f61;
+  --c-ink-300: #a3a19f;
+  --c-yellow-400: #f2f25c;
+  --c-yellow-500: #e7e712;
+  --c-yellow-border: #e2e224;
+  --c-terracotta-500: #d97757;
+  --c-carbon-950: #1e1d1c;
+  --c-carbon-900: #1e1c1d;
+  --c-carbon-800: #242220;
+  --c-carbon-750: #413f3e;
+  --c-carbon-700: #3c3a38;
+  --c-carbon-border: #9c9693;
+  --c-success: #6fbf8e;
+  --c-warning: #e7b45c;
+  --c-error: #e0735c;
+  --c-info: #6fa8e0;
+  /* component-internal stops (button, highlight chip, mat frame) from bundle.css and the shadow tokens */
+  --c-btn-yellow-end: #eeee40;
+  --c-hchip-top: #f4f2f0;
+  --c-hchip-bottom: #e9e5e2;
+  --c-mat: #f6f4f2;
+  --c-mat-edge: #e7e5e3;
+
+  /* roles the base kit reads */
+  --ground: var(--c-paper-120);
+  --panel: var(--c-paper-0);
+  --panel-2: var(--c-paper-50);
+  --tint: var(--c-paper-120);
+  --line: var(--c-paper-line);
+  --ink: var(--c-ink-900);
+  --ink-2: var(--c-ink-600);
+  --ink-3: var(--c-ink-300);
+  --dark: var(--c-carbon-950);
+  --dark-2: var(--c-carbon-800);
+  --dark-3: var(--c-carbon-900);
+  --dark-line: rgba(255, 255, 255, 0.07);
+  --on-dark: #ffffff;
+  --on-dark-2: rgba(255, 255, 255, 0.64);
+  --accent: var(--c-yellow-400);
+  --accent-ink: var(--c-ink-900);
+  --data: var(--c-terracotta-500);
+  --data-muted: var(--c-paper-200);
+  --ok: var(--c-success);
+  --wait: var(--c-warning);
+
+  /* type: GT Alpina cap = 0.680 em, PP Mondwest 0.640 em (measured) */
+  --font-display: "GT Alpina", serif;
+  --font-accent: "PP Mondwest", monospace;
+  --display-weight: 300;
+  --read-weight: 400;
+  --cap-display: 0.68;
+  --cap-accent: 0.64;
+
+  /* the highlight chip */
+  --chip-top: var(--c-hchip-top);
+  --chip-bottom: var(--c-hchip-bottom);
+  --chip-dark: rgba(255, 255, 255, 0.07);
+
+  /* geometry, tokens at 2x */
+  --r-sm: 16px;
+  --r-md: 20px;
+  --r-lg: 24px;
+  --r-xl: 32px;
+  --r-pill: 999px;
+  --shadow-ring: 0 0 0 2px rgba(72, 70, 68, 0.08), 0 2px 6px 0 rgba(72, 70, 68, 0.08);
+  --shadow-ring-soft: var(--shadow-ring);
+  --shadow-frame: 0 0 0 2px rgba(72, 70, 68, 0.08), 0 2px 6px 0 rgba(72, 70, 68, 0.02), 0 0 0 12px var(--c-mat), 0 0 0 14px var(--c-mat-edge);
+  --shadow-float: 0 0 0 2px rgba(36, 34, 32, 0.08), 0 40px 96px rgba(36, 34, 32, 0.18);
+}
+
+/* the light-theme highlight chip has a key-cap top light */
+.hchip { box-shadow: inset 0 4px 0.8px #ffffff; }
+.post.carbon .hchip { box-shadow: inset 0 2px 0.8px rgba(255, 255, 255, 0.25), 0 0 0 2px rgba(255, 255, 255, 0.06); }
+
+/* keycap buttons, from bundle.css .ag-btn at 2x; .btn is the base kit's name for the same thing */
+.ag-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: calc(var(--u) * 7); padding: 0 calc(var(--u) * 2.4); border-radius: var(--r-sm);
+  border: 2px solid transparent; font-family: var(--font-display); font-weight: 400;
+  font-size: var(--fs-read); letter-spacing: -0.01em; white-space: nowrap;
+}
+.btn.primary, .ag-btn.primary { background: linear-gradient(180deg, var(--c-yellow-400) 0%, var(--c-btn-yellow-end) 100%); border-color: var(--c-yellow-border); box-shadow: inset 0 6px 12px 0 #ffffff; color: var(--c-ink-900); }
+.btn.outline, .ag-btn.outline { background: linear-gradient(180deg, var(--c-paper-80) 0%, var(--c-paper-120) 100%); border-color: var(--c-paper-line); box-shadow: inset 0 6px 12px #ffffff; color: var(--c-ink-900); }
+.btn.dark, .ag-btn.dark { background: linear-gradient(180deg, var(--c-carbon-750) 0%, var(--c-carbon-950) 100%); border-color: var(--c-carbon-border); box-shadow: inset 0 6px 12px 0 rgba(255, 255, 255, 0.3); color: #ffffff; }
+
+/* the cover component's yellow block, under its older name */
+.sun { background: var(--accent); }

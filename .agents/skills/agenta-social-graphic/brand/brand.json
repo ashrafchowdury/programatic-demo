@@ -1,0 +1,21 @@
+{
+  "name": "Agenta",
+  "source": "design-system artifact https://claude.ai/code/artifact/58da9a6c-45d0-40ea-b04a-69a1d904b8ef (project/tokens.json, project/fonts, Logos)",
+  "fonts": {
+    "GT Alpina": { "cap": 0.68 },
+    "PP Mondwest": { "cap": 0.64, "maxWords": 1 }
+  },
+  "requiredFiles": ["fonts/GT-Alpina-Standard-Light.otf", "fonts/GT-Alpina-Standard-Regular.ttf", "fonts/PPMondwest-Regular.otf"],
+  "accent": ["#f2f25c", "#e7e712"],
+  "accentClasses": [".btn.primary", ".ag-btn.primary", ".post.carbon .hchip"],
+  "accentMax": 1,
+  "logoNeverOnAccent": true,
+  "gradientClasses": [".btn", ".ag-btn", ".hchip"],
+  "allowLight": false,
+  "maxShadowBlur": 96,
+  "minReadCapPct": 2.9,
+  "minTextureCapPct": 1.6,
+  "maxTitleWords": 8,
+  "maxReadWords": 16,
+  "archetypes": ["statement", "proof", "pair", "exchange", "figure", "quiet", "context", "mosaic"]
+}

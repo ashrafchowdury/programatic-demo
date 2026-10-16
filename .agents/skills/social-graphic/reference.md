@@ -73,3 +73,23 @@ Percentages are of canvas width (W) or height (H).
   before any ffmpeg concat; mixed codecs break the image2 demuxer.
 - **The typeface was UNKNOWN on all three accounts.** Spec type by cap height,
   never by font-size.
+
+## Second study: the stunning set (215 posted images, Oct 2026)
+
+@linear 30, @raycast 50, @resend 41, @meetgranola 35, @perplexity_ai 59. Screened
+from ~9 candidates for visual quality first; Framer, Stripe and Attio were
+dropped (mostly talking heads or mixed). Tags as above.
+
+| Account | What makes it striking (measured) | Became |
+| --- | --- | --- |
+| Linear | ground #08090b in 16/21 dark images; bright pixels ≤ 1.7 %; line art in 3–4 fixed stroke brightness steps with one bright focal object; 26/30 images carry no headline (M) | **construction** |
+| Raycast | saturated colour only as emitted light on #000000; title grid fixed (x 5.3–5.9 %W, last baseline 88.6 %H, cap 11–13 %H) on 19 cards; bloom τ ≈ 22 px (M) | **live-line**, light in **lamplight** |
+| Resend | two registers: grey-on-black (saturation ≤ 0.02) for product, colour light only for events; letters take the light where it crosses them, counters stay black; serif cards at a fixed 11.2 %H cap (M) | **lamplight** |
+| Granola | flat ungrained type surface against grained plates (σ 3.5–7); every cut-out mono or duotone; heroes bleed off ≥ 1 edge (M) | not built yet: "plate split", "woven grid" |
+| Perplexity | flat paper (σ 0) for research at 3.0–3.6 % ink; hero numbers 1.9–4.6× the headline cap; cinematic posts are flat UI on grained grounds (σ 2–8) (M) | not built yet: "ledger", "darkroom" |
+| Cursor (first study) | title among faded UI: cards 1.1:1, text 2.6:1, one full-chroma detail (M) | **context** |
+
+Recipes that were measured but not yet built as templates (full numbers in
+[`studies/`](./studies/)): Linear "depth-of-field focus", Raycast "field poster", Resend
+"specimen" and "graphite", Granola "plate split" and "woven grid", Perplexity
+"darkroom", "window" and "ledger".

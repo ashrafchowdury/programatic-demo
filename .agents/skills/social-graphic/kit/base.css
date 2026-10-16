@@ -1,0 +1,107 @@
+/*
+ * Social-graphic base: layout and components only. No brand lives here.
+ *
+ * A brand pack (brand.css, loaded after this file) must define:
+ *   palette   --c-*            every colour the brand allows; the audit's allow-list
+ *   roles     --ground --panel --panel-2 --tint --line
+ *             --ink --ink-2 --ink-3
+ *             --dark --dark-2 --dark-3 --dark-line --on-dark --on-dark-2
+ *             --accent --accent-ink --data --data-muted --ok --wait
+ *   type      --font-display --font-accent --display-weight --read-weight
+ *             --cap-display --cap-accent        (cap height / em, measured per face)
+ *   chips     --chip-top --chip-bottom --chip-dark
+ *   geometry  --r-sm --r-md --r-lg --r-xl --shadow-ring --shadow-frame --shadow-float
+ *
+ * Every size below scales from the canvas, so presets just change --W and --H.
+ */
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+svg, img { display: block; }
+
+:root {
+  --W: 2839px;
+  --H: 1596px;
+  --u: calc(var(--H) / 100);          /* 1 % of canvas height */
+  --mx: calc(var(--W) * 0.0634);       /* side margin, 180 px at 2839 */
+  --my: calc(var(--H) * 0.094);        /* top/bottom margin, 150 px at 1596 */
+  --gutter: 24px;
+  --hair: 2px;
+  --cap-title: 8;                      /* title cap height, % of H */
+}
+
+/* ── canvas ─────────────────────────────────────────────── */
+.post {
+  position: relative; width: var(--W); height: var(--H); overflow: hidden;
+  font-family: var(--font-display); font-weight: var(--display-weight);
+  color: var(--ink); background: var(--ground);
+  -webkit-font-smoothing: antialiased;
+  --fs-title: calc(var(--u) * var(--cap-title) / var(--cap-display));
+  --fs-read: calc(var(--u) * 3.2 / var(--cap-display));    /* smallest text that must be read in the feed */
+  --fs-texture: calc(var(--u) * 2 / var(--cap-display));   /* UI text that is only texture */
+}
+.post[data-preset="x"]      { --W: 2839px; --H: 1596px; }
+.post[data-preset="card"]   { --W: 2400px; --H: 1260px; }
+.post[data-preset="square"] { --W: 2160px; --H: 2160px; }
+
+/* fixed furniture: a raised panel inside a gutter, bound by a hairline */
+.post.paper { background: var(--ground); }
+.post.paper::before { content: ""; position: absolute; inset: var(--gutter); background: var(--panel); box-shadow: 0 0 0 var(--hair) var(--line); }
+.post.carbon { background: var(--dark); color: var(--on-dark); }
+.post.carbon::before { content: ""; position: absolute; inset: var(--gutter); box-shadow: 0 0 0 var(--hair) var(--dark-line); }
+.post > * { position: absolute; }
+
+.lockup { left: var(--mx); top: var(--my); height: calc(var(--u) * 3.8); }
+.lockup img { height: 100%; width: auto; }
+
+/* ── type ───────────────────────────────────────────────── */
+.title {
+  margin: 0; font-family: var(--font-display); font-weight: var(--display-weight);
+  font-size: var(--fs-title); line-height: 1.08; letter-spacing: -0.025em; text-wrap: balance;
+}
+.post.carbon .title { color: var(--on-dark); }
+/* the one accent-face word, matched to the display face's cap height */
+.hchip {
+  display: inline-block; padding: 0.02em 0.1em 0.08em; border-radius: var(--r-md);
+  background: linear-gradient(180deg, var(--chip-top) 0%, var(--chip-bottom) 100%);
+  font-family: var(--font-accent); font-weight: 400; letter-spacing: 0; line-height: 1.06;
+  font-size: calc(1em * var(--cap-display) / var(--cap-accent));
+}
+.post.carbon .hchip { background: var(--chip-dark); color: var(--accent); }
+.read { font-size: var(--fs-read); line-height: 1.25; font-weight: var(--read-weight); letter-spacing: -0.01em; }
+[data-texture] { font-size: var(--fs-texture); }
+
+/* ── surfaces ───────────────────────────────────────────── */
+.card { position: absolute; background: var(--panel); border-radius: var(--r-xl); box-shadow: var(--shadow-float); }
+.card.dark { background: var(--dark-2); color: var(--on-dark); }
+.frame { position: absolute; background: var(--panel); border-radius: var(--r-lg); box-shadow: var(--shadow-frame); overflow: hidden; }
+.tile {
+  position: absolute; display: flex; align-items: center; justify-content: center;
+  background: var(--panel); border-radius: 22%;
+  box-shadow: 0 0 0 2px var(--line), var(--shadow-ring);   /* a white tile on a white panel needs an edge */
+}
+.tile.dark { background: var(--dark-3); }
+.tile > * { width: 56%; height: 56%; }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: calc(var(--u) * 7); padding: 0 calc(var(--u) * 2.4); border-radius: var(--r-sm);
+  border: 2px solid transparent; font-family: var(--font-display); font-weight: var(--read-weight);
+  font-size: var(--fs-read); letter-spacing: -0.01em; white-space: nowrap;
+}
+.btn.primary { background: var(--accent); color: var(--accent-ink); }
+.btn.outline { background: var(--panel); border-color: var(--line); color: var(--ink); }
+.btn.dark { background: var(--dark-2); color: var(--on-dark); }
+
+/* the one accent block */
+.accent-block { background: var(--accent); }
+
+/* proof that runs off the canvas fades into the ground over its last 28 % */
+.fade-b { -webkit-mask-image: linear-gradient(180deg, #000 72%, transparent 100%); mask-image: linear-gradient(180deg, #000 72%, transparent 100%); }
+.fade-r { -webkit-mask-image: linear-gradient(90deg, #000 72%, transparent 100%); mask-image: linear-gradient(90deg, #000 72%, transparent 100%); }
+
+/* film grain for light-led directions only; brands that forbid light get it refused by the audit */
+.grain {
+  position: absolute; inset: 0; pointer-events: none; mix-blend-mode: overlay; opacity: 0.14;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='320' height='320'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+}
