@@ -273,13 +273,49 @@ function headTrimMs(
  * time sampled at the same instant, the one number that relates this clock to
  * the compositor's frame timestamps (which are wall time).
  */
-export type DemoClock = { now: () => number; startEpochMs: number };
+export type DemoClock = {
+  now: () => number;
+  startEpochMs: number;
+  /** The slow-motion factor the shoot runs at; see resolveSlowmo. 1 = real time. */
+  slowmo: number;
+};
 
-export function startClock(): DemoClock {
+/**
+ * SLOW-MOTION SHOOTING. The capture's frame RATE is bounded by what headless
+ * Chromium can encode, not by the page: measured on the same flow back to back,
+ * a 3840x2160 capture got 355 distinct frames where 1920x1080 got 814, and on a
+ * loaded machine the 4K take of skills-launch held its frames for an irregular
+ * 16/50 ms, which is the judder on every drawer, menu and keystroke.
+ *
+ * So shoot the demo K times slower and keep the pixels: the page's animations
+ * run at 1/K (CDP Animation.setPlaybackRate), every pause, glide, keystroke and
+ * scroll takes K times as long, and the demo clock and the frame timestamps are
+ * divided by K before anything is written. The click log and the video come
+ * out exactly as a real-time shoot would, with K times the frames per second
+ * of footage. Nothing downstream (convert, render, the compiler, houses) knows.
+ *
+ * What it does not slow: JS timers and network. A load or a debounce plays K
+ * times faster on screen, which shortens waits rather than adding judder.
+ */
+export function resolveSlowmo(raw: string | undefined = process.env.DEMO_SLOWMO): number {
+  if (raw == null || raw.trim() === "") return 1;
+  const k = Number(raw);
+  if (!Number.isFinite(k) || k < 1 || k > 8)
+    throw new Error(`DEMO_SLOWMO must be a number from 1 to 8 (got ${JSON.stringify(raw)})`);
+  return k;
+}
+
+export function startClock(slowmo = 1): DemoClock {
   const startEpochMs = Date.now();
   const p0 = performance.now();
-  return { now: () => Math.round(performance.now() - p0), startEpochMs };
+  return { now: () => Math.round((performance.now() - p0) / slowmo), startEpochMs, slowmo };
 }
+
+/** A wall-clock epoch second, as the demo clock sees it: compressed by K after the clock started. */
+export const toDemoEpoch = (t: number, clock: Pick<DemoClock, "startEpochMs" | "slowmo">): number => {
+  const e = clock.startEpochMs / 1000;
+  return clock.slowmo === 1 ? t : e + (t - e) / clock.slowmo;
+};
 
 export type FootageResult = {
   /** recordings/<name>.mkv (CDP) or .webm (Playwright). */
@@ -355,8 +391,12 @@ export async function openFootage(
     finish: async ({ close, clock }) => {
       // Stop BEFORE teardown: the footage ends when we say, not whenever the
       // browser gets round to closing — the Playwright path's ~0.46s tail.
-      const { frames, stoppedAt } = await cast.stop();
+      const cast_ = await cast.stop();
       await close();
+      // A slow-motion shoot's frames, back on the demo clock's time (see
+      // resolveSlowmo): the same compression the click log got.
+      const frames = cast_.frames.map((f) => ({ ...f, t: toDemoEpoch(f.t, clock) }));
+      const stoppedAt = toDemoEpoch(cast_.stoppedAt, clock);
       const fps = resolveCaptureFps(process.env.DEMO_CAPTURE_FPS);
       const dest = path.join(o.dir, `${o.name}.mkv`);
       const mux = muxScreencast({

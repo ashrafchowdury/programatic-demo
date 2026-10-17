@@ -46,6 +46,7 @@ export * from "./style/types";
 export { BASE, FONT_STACK_LEGACY, INTER_STACK } from "./style/base";
 export {
   DEFAULT_STYLE,
+  fpsProblem,
   STYLE_PRESETS,
   isStyle,
   mergePreset,

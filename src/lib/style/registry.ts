@@ -2,8 +2,10 @@
  * The registry: every style's resolved preset, and how a reel names one.
  */
 import type { ReelLook } from "../look";
+import { applyBrand, resolveBrand } from "../brand";
 import { BASE } from "./base";
 import { classic } from "./presets/classic";
+import { oneTake } from "./presets/one-take";
 import { ledger } from "./presets/ledger";
 import { proof } from "./presets/proof";
 import { stage } from "./presets/stage";
@@ -12,6 +14,7 @@ import {
   type ReelStyle,
   type StyleOverride,
   type StylePreset,
+  type WindowSpec,
 } from "./types";
 
 /**
@@ -66,6 +69,7 @@ const OVERRIDES: Record<ReelStyle, StyleOverride> = {
   proof,
   ledger,
   stage,
+  "one-take": oneTake,
 };
 
 export const STYLE_PRESETS: Record<ReelStyle, StylePreset> = Object.fromEntries(
@@ -114,8 +118,26 @@ export function resolveStyle(input: {
 export function resolveStylePreset(input: {
   style?: ReelStyle;
   look?: ReelLook;
+  /** A brand pack id (src/lib/brand.ts): the look laid over the style. */
+  brand?: string;
+  /** The reel's window, over both (see WindowSpec). */
+  window?: WindowSpec;
 }): StylePreset {
-  return STYLE_PRESETS[resolveStyle(input)];
+  const preset = STYLE_PRESETS[resolveStyle(input)];
+  const branded = input.brand ? applyBrand(preset, resolveBrand(input.brand)) : preset;
+  return input.window ? withWindow(branded, input.window) : branded;
+}
+
+/** `preset` with a reel's window laid over its shot. */
+function withWindow(preset: StylePreset, window: WindowSpec): StylePreset {
+  return {
+    ...preset,
+    shot: {
+      ...preset.shot,
+      ...(window.ground !== undefined ? { ground: window.ground } : {}),
+      ...(window.camera !== undefined ? { camera: window.camera } : {}),
+    },
+  };
 }
 
 /**
@@ -158,3 +180,24 @@ export function styleProblem(input: {
 // 5. style.test.ts asserts every preset is complete, that no style name is
 //    referenced outside src/lib/style*, and that EVERY FIELD HAS A READER. A
 //    field you add and nothing reads fails that last test.
+
+/**
+ * Why `preset` cannot be rendered at `fps`, or null when it can.
+ *
+ * Every timeline is in seconds except a few motion numbers MEASURED in frames
+ * at 30fps: push envelopes (`frames`), dissolves and exit overlaps. At 60 they
+ * would run twice as fast, so a preset that uses any of them is held at 30
+ * until those numbers are restated in seconds.
+ */
+export function fpsProblem(preset: StylePreset, fps: number): string | null {
+  if (fps === 30) return null;
+  const framed: string[] = [];
+  const moves = { "card.enter": preset.card.enter, "card.exit": preset.card.exit, "shot.enter": preset.shot.enter, "shot.exit": preset.shot.exit };
+  for (const [at, m] of Object.entries(moves)) if (m.kind === "push") framed.push(at);
+  if (preset.join.kind === "dissolve") framed.push("join");
+  if (preset.sequence.overlapExitF > 0) framed.push("sequence.overlapExitF");
+  return framed.length
+    ? `counts motion in 30fps frames (${framed.join(", ")}), so it renders at 30fps only, not ${fps}`
+    : null;
+}
+

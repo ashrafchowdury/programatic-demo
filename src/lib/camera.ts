@@ -217,8 +217,12 @@ export function moveDuration(
   speed = 1,
 ): number {
   const dS = Math.abs(to.scale - from.scale);
-  const dPx = poseTravelPx(from, to, vp);
-  const ms = 480 + 420 * dS + 0.35 * dPx;
+  // Priced by what the VIEWER sees move: focal travel times the magnification
+  // it is seen at. Priced by focal travel alone, a re-frame at 1.74x crossed
+  // ~750 px of screen in 0.71 s (skills-launch, 4.6 s), ~1 px/ms, about twice
+  // the reference glides' ~0.5 px/ms, and read as a snap.
+  const dPx = poseTravelPx(from, to, vp) * Math.max(from.scale, to.scale);
+  const ms = 480 + 420 * dS + 0.5 * dPx;
   const onScreen =
     kind === "out"
       ? clamp(ms * 1.25, 650, 1450)

@@ -1,0 +1,60 @@
+{
+  "id": "agenta",
+  "source": "Agenta brand kit (https://claude.ai/artifact/LaPsbfLz5gsDuKUXKCwBb9), from the Agenta.ai Brand Identity v3.0 deck. Text and logo ink is the kit's #1E1C1D, not the website token #242424 the graphics pack uses.",
+  "wordmark": "Agenta",
+  "colors": {
+    "icetrine": "#f2f25c",
+    "black": "#1e1c1d",
+    "white-smoke": "#f6f5f3",
+    "white": "#ffffff",
+    "uranian-blue": "#b8e1ff",
+    "rosewood": "#5e0908",
+    "neutral-200": "#ebeaea",
+    "neutral-300": "#d7d7d7",
+    "neutral-400": "#bcbcbc",
+    "neutral-500": "#9d9d9d",
+    "neutral-600": "#787878",
+    "neutral-700": "#616161",
+    "neutral-800": "#413f3f",
+    "neutral-900": "#181010"
+  },
+  "grounds": {
+    "light": {
+      "ground": "white-smoke",
+      "ink": "black",
+      "muted": "neutral-700",
+      "logo": "light",
+      "chip": { "fill": "black", "label": "white-smoke", "rim": "neutral-300" },
+      "highlight": { "fill": "icetrine", "ink": "black" }
+    },
+    "plate": {
+      "ground": "white-smoke",
+      "ink": "black",
+      "muted": "neutral-700",
+      "logo": "light",
+      "chip": { "fill": "black", "label": "white-smoke", "rim": "neutral-300" },
+      "highlight": { "fill": "icetrine", "ink": "black" }
+    },
+    "plain": {
+      "ground": "neutral-900",
+      "ink": "white-smoke",
+      "muted": "neutral-500",
+      "logo": "dark",
+      "chip": { "fill": "icetrine", "label": "black", "rim": "neutral-800" },
+      "highlight": { "fill": "icetrine", "ink": "black" }
+    }
+  },
+  "windowGround": "white-smoke",
+  "faces": {
+    "heading": { "family": "GT Alpina", "file": "GT-Alpina-Light.woff2", "weight": 300, "cap": 0.68 },
+    "accent": { "family": "PP Mondwest", "file": "PPMondwest-Regular.otf", "weight": 400, "cap": 0.64, "maxWords": 1 },
+    "body": { "family": "Inter", "file": null, "weight": 400, "cap": 0.7275 }
+  },
+  "fontDir": ".agents/skills/agenta-social-graphic/brand/fonts",
+  "fontSetup": "Fetch the licensed fonts once per machine: see \"Setup\" in .agents/skills/agenta-social-graphic/SKILL.md. GT Alpina Light from agenta.ai is a trial cut; use the licensed file for a paid campaign.",
+  "logos": {
+    "light": { "full": "logos/logo-light.svg", "mark": "logos/mark-light.svg" },
+    "dark": { "full": "logos/logo-dark-accent.svg", "mark": "logos/mark-dark-accent.svg" },
+    "accent": { "full": "logos/logo-light.svg", "mark": "logos/mark-light.svg" }
+  }
+}

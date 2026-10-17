@@ -723,7 +723,12 @@ export function bleedLayout(
   const base = windowBox(shotAspect(meta), canvas, windowFit);
   // Fill covers the canvas from the anchored edge; the inset moves it in, so
   // what runs off the far side is exactly the inset's worth.
-  const zoom = asked === "fill" ? fillZoom(base, canvas) : asked;
+  const zoom =
+    asked === "fill"
+      ? fillZoom(base, canvas)
+      : focus
+        ? asked
+        : runOffZoom(base, canvas, asked, anchor, inset);
   const size = {
     width: Math.round(base.width * zoom),
     height: Math.round(base.height * zoom),
@@ -735,6 +740,39 @@ export function bleedLayout(
       }, inset)
     : anchorBox(size, canvas, anchor, inset);
   return { x: Math.round(at.left), y: Math.round(at.top), ...size };
+}
+
+/**
+ * `zoom`, raised just enough that a near-miss runs off its far side(s).
+ *
+ * A window that stops a few percent short of the edge it should run off
+ * leaves a sliver of ground under it — channels-publish-screen on `wide`
+ * stopped 7% above the bottom, under MAX_BLEED_GAP, so nothing warned and it
+ * shipped reading as a floating window with its bottom edge showing. On each
+ * pinned axis whose gap is within MAX_BLEED_GAP, the zoom grows to fill that
+ * axis, which runs off by the inset's worth, as `fill` does. A larger gap is
+ * left alone and warned about (bleedGaps): growing a 16:9 screen until it
+ * covers a story frame is a different picture, and that stays the author's
+ * call.
+ */
+export function runOffZoom(
+  base: Canvas,
+  canvas: Canvas,
+  zoom: number,
+  anchor: Anchor,
+  inset: number,
+): number {
+  const margin = insetPx(canvas, inset);
+  const [v, h] = anchorAxes(anchor);
+  let out = zoom;
+  const axis = (pinned: boolean, len: number, room: number) => {
+    if (!pinned) return;
+    const gap = room - margin - len * zoom;
+    if (gap > 0 && gap <= MAX_BLEED_GAP * room) out = Math.max(out, room / len);
+  };
+  axis(v !== "center", base.height, canvas.height);
+  axis(h !== "center", base.width, canvas.width);
+  return out;
 }
 
 /**

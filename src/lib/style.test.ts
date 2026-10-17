@@ -246,6 +246,20 @@ describe("resolveStyle", () => {
   });
 });
 
+describe("a reel's window", () => {
+  it("lays its ground and camera over the style and the brand, and nothing else", () => {
+    const branded = resolveStylePreset({ style: "one-take", brand: "agenta" });
+    const held = resolveStylePreset({
+      style: "one-take",
+      brand: "agenta",
+      window: { ground: "#d7d7d7", camera: "inside" },
+    });
+    assert.deepEqual(held.shot, { ...branded.shot, ground: "#d7d7d7", camera: "inside" });
+    assert.deepEqual({ ...held, shot: branded.shot }, branded);
+    assert.equal(branded.shot.camera, undefined);
+  });
+});
+
 describe("styleProblem", () => {
   it("accepts absence — the default applies", () => {
     assert.equal(styleProblem({}), null);
@@ -300,6 +314,9 @@ describe("no component branches on a style's name", () => {
     const home = path.join(ROOT, "src", "lib", "style");
     for (const file of files) {
       if (file === `${home}.ts` || file.startsWith(home + path.sep)) continue;
+      // A house names its base style as DATA, the way a reel file does; it is
+      // a registry entry, not a branch. Nothing may branch on it either.
+      if (file === path.join(ROOT, "src", "lib", "house.ts")) continue;
       // Comments stripped: naming a style in prose is documentation, not a
       // branch.
       const src = fs
@@ -542,10 +559,13 @@ describe("shot motion and bookend length", () => {
     for (const name of STYLES) {
       const p = STYLE_PRESETS[name];
       if (p.motionLayer !== "shots") continue;
+      // A windowed shot with the click camera on moves on every action, which
+      // is the only shot motion an uncut take has.
       const moves =
         p.shot.enter.kind !== "none" ||
         p.shot.exit.kind !== "none" ||
-        p.join.kind === "dissolve";
+        p.join.kind === "dissolve" ||
+        (p.shot.framing === "window" && p.shot.zoom);
       assert.ok(moves, `${name}: motionLayer "shots" but nothing on the shots`);
     }
   });

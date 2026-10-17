@@ -44,12 +44,16 @@
     "still": "tsx scripts/still.ts",
     "intro": "tsx scripts/intro.ts",
     "reel": "tsx scripts/reel.ts",
+    "brief": "tsx scripts/brief.ts",
+    "launch": "tsx scripts/launch.ts",
+    "brief:golden": "tsx scripts/brief-golden.ts",
     "clip": "tsx scripts/clip.ts",
     "clip:smoke": "tsx scripts/clip.ts smoke",
     "clip:google": "tsx scripts/clip.ts google-search",
     "clip:skillsmp": "tsx scripts/clip.ts skillsmp-search",
+    "actions:check": "tsx scripts/actions-check.ts",
     "test": "tsx --test src/lib/*.test.ts scripts/lib/*.test.ts",
-    "lint": "eslint src scripts flows shots && tsc"
+    "lint": "eslint src scripts flows shots actions surfaces && tsc"
   },
   "keywords": [
     "remotion",

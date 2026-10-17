@@ -5,7 +5,7 @@ import { config } from "@remotion/eslint-config-flat";
 // `@remotion/deterministic-randomness` flags Math.random() in a Playwright flow
 // (jitter we WANT), and `react-hooks/rules-of-hooks` flags any plain function
 // whose name starts with `use` (useBakedCursor is a boolean, not a hook).
-const NODE_SIDE = ["scripts/**", "flows/**", "shots/**"];
+const NODE_SIDE = ["scripts/**", "flows/**", "shots/**", "actions/**", "surfaces/**"];
 
 export default [
   ...config,

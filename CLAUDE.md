@@ -15,5 +15,8 @@ Read the skill for what you are making:
 | Making | Read |
 | --- | --- |
 | a demo video | [`.agents/skills/shoot-demo-video/SKILL.md`](./.agents/skills/shoot-demo-video/SKILL.md) |
-| a launch reel | [`.agents/skills/intro-reel/SKILL.md`](./.agents/skills/intro-reel/SKILL.md) |
+| an Agenta launch reel | [`.agents/skills/agenta-reel/SKILL.md`](./.agents/skills/agenta-reel/SKILL.md) |
+| a launch reel for any other brand | [`.agents/skills/intro-reel/SKILL.md`](./.agents/skills/intro-reel/SKILL.md) |
 | a still image | [`.agents/skills/shoot-still/SKILL.md`](./.agents/skills/shoot-still/SKILL.md) |
+| an Agenta social post graphic | [`.agents/skills/agenta-social-graphic/SKILL.md`](./.agents/skills/agenta-social-graphic/SKILL.md) |
+| a social post graphic for any other brand | [`.agents/skills/social-graphic/SKILL.md`](./.agents/skills/social-graphic/SKILL.md) |

@@ -102,10 +102,12 @@ import {
   type SegmentBounds,
 } from "../../src/lib/reel-audio";
 import { bedOnsets } from "./beats";
+import { stageBrandAssets } from "./brand-assets";
 import {
   applySequence,
   resolveStyle,
-  STYLE_PRESETS,
+  fpsProblem,
+  resolveStylePreset,
   type ReelStyle,
   type StylePreset,
 } from "../../src/lib/style";
@@ -262,7 +264,16 @@ function prepare(authored: Reel, opts: CutOptions): Prepared {
   if (problem) throw new Error(`${src}: ${problem}`);
 
   const style = resolveStyle(resolved.reel);
-  const preset = STYLE_PRESETS[style];
+  // The brand's look over the style's grammar. Its files are staged under
+  // public/brand/ now, before any render, so a missing licensed face fails here.
+  if (resolved.reel.brand) stageBrandAssets(resolved.reel.brand);
+  const preset = resolveStylePreset({
+    style,
+    brand: resolved.reel.brand,
+    window: resolved.reel.window,
+  });
+  const badFps = fpsProblem(preset, FPS);
+  if (badFps) throw new Error(`${src}: the "${style}" style ${badFps}`);
   // R9: the style decides how each segment arrives and leaves given its place
   // in the film (exit cycle, direction continuity). Applied ONCE, here, so the
   // renders, the cache keys and --check all read the same sequenced segments.
@@ -820,12 +831,18 @@ export function clipProps(p: Prepared, i: number): Record<string, unknown> {
   const common = {
     name: p.demo,
     speed: p.speed,
+    // Only off the default, so a 30fps clip's props, and its cache key, are unchanged.
+    ...(FPS !== 30 ? { fps: FPS } : {}),
     ...(has("drift") ? { drift } : {}),
     // ALWAYS the resolved style, never the reel's raw field. DemoClip resolves
     // an absent style to DEFAULT_STYLE ("proof", full-bleed), so a reel that
     // said only `look: "framed"` — or nothing — used to get framed CARDS and
     // full-bleed CLIPS (review 2). `look` is not passed: the style supersedes it.
     style: p.style,
+    // The pack's look (the window's flat ground) rides the clip as a prop, so
+    // its cache key changes with the brand and DemoClip resolves the same preset.
+    ...(p.reel.brand ? { brand: p.reel.brand } : {}),
+    ...(p.reel.window ? { window: p.reel.window } : {}),
     // The range is what lets a push know where the shot starts and ends:
     // --frames renders absolute frame numbers, so without it the envelope would
     // measure from the demo's frame 0.
@@ -873,6 +890,7 @@ function renderSegments(p: Prepared, workDir: string, keep: Set<string>): string
           props: {
             intro: reelCard(reel, seg.card),
             ...(p.aspect ? { aspect: p.aspect } : {}),
+            ...(FPS !== 30 ? { fps: FPS } : {}),
           },
           frames: undefined,
           key: { size },

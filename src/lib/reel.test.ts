@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import { resolveStyle, STYLE_PRESETS } from "./style";
 import type { ClickLog } from "./click-log";
@@ -80,6 +81,19 @@ describe("reelProblem", () => {
     const over = { name: "x", segments: [clip(0, 20)] };
     assert.match(reelProblem(over, 560) ?? "", /560 frames/);
     assert.equal(reelProblem(over, 600), null);
+  });
+
+  it("checks a reel's window", () => {
+    assert.equal(reelProblem({ ...REEL, window: { ground: "#d7d7d7", camera: "inside" } }, 560), null);
+    assert.match(reelProblem({ ...REEL, window: { ground: "grey" } }, 560) ?? "", /`window`: `ground` must be a #rrggbb colour/);
+    assert.match(
+      reelProblem({ ...REEL, window: { camera: "outside" as "inside" } }, 560) ?? "",
+      /`camera` must be "window" or "inside"/,
+    );
+    assert.match(
+      reelProblem({ ...REEL, window: { fit: 0.8 } as unknown as { ground: string } }, 560) ?? "",
+      /unknown field `fit`/,
+    );
   });
 
   it("rejects clips that go backwards or overlap", () => {
@@ -480,6 +494,58 @@ describe("beat anchors (R7)", () => {
     );
     assert.ok("problem" in bad);
     assert.match(bad.problem, /^segment 2 \(clip\) fromBeat: no beat/);
+  });
+
+  describe("end edge (toEdge)", () => {
+    const BASIC = JSON.parse(
+      readFileSync(new URL("./__fixtures__/brief-basic.clicks.json", import.meta.url), "utf8"),
+    ) as ClickLog;
+    const near = (a: number, b: number) => Math.abs(a - b) < 1e-9;
+
+    it("defaults to the press, exactly as before", () => {
+      const plain = resolveClipRange({ fromBeat: "name the skill", tailS: 0.5 }, BASIC, 1.25);
+      const press = resolveClipRange(
+        { fromBeat: "name the skill", tailS: 0.5, toEdge: "press" },
+        BASIC,
+        1.25,
+      );
+      assert.ok(!("problem" in plain) && !("problem" in press));
+      assert.ok(near(plain.toS, 5.0448), String(plain.toS));
+      assert.deepEqual(press, plain);
+    });
+
+    it("ends on a typing beat's last keystroke with typeEnd", () => {
+      const r = resolveClipRange(
+        { fromBeat: "Add skill", leadS: -0.04, toBeat: "name the skill", tailS: 0.76, toEdge: "typeEnd" },
+        BASIC,
+        1.25,
+      );
+      assert.ok(!("problem" in r));
+      assert.ok(near(r.fromS, 1.4504), String(r.fromS));
+      assert.ok(near(r.toS, 6.0312), String(r.toS));
+    });
+
+    it("rejects typeEnd on a beat that types nothing", () => {
+      const r = resolveClipRange({ fromBeat: "Create", tailS: 1, toEdge: "typeEnd" }, BASIC, 1.25);
+      assert.ok("problem" in r);
+      assert.match(r.problem, /needs a typing beat, but "Create" types nothing/);
+    });
+
+    it("spends toEdge with the other anchors", () => {
+      const r = resolveReel(
+        defineReel({
+          name: "cut",
+          segments: [card("t"), { clip: { fromBeat: "name the skill", tailS: 0.2, toEdge: "typeEnd" } }],
+        }),
+        BASIC,
+        1.25,
+      );
+      assert.ok("reel" in r);
+      const seg = r.reel.segments[1];
+      assert.ok(isClip(seg));
+      assert.deepEqual(Object.keys(seg.clip).sort(), ["fromS", "toS"]);
+      assert.ok(near(seg.clip.toS, 5.4712), String(seg.clip.toS));
+    });
   });
 
   it("passes a plain-seconds reel through unchanged", () => {

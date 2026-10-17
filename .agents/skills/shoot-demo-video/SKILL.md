@@ -175,6 +175,12 @@ real demo.
 
 ## Write the flow
 
+**Footage for a launch reel may need no flow at all.** If committed actions
+(`actions/<surface>/`, listed by `pnpm brief --actions`) already cover the
+feature, a brief's `footage` composes the flow and `pnpm record:live <name>`
+records it from `reels/<name>.brief.json`. See "From a post" and "Writing an
+action" in `.agents/skills/intro-reel/SKILL.md`.
+
 `flows/<name>.ts`. Steps read as a script; each carries the beat that follows it.
 
 ```ts

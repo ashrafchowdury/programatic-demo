@@ -28,7 +28,7 @@ import type { PushAxis, PushMove } from "../push";
  * mechanism. Its film is still recorded in REFERENCE_FILMS with the values the
  * merge dropped, so re-adding it is a data change rather than a re-measurement.
  */
-export const STYLES = ["classic", "proof", "ledger", "stage"] as const;
+export const STYLES = ["classic", "proof", "ledger", "stage", "one-take"] as const;
 export type ReelStyle = (typeof STYLES)[number];
 
 /**
@@ -205,6 +205,15 @@ export type ShotStyle = {
    */
   zoom: boolean;
   /**
+   * Where the zoom camera works on a framed shot. `window` (absent) moves the
+   * whole window over the ground, so a punch past 1 / windowFit pushes the
+   * window's edges and the ground out of shot. `inside` holds the window still
+   * at `windowFit` and moves the app within it: the ground, the rounded corners
+   * and the shadow stay in every frame, and the app is magnified exactly as
+   * much (windowFit x pose scale) as it would be under `window`.
+   */
+  camera?: "window" | "inside";
+  /**
    * Whether the pointer and its click ripple are drawn, on a WINDOWED shot.
    *
    * Read by src/DemoClip.tsx's framed path only. A full-bleed clip draws the
@@ -226,6 +235,17 @@ export type ShotStyle = {
  * The chip card's punch: how the camera pushes into the control set in a
  * sentence, and when the press lands. Read by introTiming and src/Intro.tsx.
  */
+/**
+ * A reel's own say over its window, laid over the style and the brand (see
+ * resolveStylePreset): the flat ground it floats on and where its camera
+ * works. Set by a house, so a published style never changes under it.
+ */
+export type WindowSpec = {
+  /** A flat ground, as hex. */
+  ground?: string;
+  camera?: "window" | "inside";
+};
+
 export type ChipStyle = {
   /** Magnification of the punch, as a composition target. */
   punchScale: number;
@@ -339,6 +359,12 @@ export type Ground = {
   chip?: { fill: string; label: string; rim: string };
   /** The default `==highlight==` pill, when this ground needs its own. */
   highlight?: { fill: string; ink: string };
+  /**
+   * The full logo (mark and wordmark in one file, a path under public/) that a
+   * logo card on this ground draws instead of the mark plus a typed wordmark.
+   * Only a brand pack sets it: see src/lib/brand.ts.
+   */
+  logo?: string;
 };
 
 /**
@@ -390,6 +416,16 @@ export type TypeStyle = {
    * browser silently falls back and the measured metrics stop meaning anything.
    */
   fontFamily: string;
+  /**
+   * The face for a `^^word^^` accent run, as a CSS font-family list, or absent
+   * when the grammar has none. Only a brand pack sets it: see src/lib/brand.ts.
+   */
+  accentFamily?: string;
+  /**
+   * The face for eyebrows and subheads, as a CSS font-family list, or absent to
+   * use `fontFamily`. Only a brand pack sets it.
+   */
+  bodyFamily?: string;
 };
 
 /**

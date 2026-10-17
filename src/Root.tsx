@@ -86,11 +86,14 @@ export const RemotionRoot: React.FC = () => {
             // Long enough for the camera to land back at base, which can be
             // past the end of the recording — DemoClip holds the last frame of
             // the footage for the difference. See src/lib/demo-duration.ts.
+            // The scripts pass `fps` (DEMO_FPS, see FPS in click-log.ts): the
+            // bundle cannot read the run's environment.
+            fps: props.fps ?? FPS,
             durationInFrames: demoDurationInFrames(
               log,
               speed,
               demoGeometry(log, props.chrome === true),
-              FPS,
+              props.fps ?? FPS,
             ),
             width,
             height,
@@ -206,7 +209,8 @@ export const RemotionRoot: React.FC = () => {
             // No recording yet — fall back to defaults so Studio still opens.
           }
           return {
-            durationInFrames: introDurationInFrames(props.intro, FPS),
+            fps: props.fps ?? FPS,
+            durationInFrames: introDurationInFrames(props.intro, props.fps ?? FPS),
             ...aspectSize(compositionSize(log), props.aspect),
           };
         }}

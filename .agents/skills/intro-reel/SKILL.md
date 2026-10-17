@@ -7,8 +7,15 @@ metadata:
 
 # Make an intro reel
 
+**For an Agenta reel, use `.agents/skills/agenta-reel/SKILL.md`**: it is this
+skill locked to the Agenta brand kit, with the one-take film as its default.
+This skill stays brand-neutral; its mechanics (briefs, `pnpm launch`,
+actions) are what that one builds on.
+
 **This is one of three features. A reel is cut FROM a demo, so the demo must be
-rendered first** (`.agents/skills/shoot-demo-video/SKILL.md`). A still image of
+rendered first** (`.agents/skills/shoot-demo-video/SKILL.md`), unless you work
+from a brief ("From a post" below), where `pnpm launch` records and renders the
+demo itself. A still image of
 part of the screen is a *still* (`.agents/skills/shoot-still/SKILL.md`). See the
 table in `AGENTS.md`.
 
@@ -17,14 +24,149 @@ browser. First time on this machine: `pnpm exec playwright install --with-deps
 chromium`.
 
 A reel is **cards + clips**: title cards narrate in a few words what the next
-clip is about to show, the clip proves it, a logo signs off. ~15s, 6-ish beats.
+clip is about to show, the clip proves it, a logo signs off. ~15s, 6-ish shots.
 
 ```
 card → card → card → CLIP → card(dark) → logo      reels/<name>.ts
 light narration        proof   payoff     sign-off
 ```
 
-Build it in this order. Do not skip the script.
+Build it in this order. Do not skip the script. **When the launch comes as a
+social post and an action already covers the feature, skip all of it and go
+straight to "From a post" below:** you write one JSON brief and nothing else.
+
+## From a post
+
+The whole path from a pasted post to two finished reels, with no flow or reel
+file written by hand. The brief is the only creative output; every editing,
+pacing, audio and aspect number is the house's (`src/lib/house.ts`).
+
+Setup, once per machine: the surface's start URL in `.env` as
+`DEMO_URL_<SURFACE>` (`pnpm brief --actions` names the key; `.env.example`
+documents each), and for a signed-in product a session from
+`pnpm capture:session`. An action "covers" the feature when its labels show
+every claim the post makes; a partial fit is a missing action.
+
+1. **Save the post verbatim** to `reels/<name>.post.md`: the text the user
+   pasted, or the file they pointed to, unedited. `<name>` is lowercase and
+   hyphenated. The brief's `source` names this file; it keeps every reel
+   traceable to its post, and lets a later house re-derive the brief.
+2. **See what footage can be made of**: `pnpm brief --actions` lists each
+   surface, and on it each action's parameters (types, length limits) and its
+   labels in order. For a demo that is already recorded, `pnpm brief --labels
+   <demo>` lists its labels with press and typing-end times instead.
+3. **Write `reels/<name>.brief.json`.** Pick the actions that show what the post
+   claims, and their parameters (product copy, never account data). Then the
+   copy: a `title`, 2-5 `beats` (each a `card` plus `show: { from, to? }`, the
+   labels its clip runs from and through, in footage order), an optional
+   `payoff` (`card` containing `{chip}` once, and `chip`, a label after every
+   beat's), and a `signoff`. One claim per card, matching what the clip shows.
+   A label used twice is written `label#2`. Without `to`, a beat's clip frames
+   its `from` label alone.
+
+   - **The pill reads the control, not the label.** `payoff.chip` must name a
+     label `pnpm brief --actions` marks `[chip: ...]`: its action declares the
+     control's on-screen text, and that text is what the pill shows. A `demo`
+     brief has no declarations, so it gives the text itself as `payoff.text`
+     (and only a demo brief may). The payoff takes that label away from the
+     beats, so end the last beat before it.
+   - **Copy lengths** are per house, in words: `copy` in `src/lib/house.ts`
+     (`agenta@1`: title 1-5, beat 2-7, payoff 2-7, sign-off 1-6). Each beat
+     adds a card, so more beats means less footage.
+   - **Parameters** are product copy you choose. Where a value must exist in
+     the product (a filter option), use the action's `example` unless the post
+     names another the product has.
+
+   ```json
+   {
+     "version": 1,
+     "name": "skills-launch",
+     "house": "agenta@1",
+     "source": "reels/skills-launch.post.md",
+     "footage": { "surface": "agent", "actions": [
+       { "use": "skills.add", "with": {
+           "name": "pr-review-security",
+           "description": "Flag security risks in pull request diffs",
+           "body": "Scan the diff for injection risks and hardcoded secrets.",
+           "bodyMore": "List each finding as file:line, severity, and a one-line fix." } } ] },
+     "title": "Introducing ==Skills==",
+     "beats": [
+       { "card": "Name it. Say when to use it.", "show": { "from": "Add skill", "to": "describe the skill" } },
+       { "card": "Write the instructions in Markdown.", "show": { "from": "write SKILL.md" } }
+     ],
+     "payoff": { "card": "Hit {chip}. It's live.", "chip": "Create" },
+     "signoff": "Agents that learn on the job."
+   }
+   ```
+
+   Nothing else is allowed: unknown fields are errors. No style, hold, audio
+   or aspect: the house sets them. **This beats brief pins `"house":
+   "agenta@1"`**: the default house, `agenta@2`, cuts one take instead and
+   takes a `title` and `outro` lines, no beats (see
+   `.agents/skills/agenta-reel/SKILL.md`).
+4. **Validate**: `pnpm brief <name> --json`. It reports every problem at once,
+   each with a field path and a sentence. Fix them all and re-run. **At most
+   two retries**; if it still fails, stop and hand off with the last output.
+   `"compiled": null` is expected before the footage exists: the cut (lengths,
+   clip ranges, card share) can only be reported once it is recorded.
+5. **Launch**: `pnpm launch <name>`. It records, renders and gates without
+   stopping for approval, and posts nothing. It takes 15-20 minutes (record,
+   convert, a demo render, then one reel render per aspect): run it in the
+   background. On success it prints both reel
+   paths (`out/reel/<name>.mp4`, `out/reel/<name>.9x16.mp4`), the copy and the
+   gate results: hand those to the person.
+6. **On a failure**, read `out/launch/<name>/status.json`: it names the
+   failed stage and its problems. If the fix is yours (copy, labels, params),
+   make it and resume with `pnpm launch <name> --from <stage>`; a copy fix
+   resumes `--from compile` and re-records nothing. If the stage failed for
+   a reason outside the brief (a crash), resume once from
+   that stage. Otherwise hand off with status.json. Stages: validate, compose,
+   check, record, convert, render-demo, compile, render-reel, gate.
+
+**When no action covers the feature, stop.** Say which action is missing (its
+surface, what it would do, the labels it would log) and hand off; do not write
+a flow to get round it. Writing the action is the one place human care goes,
+and it is reused by every later launch.
+
+## Writing an action
+
+An action is `actions/<surface>/<id>.ts` (`skills.add`), on a surface
+`surfaces/<surface>.ts`. Both are **committed**, so neither may hold a URL,
+host, account id or token: the surface reads its start URL from
+`DEMO_URL_<SURFACE>` (add the key to `.env.example`), and
+`scripts/lib/action-hygiene.test.ts` fails on anything account-shaped. See
+`actions/example-skillsmp/` for a worked pair.
+
+- **Contract** (`defineAction` in `scripts/lib/action.ts`): `params`, a closed
+  schema (every string has a `maxLength`); `labels`, every label the steps log
+  in order, written as story beats ("name the skill"), since briefs and cards
+  are written against them; a label a payoff can punch into declares its
+  control's on-screen text, `{ label: "pick domain", control: { param:
+  "domain" } }` or a literal `control: "Create"`; `steps(params)`, the same `Step` list a flow uses;
+  `mutates`; an `example` that satisfies the schema. Labels must not change
+  with the params, and nothing may be logged from a `do` step. `pnpm test`
+  holds every committed action to this.
+- **Viewport.** An action films at its surface's size unless it declares its
+  own `viewport` (a UI tuned at another size). One footage films at one size:
+  mixing two fails composition.
+- **Pacing.** Keep the action's own `P` table for beats inside it. Do not start
+  with an establish pause: the composer adds the house establish, and the house
+  gap between actions.
+- **Demo data only.** Mark a parameter that names what the action creates
+  with `creates: true`; its `example` must start with `demo-`, and the
+  prepare may delete only `demo-` items (`assertDemoOwned`), refusing by name
+  otherwise.
+- **`prepare` resets and verifies.** Undo what the action writes, then check
+  the clean state and throw naming whatever survived. A change you cannot
+  reset and verify is declared as `unrestored`; `actions:check` then skips
+  the action unless given `--include-unrestored`. It must be idempotent: run
+  twice, the second run is a no-op that passes. Composed flows abort the shoot
+  when it throws, before anything is filmed.
+- **Check it**: `pnpm actions:check <id>` runs a one-action flow from its
+  `example` in selector-check mode, then `prepare` again to clean up.
+- **Replacing a hand flow?** Add a golden brief (`reels/golden/`) and run
+  `pnpm brief:golden --check`, then the full mode, and keep the report
+  (`docs/reel/design/compiler-validation.md`) in the same change.
 
 ## 1. Script first
 
@@ -35,8 +177,11 @@ Write every card before shooting anything. Per card:
 - **Match the footage.** Never claim what the clip contradicts — copy that says
   "no mouse" over a clip that clicks a menu reads as a lie. Write the card to
   what the pointer actually does.
-- **Length depends on the style** (§3 — pick it before you write). *classic*
-  runs 96px type: **4–6 words**, read in ~1.5s, with the hero word marked
+- **Length depends on the style** (§3 — pick it before you write). Word
+  ranges for `classic` and `stage` are not restated here: they live in the
+  house style, `copy` in `src/lib/house.ts` (`agenta@1` is `stage`,
+  `agenta-classic@1` is `classic`), and `pnpm brief` enforces them. *classic*
+  runs 96px type, read in ~1.5s, with the hero word marked
   `==like this==` because headlines are normal weight. *proof* runs 72px (cap
   height 52px on an 86px line pitch): **7–15 words**, full explanatory
   sentences, and **no emphasis markup at all** — measured, the reference's five
@@ -106,6 +251,7 @@ dissolve. Every number in a preset is measured off a reference film
 | `proof` (default) | full-bleed, no window, no camera; you author `crop` + `push` per clip | cut in mid-reveal, 2.07s hold after the last word, 3.2–3.3s each | a metronomic launch film (Cursor "Agent UX improvements") |
 | `ledger` | full-bleed (`isolate` framing), static crop, 6-frame dissolves | still, length follows the copy | calmer, longer shots of one panel (monid) |
 | `stage` | windowed panel on flat cream, no zoom, scale-in / cut mid-exit | flat ground, typed per character, 0.6s hold | a panel that floats and leaves on motion (Replit) |
+| `one-take` | the whole demo as ONE uncut clip in the window, click-driven zoom camera, pointer | flat ground, still, cut; title before, closing line and logo after | the interaction should be watched start to finish, not cut into beats |
 
 A card may set its own `style` to differ from the reel's.
 

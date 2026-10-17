@@ -25,14 +25,35 @@ export const ShutterBlur: React.FC<{
   /** Groups of 8 samples to draw; see groupsFor. */
   groups: number;
   shutterAngle?: number;
+  /**
+   * `sum` (default): the plus-lighter sum above, right for a subtree with
+   * transparent edges, at the cost of N·round(v/N) on every colour: page white
+   * renders 248 and a warm grey can land pink (#f2f0ee -> #f5ecef with the
+   * product grade). `average`: a running average, sample i drawn OVER the
+   * others at opacity 1/(i+1). Identical samples composite exactly (a hold is
+   * the picture itself) and a moving frame is off by a level or two, but it is
+   * only right when every sample is OPAQUE everywhere, as the app inside a
+   * window that does not move is (see DemoClip's `inside` camera).
+   */
+  blend?: "sum" | "average";
   children: React.ReactNode;
-}> = ({ groups, shutterAngle = SHUTTER_ANGLE, children }) => {
+}> = ({ groups, shutterAngle = SHUTTER_ANGLE, blend = "sum", children }) => {
   const frame = useCurrentFrame();
   const { durationInFrames } = useVideoConfig();
   const sets = sampleFrames(frame, groups, {
     fraction: shutterFraction(shutterAngle),
     lastFrame: durationInFrames - 1,
   });
+  if (blend === "average")
+    return (
+      <AbsoluteFill>
+        {sets.flat().map((t, i) => (
+          <AbsoluteFill key={`sample-${i}`} style={i ? { opacity: 1 / (i + 1) } : undefined}>
+            <Freeze frame={t}>{children}</Freeze>
+          </AbsoluteFill>
+        ))}
+      </AbsoluteFill>
+    );
   return (
     <AbsoluteFill style={{ isolation: "isolate" }}>
       {sets.map((times, g) => (

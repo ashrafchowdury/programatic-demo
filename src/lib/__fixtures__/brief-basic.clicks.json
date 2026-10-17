@@ -1,0 +1,119 @@
+{
+  "name": "brief-basic",
+  "viewport": {
+    "width": 1920,
+    "height": 1080
+  },
+  "durationMs": 26802,
+  "offsetMs": 0,
+  "speed": 1.25,
+  "clicks": [
+    {
+      "label": "Add skill",
+      "tMs": 1963,
+      "tDepartMs": 963,
+      "tDownMs": 1863,
+      "x": 960,
+      "y": 540,
+      "rect": {
+        "x": 900,
+        "y": 510,
+        "w": 120,
+        "h": 60
+      },
+      "cluster": "Add-skill"
+    },
+    {
+      "label": "name the skill",
+      "tMs": 5781,
+      "tDepartMs": 4781,
+      "tDownMs": 5681,
+      "x": 960,
+      "y": 540,
+      "rect": {
+        "x": 900,
+        "y": 510,
+        "w": 120,
+        "h": 60
+      },
+      "cluster": "name-the-skill",
+      "typeEndMs": 6589
+    },
+    {
+      "label": "open menu",
+      "tMs": 8100,
+      "tDepartMs": 7100,
+      "tDownMs": 8000,
+      "x": 960,
+      "y": 540,
+      "rect": {
+        "x": 900,
+        "y": 510,
+        "w": 120,
+        "h": 60
+      },
+      "cluster": "open-menu"
+    },
+    {
+      "label": "pick Daily",
+      "tMs": 9600,
+      "tDepartMs": 8600,
+      "tDownMs": 9500,
+      "x": 960,
+      "y": 540,
+      "rect": {
+        "x": 900,
+        "y": 510,
+        "w": 120,
+        "h": 60
+      },
+      "cluster": "pick-Daily"
+    },
+    {
+      "label": "open menu",
+      "tMs": 11100,
+      "tDepartMs": 10100,
+      "tDownMs": 11000,
+      "x": 960,
+      "y": 540,
+      "rect": {
+        "x": 900,
+        "y": 510,
+        "w": 120,
+        "h": 60
+      },
+      "cluster": "open-menu"
+    },
+    {
+      "label": "write SKILL.md",
+      "tMs": 12600,
+      "tDepartMs": 11600,
+      "tDownMs": 12500,
+      "x": 960,
+      "y": 540,
+      "rect": {
+        "x": 900,
+        "y": 510,
+        "w": 120,
+        "h": 60
+      },
+      "cluster": "write-SKILL-md",
+      "typeEndMs": 19395
+    },
+    {
+      "label": "Create",
+      "tMs": 22680,
+      "tDepartMs": 21680,
+      "tDownMs": 22580,
+      "x": 960,
+      "y": 540,
+      "rect": {
+        "x": 900,
+        "y": 510,
+        "w": 120,
+        "h": 60
+      },
+      "cluster": "Create"
+    }
+  ]
+}

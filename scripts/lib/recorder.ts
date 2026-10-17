@@ -1,4 +1,5 @@
 import type { Page, Locator, Request } from "playwright";
+import { resolveSlowmo } from "./footage";
 import {
   DESIGN_WIDTH,
   recordingRate,
@@ -535,7 +536,14 @@ export function buildContext(
   keys: KeyEvent[] = [],
   seed: string = baseURL || "demo",
 ): FlowContext {
-  const pause = (ms = 700) => page.waitForTimeout(ms);
+  /**
+   * Demo ms to wall ms. A slow-motion shoot (DEMO_SLOWMO, see footage.ts) runs
+   * every authored wait K times longer so it plays at its written length once
+   * the clock is compressed. Glides, typing and scrolls time themselves off
+   * getElapsedMs(), the compressed clock, so they stretch on their own.
+   */
+  const slowmo = resolveSlowmo();
+  const pause = (ms = 700) => page.waitForTimeout(ms * slowmo);
   /**
    * Recording ms per screen ms. Glides, scrolls and the camera's room before a
    * press are authored on screen, so they need the speed the shoot will be
@@ -891,7 +899,7 @@ export function buildContext(
       for (let j = 0; j < chars.length; j++) {
         due += delays[j];
         const wait = due - getElapsedMs();
-        if (wait > 1) await page.waitForTimeout(wait);
+        if (wait > 1) await page.waitForTimeout(wait * slowmo);
         await page.keyboard.type(chars[j]);
         if (getElapsedMs() - lastCaretMs >= CARET_SAMPLE_MS) await sampleCaret();
       }

@@ -10,6 +10,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
+  FPS,
   resolvePlaybackRate,
   speedMismatch,
   type ClickLog,
@@ -111,6 +112,8 @@ function main() {
   renderComposition("DemoClip", out, {
     name,
     speed,
+    // DEMO_FPS=60: the bundle cannot read it, so the rate rides in the props.
+    ...(FPS !== 30 ? { fps: FPS } : {}),
     ...(backdrop ? { backdrop } : {}),
     ...(look ? { look } : {}),
     ...(style ? { style } : {}),

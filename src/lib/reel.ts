@@ -23,6 +23,7 @@ import {
 } from "./intro";
 import type { ReelChipInput } from "./chips";
 import { FPS, logMsToDemoS, type ClickLog } from "./click-log";
+import { brandProblem } from "./brand";
 import { DEMO_LOOK, LOOKS, type ReelLook } from "./look";
 import {
   resolveStyle,
@@ -32,6 +33,7 @@ import {
   type ShotJoin,
   type ShotStyle,
   type StylePreset,
+  type WindowSpec,
 } from "./style";
 import type { PushSpec } from "./push";
 import type { CropSpec } from "./crop";
@@ -66,6 +68,10 @@ export type ClipRange = { fromS: number; toS: number };
  *   tailS }` alone frames one action.
  * - Labels match the click log's `label` exactly, ignoring case. A label used
  *   more than once is ambiguous and must say which: `"open cadence#2"`.
+ * - `toEdge: "typeEnd"` ends on the end beat's last keystroke (`typeEndMs`)
+ *   instead of its press, so a clip that frames a typing beat keeps its tail
+ *   after the text across a re-shoot that types faster or slower. Only a typing
+ *   beat has that edge; naming it on a click is an error. Default `"press"`.
  */
 export type ClipAnchors = {
   fromS?: number;
@@ -74,7 +80,11 @@ export type ClipAnchors = {
   leadS?: number;
   toBeat?: string;
   tailS?: number;
+  toEdge?: ClipEdge;
 };
+
+export const CLIP_EDGES = ["press", "typeEnd"] as const;
+export type ClipEdge = (typeof CLIP_EDGES)[number];
 
 /** Everything on a clip except where it starts and ends. */
 export type ClipFields = {
@@ -327,6 +337,17 @@ export type Reel = {
    * it — see src/lib/chips.ts.
    */
   chips?: ReelChipInput[];
+  /**
+   * A brand pack id (src/lib/brand.ts): every card and clip takes its look —
+   * grounds, inks, faces, logo, the window's flat ground — from the pack, and
+   * its motion from the style. Absent = the style's own look, as before.
+   */
+  brand?: string;
+  /**
+   * The window's ground (hex) and where its camera works, over the style and
+   * the brand (see WindowSpec). Absent = theirs, as before.
+   */
+  window?: WindowSpec;
   /** Visual treatment of the footage. Absent = "framed", i.e. unchanged. */
   look?: ReelLook;
   /**
@@ -430,6 +451,14 @@ export function reelProblem(
     return `look must be one of ${LOOKS.join(", ")}`;
   const badStyle = styleProblem({ style: reel.style, look: reel.look });
   if (badStyle) return badStyle;
+  if (reel.brand !== undefined) {
+    const badBrand = brandProblem(reel.brand);
+    if (badBrand) return `\`brand\`: ${badBrand}`;
+  }
+  if (reel.window !== undefined) {
+    const badWindow = windowProblem(reel.window);
+    if (badWindow) return `\`window\`: ${badWindow}`;
+  }
   if (reel.demo !== undefined && (typeof reel.demo !== "string" || reel.demo === ""))
     return "`demo` must be a non-empty string (the demo's name)";
   if (reel.aspect !== undefined && !isAspect(reel.aspect))
@@ -784,28 +813,36 @@ export function resolveClipRange(
     return { problem: "needs `fromS` or `fromBeat`" };
   if (clip.leadS !== undefined && clip.fromBeat === undefined)
     return { problem: "`leadS` offsets `fromBeat`, which is not set" };
+  if (clip.toEdge !== undefined && !CLIP_EDGES.includes(clip.toEdge))
+    return { problem: `\`toEdge\` must be one of ${CLIP_EDGES.join(", ")}` };
 
   let fromS = clip.fromS;
-  let fromBeatS: number | undefined;
   if (clip.fromBeat !== undefined) {
     const hit = findBeat(clip.fromBeat, log, speed);
     if ("problem" in hit) return { problem: `fromBeat: ${hit.problem}` };
-    fromBeatS = hit.s;
     fromS ??= hit.s + (clip.leadS ?? 0);
   }
 
   let toS = clip.toS;
   if (toS === undefined) {
-    let endBeatS = fromBeatS;
-    if (clip.toBeat !== undefined) {
-      const hit = findBeat(clip.toBeat, log, speed);
-      if ("problem" in hit) return { problem: `toBeat: ${hit.problem}` };
-      endBeatS = hit.s;
-    } else if (clip.tailS === undefined) {
+    if (clip.toBeat === undefined && clip.tailS === undefined)
       return { problem: "needs `toS`, `toBeat` or `tailS` to say where it ends" };
-    }
-    if (endBeatS === undefined)
+    const endLabel = clip.toBeat ?? clip.fromBeat;
+    if (endLabel === undefined)
       return { problem: "`tailS` offsets `toBeat` (or `fromBeat`), and neither is set" };
+    const key = clip.toBeat !== undefined ? "toBeat" : "fromBeat";
+    const hit = findBeatEvent(endLabel, log, speed);
+    if ("problem" in hit) return { problem: `${key}: ${hit.problem}` };
+    let endBeatS = beatDemoS(hit.beat, log, speed);
+    if (clip.toEdge === "typeEnd") {
+      if (hit.beat.typeEndMs === undefined)
+        return {
+          problem:
+            `\`toEdge: "typeEnd"\` needs a typing beat, but "${endLabel}" types nothing ` +
+            `(no typeEndMs in the click log). End it on its press instead.`,
+        };
+      endBeatS = logMsToDemoS(hit.beat.typeEndMs, log, speed);
+    }
     toS = endBeatS + (clip.tailS ?? 0);
   }
   return { fromS: fromS!, toS };
@@ -838,7 +875,7 @@ export function resolveReel(
     // The anchors are spent: downstream reads seconds only, and the cache key
     // hashes the resolved range, so a re-shoot that moves a beat re-renders.
     const { open, ...fields }: ClipFields & ClipAnchors = { ...seg.clip };
-    for (const k of ["fromBeat", "leadS", "toBeat", "tailS"] as const) delete fields[k];
+    for (const k of ["fromBeat", "leadS", "toBeat", "tailS", "toEdge"] as const) delete fields[k];
     // An opening's beat resolves to its control's centre here, with the range,
     // so DemoClip and the cache key see a point and a re-shoot that moves the
     // control re-renders the clip.
@@ -953,6 +990,18 @@ export function overlapJoins(
   return { joins: out, blends };
 }
 
+/** Why a reel's window cannot be drawn, or null. */
+function windowProblem(window: WindowSpec): string | null {
+  if (typeof window !== "object" || window === null) return "must be an object";
+  const extra = Object.keys(window).filter((k) => k !== "ground" && k !== "camera");
+  if (extra.length) return `unknown field ${extra.map((k) => `\`${k}\``).join(", ")}`;
+  if (window.ground !== undefined && !/^#[0-9a-f]{6}$/i.test(window.ground))
+    return "`ground` must be a #rrggbb colour";
+  if (window.camera !== undefined && window.camera !== "window" && window.camera !== "inside")
+    return '`camera` must be "window" or "inside"';
+  return null;
+}
+
 /**
  * The storyboard a card renders with: the reel's look/style unless the card
  * overrides them, and the DEMO's name, because a card takes its size from
@@ -960,12 +1009,13 @@ export function overlapJoins(
  * with. (A reel card's `name` has no other use.)
  */
 export function reelCard(
-  reel: Pick<Reel, "name" | "demo" | "look" | "style">,
+  reel: Pick<Reel, "name" | "demo" | "look" | "style" | "brand">,
   card: IntroStoryboard,
 ): IntroStoryboard {
   return {
     ...(reel.look ? { look: reel.look } : {}),
     ...(reel.style ? { style: reel.style } : {}),
+    ...(reel.brand ? { brand: reel.brand } : {}),
     ...card,
     name: reelDemo(reel),
   };

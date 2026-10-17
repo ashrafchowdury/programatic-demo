@@ -79,3 +79,6 @@ shots/*
 !shots/smoke-bleed.ts
 !shots/smoke-popover.ts
 public/shots/
+# Brand pack files staged for rendering (scripts/lib/brand-assets.ts): copies of
+# brands/<id>/ logos and the licensed fonts. Generated, and the fonts are not ours to publish.
+public/brand/

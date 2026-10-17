@@ -42,7 +42,12 @@ import {
   KEYCAP_GROUND_FRAMED,
 } from "./KeycapHUD";
 import type { ReelLook } from "./lib/look";
-import { resolveStylePreset, type ReelStyle } from "./lib/style";
+import {
+  resolveStylePreset,
+  type ReelStyle,
+  type ShotStyle,
+  type WindowSpec,
+} from "./lib/style";
 import {
   aspectMagnification,
   cachedFollow,
@@ -75,6 +80,8 @@ const trimFrames = (log: ClickLog, fps: number): number | undefined =>
 
 export type DemoClipProps = {
   name: string;
+  /** Output frame rate (DEMO_FPS); absent = FPS. Read by src/Root.tsx. */
+  fps?: number;
   log: ClickLog;
   /**
    * Fake macOS titlebar above the footage (part of the camera target).
@@ -104,6 +111,10 @@ export type DemoClipProps = {
    */
   look?: ReelLook;
   /** Choreography grammar; supersedes `look`. See src/lib/style.ts. */
+  /** A brand pack id (src/lib/brand.ts): the window's flat ground comes from it. */
+  brand?: string;
+  /** The reel's window, over the style and the brand: its ground and where its camera works. */
+  window?: WindowSpec;
   style?: ReelStyle;
   /**
    * Static framing for the full-bleed look. Either a camera (`k` about
@@ -210,8 +221,8 @@ function useCameraAt(
   log: ClickLog,
   speed: number,
   drift: number | undefined,
-  /** The style's shot group, for its float size and whether the camera runs. */
-  shot: { windowFit: number | null; zoom: boolean },
+  /** The style's shot group, for its float size, whether the camera runs and where. */
+  shot: CameraShot,
   /**
    * The clip's opening pose and the frame its shot starts on. Read HERE for the
    * same reason `drift` is: the shadow, the window and the shutter must all
@@ -228,7 +239,14 @@ function useCameraAt(
   const chromeFrac = chrome ? chromeH / (height + chromeH) : 0;
   // The style's float size, falling back to the constant every framed reel
   // rendered against before `windowFit` was wired through.
-  const fit = shot.windowFit ?? WINDOW_FIT;
+  const windowFit = shot.windowFit ?? WINDOW_FIT;
+  // Under an `inside` camera the window holds at its fit and the camera works
+  // within it, so the camera is framed for a window that IS its whole view:
+  // fit 1, where frameFor and the pan clamp keep the window's own edge out of
+  // shot. The app is magnified windowFit x S either way.
+  const inside = shot.camera === "inside";
+  const fit = inside ? 1 : windowFit;
+  const held = poseToCss(BASE_POSE, chromeFrac, windowFit);
   const styleAt = (frame: number) =>
     shot.zoom
       ? zoomAt(frame, fps, log, { chromeFrac, speed, fit, drift })
@@ -237,7 +255,19 @@ function useCameraAt(
         // at `fit` for the whole shot, so the only thing that moves it is its
         // own envelope.
         poseToCss(BASE_POSE, chromeFrac, fit);
-  if (!open) return { poseAt: styleAt, chromeH };
+  // The window's pose, and the app's within it (null: the app moves with the
+  // window). Either way exactly one of them carries the camera.
+  const split = (
+    cameraAt: (frame: number) => CssPose,
+  ): {
+    poseAt: (frame: number) => CssPose;
+    innerAt: ((frame: number) => CssPose) | null;
+    chromeH: number;
+  } =>
+    inside
+      ? { poseAt: () => held, innerAt: cameraAt, chromeH }
+      : { poseAt: cameraAt, innerAt: null, chromeH };
+  if (!open) return split(styleAt);
   // The opening, eased into the style's own camera. CENTRED on its target
   // within the render's own pan clamp (poseToCss: panLimit on the pose scale),
   // not the keyframes' tighter effective-scale rule, which put a corner control
@@ -246,7 +276,7 @@ function useCameraAt(
   const running0 = cssToPose(styleAt(open.first), chromeFrac, fit);
   const start = openPose(open.pose, running0, { viewScale: (s) => fit * s });
   const frames = openFrames(open.pose, start, running0, log.viewport, speed, fps);
-  const poseAt = (frame: number) =>
+  const cameraAt = (frame: number) =>
     frame - open.first >= frames
       ? styleAt(frame)
       : poseToCss(
@@ -259,8 +289,16 @@ function useCameraAt(
           chromeFrac,
           fit,
         );
-  return { poseAt, chromeH };
+  return split(cameraAt);
 }
+
+/** What the camera reads off a style's shot group. */
+type CameraShot = Pick<ShotStyle, "windowFit" | "zoom" | "camera">;
+type CssPose = ReturnType<typeof poseToCss>;
+
+/** A CSS camera pose as a transform: pan about the centre, then scale. See poseToCss. */
+const poseTransform = (z: CssPose): string =>
+  `translate(${z.translateX * 100}%, ${z.translateY * 100}%) scale(${z.scale})`;
 
 /**
  * Camera pose for this frame, plus the wrapper style that positions the window
@@ -276,13 +314,13 @@ function useCameraGroup(
   log: ClickLog,
   speed: number,
   drift: number | undefined,
-  shot: { windowFit: number | null; zoom: boolean },
+  shot: CameraShot,
   open: { pose: ResolvedOpen; first: number } | undefined,
 ) {
   const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
-  const { poseAt, chromeH } = useCameraAt(chrome, log, speed, drift, shot, open);
+  const { poseAt, innerAt, chromeH } = useCameraAt(chrome, log, speed, drift, shot, open);
   const z = poseAt(frame);
+  const inner = innerAt ? innerAt(frame) : null;
 
   const style: React.CSSProperties = {
     width: "100%",
@@ -294,11 +332,11 @@ function useCameraGroup(
     // Pan is a translate about the group's centre, not a moving
     // transform-origin — see poseToCss. Percentages resolve against this
     // element's own size, which is what poseToCss returns fractions of.
-    transform: `translate(${z.translateX * 100}%, ${z.translateY * 100}%) scale(${z.scale})`,
+    transform: poseTransform(z),
     position: "relative",
     willChange: "transform",
   };
-  return { z, frame, fps, style };
+  return { z, inner, style };
 }
 
 /**
@@ -367,12 +405,7 @@ const ShadowGroup: React.FC<DemoClipProps> = (props) => {
 const WindowGroup: React.FC<DemoClipProps> = (props) => {
   const { name, log, chrome = false, speed = 1, drift } = props;
   const { shot } = resolveStylePreset(props);
-  // The style's own pointer settings unless the clip overrides them. The demo
-  // grammar says cursor + ripple, so every demo renders exactly as before; the
-  // flat-ground grammar says no ripple, which its reels asked for and never got.
-  const cursor = props.cursor ?? shot.cursor;
-  const ripple = props.ripple ?? shot.ripple;
-  const { z, frame, fps, style } = useCameraGroup(
+  const { z, inner, style } = useCameraGroup(
     chrome,
     log,
     speed,
@@ -380,40 +413,109 @@ const WindowGroup: React.FC<DemoClipProps> = (props) => {
     shot,
     openOf(props),
   );
-  const trimBefore = trimFrames(log, fps);
   const hostLabel = name.replace(/-/g, ".");
-  const timeS = (frame / fps) * speed - (log.offsetMs ?? 0) / 1000;
-
   return (
     <Stage>
       <div style={style}>
         <WindowFrame chrome={chrome} hostLabel={hostLabel}>
-          <HeldFootage log={log} speed={speed}>
-            <Video
-              src={staticFile(`${name}.mp4`)}
-              trimBefore={trimBefore}
-              playbackRate={speed}
-              objectFit="fill"
-              style={{ width: "100%", height: "100%" }}
-            />
-          </HeldFootage>
-          {/*
-            Drawn over the footage, inside the camera transform. No-ops on
-            logs without a cursorTrack — those have the pointer baked into the
-            recording already.
-          */}
-          {cursor ? (
-            <Cursor
-              log={log}
-              timeS={timeS}
-              cameraScale={z.scale}
-              ripple={ripple}
-              speed={speed}
-            />
-          ) : null}
+          {inner ? <InsideShutter {...props} /> : <AppLayer {...props} cameraScale={z.scale} />}
         </WindowFrame>
       </div>
     </Stage>
+  );
+};
+
+/**
+ * The footage and the pointer, as the camera's subject. Reads useCurrentFrame()
+ * itself so a shutter sample sees its own time.
+ */
+const AppLayer: React.FC<DemoClipProps & { cameraScale: number }> = (props) => {
+  const { name, log, speed = 1, cameraScale } = props;
+  const { shot } = resolveStylePreset(props);
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  // The style's own pointer settings unless the clip overrides them. The demo
+  // grammar says cursor + ripple, so every demo renders exactly as before; the
+  // flat-ground grammar says no ripple, which its reels asked for and never got.
+  const cursor = props.cursor ?? shot.cursor;
+  const ripple = props.ripple ?? shot.ripple;
+  const timeS = (frame / fps) * speed - (log.offsetMs ?? 0) / 1000;
+  return (
+    <>
+      <HeldFootage log={log} speed={speed}>
+        <Video
+          src={staticFile(`${name}.mp4`)}
+          trimBefore={trimFrames(log, fps)}
+          playbackRate={speed}
+          objectFit="fill"
+          style={{ width: "100%", height: "100%" }}
+        />
+      </HeldFootage>
+      {/*
+        Drawn over the footage, inside the camera transform. No-ops on
+        logs without a cursorTrack — those have the pointer baked into the
+        recording already.
+      */}
+      {cursor ? (
+        <Cursor
+          log={log}
+          timeS={timeS}
+          cameraScale={cameraScale}
+          ripple={ripple}
+          speed={speed}
+        />
+      ) : null}
+    </>
+  );
+};
+
+/**
+ * The `inside` camera's shutter: around the app alone, inside a window that
+ * holds still. Every sample is the opaque app filling the window, so it can
+ * AVERAGE its samples (see ShutterBlur's `blend`) instead of summing them: a
+ * hold renders the footage's own colours, where the summed shutter rounds every
+ * channel to a multiple of 8 and turned the app's warm greys pink.
+ */
+const InsideShutter: React.FC<DemoClipProps> = (props) => {
+  const { log, chrome = false, speed = 1, drift } = props;
+  const { shot } = resolveStylePreset(props);
+  const frame = useCurrentFrame();
+  const { width, height } = useVideoConfig();
+  const { innerAt } = useCameraAt(chrome, log, speed, drift, shot, openOf(props));
+  const half = shutterFraction() / 2;
+  // The app's corners travel across a window held at its fit.
+  const k = shot.windowFit ?? WINDOW_FIT;
+  const travel = innerAt
+    ? cornerTravelPx(innerAt(Math.max(0, frame - half)), innerAt(frame + half), width * k, height * k)
+    : 0;
+  return (
+    <ShutterBlur groups={groupsFor(travel)} blend="average">
+      <InsideApp {...props} />
+    </ShutterBlur>
+  );
+};
+
+/** One sample of the app under the `inside` camera. */
+const InsideApp: React.FC<DemoClipProps> = (props) => {
+  const { log, chrome = false, speed = 1, drift } = props;
+  const { shot } = resolveStylePreset(props);
+  const frame = useCurrentFrame();
+  const { poseAt, innerAt } = useCameraAt(chrome, log, speed, drift, shot, openOf(props));
+  if (!innerAt) return null;
+  const inner = innerAt(frame);
+  return (
+    // Laid out at the window group's own size, so the pose's percentages mean
+    // what they mean on the window group.
+    <div
+      style={{
+        position: "absolute",
+        inset: 0,
+        transform: poseTransform(inner),
+        willChange: "transform",
+      }}
+    >
+      <AppLayer {...props} cameraScale={poseAt(frame).scale * inner.scale} />
+    </div>
   );
 };
 
@@ -953,7 +1055,11 @@ export const DemoClip: React.FC<DemoClipProps> = (props) => {
           quantisation and the first moving frame would flash (see groupsFor).
           The count only grows, a whole group at a time, on fast frames.
         */}
-        {shot.zoom ? (
+        {/*
+          An `inside` camera keeps its own shutter, around the app alone
+          (InsideShutter): the window does not move, so it needs none.
+        */}
+        {shot.zoom && shot.camera !== "inside" ? (
           <ShutteredWindow {...props} chrome={chrome} />
         ) : (
           <WindowGroup {...props} chrome={chrome} />

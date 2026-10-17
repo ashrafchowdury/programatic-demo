@@ -1,5 +1,6 @@
 import React from "react";
-import { loadFonts } from "./lib/font";
+import { brandFaceFiles, resolveBrand } from "./lib/brand";
+import { loadBrandFonts, loadFonts } from "./lib/font";
 import {
   AbsoluteFill,
   Img,
@@ -49,6 +50,8 @@ import { DesignWidthContext } from "./WindowFrame";
 
 export type IntroProps = {
   intro: IntroStoryboard;
+  /** Output frame rate (DEMO_FPS); absent = FPS. Read by src/Root.tsx. */
+  fps?: number;
   /**
    * Output aspect of the reel this card is cut into. Absent = 16:9. The
    * composition takes its size from it (src/Root.tsx); the card lays out
@@ -125,6 +128,8 @@ function wordCss(
   const css: React.CSSProperties = {};
   if (style.bold) css.fontWeight = 700;
   if (style.italic) css.fontStyle = "italic";
+  // The pack's accent face for one word; a style without one keeps the headline's.
+  if (style.accent && look.accentFamily) css.fontFamily = look.accentFamily;
   if (style.highlight) {
     const custom = typeof style.highlight === "string";
     css.background = custom ? (style.highlight as string) : look.highlightBg;
@@ -284,6 +289,22 @@ const LogoLockup: React.FC<{
   // while it is alone. A percentage translate resolves against the element's
   // own width, so this needs no measurement at render time.
   const soloShift = solo ? solo.shiftFrac * (1 - soloP) * 100 : 0;
+
+  // A brand pack's full logo IS the lockup: its wordmark is drawn letterforms,
+  // not text, so it arrives as one image on the mark's own entrance rather than
+  // as a mark plus a wordmark typed in a stand-in face.
+  if (look.logo)
+    return (
+      <Img
+        src={staticFile(look.logo)}
+        style={{
+          height: LOGO_MARK_SIZE * k,
+          width: "auto",
+          opacity: markP,
+          transform: `translateY(${markRise}px) scale(${markScale * soloScale})${markSpin}`,
+        }}
+      />
+    );
 
   // The wordmark starts once the mark is mostly in — or, with a solo phase,
   // not until the mark has finished holding the frame by itself.
@@ -546,6 +567,7 @@ export const Intro: React.FC<IntroProps> = ({ intro, aspect }) => {
   // Registered here, at the one entrance both card kinds pass through, so no
   // card can render before the face it names is usable. Idempotent.
   loadFonts();
+  if (intro.brand) loadBrandFonts(brandFaceFiles(resolveBrand(intro.brand)));
   // A recap card shares nothing with a sentence card but its palette — it is
   // left-aligned, top-anchored, and reveals whole labels rather than words — so
   // it gets its own component rather than a branch through this one.
@@ -640,6 +662,8 @@ const SentenceCard: React.FC<IntroProps> = ({ intro }) => {
               textTransform: "uppercase",
               color: look.wordmark,
               marginBottom: 28 * k,
+              // Eyebrows are body type in a brand pack; absent, the headline's face.
+              ...(look.bodyFamily ? { fontFamily: look.bodyFamily } : {}),
             }}
           >
             <StyledInline text={intro.wordmark} look={look} />
@@ -714,6 +738,7 @@ const SentenceCard: React.FC<IntroProps> = ({ intro }) => {
               letterSpacing: "-0.005em",
               color: look.subhead,
               marginTop: 26 * k,
+              ...(look.bodyFamily ? { fontFamily: look.bodyFamily } : {}),
             }}
           >
             {intro.subhead}

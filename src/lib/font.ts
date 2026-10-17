@@ -14,7 +14,7 @@
  * Idempotent: Remotion mounts compositions more than once, and registering the
  * same family twice throws. Calling this repeatedly is safe.
  */
-import { continueRender, delayRender, staticFile } from "remotion";
+import { cancelRender, continueRender, delayRender, staticFile } from "remotion";
 
 /** Family name the presets reference. Must match TypeStyle.fontFamily exactly. */
 export const INTER_FAMILY = "Inter";
@@ -53,3 +53,43 @@ export function loadFonts(): void {
       continueRender(handle);
     });
 }
+
+/** Families already registered, so a second card asking for one is free. */
+const registered = new Set<string>();
+
+/**
+ * Register a brand pack's faces (src/lib/brand.ts, brandFaceFiles), on the same
+ * terms as Inter: `delayRender` holds the first frame until each file is usable,
+ * so no frame is ever drawn in a fallback face. The files are served from
+ * public/brand/<id>/, staged by scripts/lib/brand-assets.ts.
+ *
+ * Unlike Inter, a failed load IS fatal: a brand face that silently fell back
+ * would ship an off-brand film that only a person squinting at it could catch.
+ */
+export function loadBrandFonts(
+  faces: readonly { family: string; url: string; weight: number }[],
+): void {
+  if (typeof document === "undefined" || typeof FontFace === "undefined") return;
+  for (const f of faces) {
+    const key = `${f.family}@${f.weight}`;
+    if (registered.has(key)) continue;
+    registered.add(key);
+    const handle = delayRender(`loading ${key}`);
+    new FontFace(f.family, `url(${staticFile(f.url)})`, {
+      weight: String(f.weight),
+      style: "normal",
+      display: "block",
+    })
+      .load()
+      .then((loaded) => {
+        document.fonts.add(loaded);
+        continueRender(handle);
+      })
+      .catch((err: unknown) => {
+        cancelRender(
+          new Error(`brand face ${key} failed to load from ${f.url}: ${String(err)}`),
+        );
+      });
+  }
+}
+

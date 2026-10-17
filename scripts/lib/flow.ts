@@ -209,8 +209,21 @@ export type Flow = {
    * previous take — a demo that writes something should not open with that
    * thing already written. Best-effort: throwing here is logged and the shoot
    * continues, since a stale starting state is worth less than a failed run.
+   * Unless `strictPrepare` is set.
    */
   prepare?: (page: Page) => Promise<void>;
+  /**
+   * Abort the shoot, before the clock starts and with nothing written, when
+   * `prepare` throws. Composed flows always set it; a hand-written flow that
+   * leaves it unset keeps the best-effort behaviour above.
+   */
+  strictPrepare?: boolean;
+  /**
+   * The labels this flow must log, in order, each with the action that
+   * declares it. Set by the composer (scripts/lib/action.ts); the recorder
+   * fails a take whose click log differs. Hand-written flows leave it unset.
+   */
+  declaredLabels?: readonly { label: string; action: string }[];
   /**
    * Hand-written candidates for targets the name ladder cannot reach — an
    * element with no accessible name, or a name that matches several things.

@@ -37,13 +37,23 @@ directory. If you cannot name which one you are in, stop and re-read this table.
 | --- | --- | --- | --- |
 | What it is | one recorded flow, played through | a launch film cut from cards + demo footage | one region of the app, as an image |
 | Medium | video | video | PNG |
-| You author | `flows/<name>.ts` | `reels/<name>.ts` | `shots/<name>.ts` |
-| Command | `pnpm record:live <name>` → `pnpm convert` → `pnpm render` | `pnpm reel <name>` | `pnpm still <name>` |
+| You author | `flows/<name>.ts` | `reels/<name>.ts`, or a brief `reels/<name>.brief.json` | `shots/<name>.ts` |
+| Command | `pnpm record:live <name>` → `pnpm convert` → `pnpm render` | `pnpm reel <name>`; from a brief, `pnpm launch <name>` | `pnpm still <name>` |
 | Output | `out/demo/<name>.mp4` | `out/reel/<name>.mp4` | `out/still/<name>-<preset>.png` |
-| Read first | `.agents/skills/shoot-demo-video/SKILL.md` | `.agents/skills/intro-reel/SKILL.md` | `.agents/skills/shoot-still/SKILL.md` |
+| Read first | `.agents/skills/shoot-demo-video/SKILL.md` | `.agents/skills/agenta-reel/SKILL.md` for Agenta, `.agents/skills/intro-reel/SKILL.md` for any other brand | `.agents/skills/shoot-still/SKILL.md` |
 
 In one line each: a **demo** is footage; a **reel** is a film built from cards
 plus that footage; a **still** is a photograph of one part of the screen.
+
+A **social graphic** sits outside the table. It is a designed post image (a
+title, a logo pair, a floating card, a chart), written as HTML in
+`social/<name>/`. `pnpm exec tsx .agents/skills/social-graphic/render.mts <name>`
+renders it to `out/social/<name>/` and audits it against a brand pack. It never
+drives the app, though a proof graphic may embed a still's PNG. Two skills:
+`.agents/skills/social-graphic/SKILL.md` is brand-neutral (any company, all
+thirty-four formats); `.agents/skills/agenta-social-graphic/SKILL.md` is Agenta's
+brand pack with a strict audit and only the on-brand formats. Agenta posts use
+the second.
 
 Things that follow from this, and are not obvious:
 
@@ -94,14 +104,56 @@ Reel: author `reels/<name>.ts` (a `style`, cards + clip ranges), then
 `pnpm reel <name>` (cards render, clip ranges re-render from the demo footage,
 all concatenated). Anchor ranges to beats (`fromBeat`/`toBeat` + signed
 `leadS`/`tailS`, matched to the click log's labels) rather than hand-typed
-seconds, so a re-shoot does not silently shift them. `--check` resolves beats
+seconds, so a re-shoot does not silently shift them. `toEdge: "typeEnd"` ends
+the range on a typing beat's last keystroke instead of its press. `--check` resolves beats
 and prints every range without rendering — run it first; `--style=<s>` cuts
 the same reel in another grammar; `--aspect=9:16|1:1` cuts a click-following
 crop. `pnpm render` and `pnpm intro` take `--style=` too.
+Brief: a launch reel from a social post with no hand-written flow or reel.
+Save the post verbatim to `reels/<name>.post.md`, write `reels/<name>.brief.json`,
+then the commands below. The house decides what a brief holds. The default,
+`agenta@5`, cuts **one take** in the Agenta brand pack, the app in a window on
+a grey ground with the camera zooming inside it, shot in slow motion and
+rendered at 60fps, 16:9 only (`agenta@4` lets the window fill the frame on its
+zooms; `agenta@3` adds 9:16; `agenta@2` is the same at 30fps in real time): a
+title, the footage
+(actions from `actions/`, or an already-recorded `demo`), and 1-3 `outro`
+lines; the whole interaction plays uncut between them. A `beats` house
+(`"house": "agenta@1"`) takes a title, 2-5 beats of card copy plus the action
+labels each clip shows, an optional `{chip}` payoff whose pill reads the label's
+declared control text (`payoff.text` on a demo brief), and a sign-off. Agenta
+reels follow `.agents/skills/agenta-reel/SKILL.md`; any other brand,
+`.agents/skills/intro-reel/SKILL.md`.
+
+```bash
+pnpm brief --actions [surface]     # what footage can be made of: params, labels
+pnpm brief --labels <demo>         # a recorded demo's labels, with times
+pnpm brief <name> [--json]         # validate (every problem at once), compile, --check report
+pnpm launch <name>                 # validate → compose → check → record → convert →
+                                   # render-demo → compile → render-reel → gate;
+                                   # out/launch/<name>/status.json; --from <stage> resumes
+pnpm actions:check [ids...]        # every action's selectors on its surface, no video
+pnpm brief:golden --check|--cut    # golden harness → docs/reel/design/compiler-validation.md
+```
+
+The house style (`src/lib/house.ts`, default `agenta@1`: `stage`, 16:9 + 9:16,
+music bed + SFX, -14 LUFS) owns every number; a brief sets none. `pnpm reel
+<name>` falls back to the brief when there is no `reels/<name>.ts` and renders
+each house aspect; `pnpm brief <name> --emit` writes `reels/<name>.ts` to
+hand-tune a cut. `pnpm record:live <name>` composes the flow from the brief's
+footage when there is no `flows/<name>.ts`.
 Still: author `shots/<name>.ts` (steps + the region to keep + a `look`:
 `window`, `cutout` or `bleed`), then `pnpm still <name> [preset|--all]`.
 `pnpm shot <name> --probe` writes a coordinate grid to `.diag/shots/` for
 picking a rect by eye.
+
+Two smoothness settings, both set by a brief's house and both usable by hand.
+`DEMO_SLOWMO=<K>` (1-8) shoots the demo K times slower (page animations at 1/K,
+every pause and glide K times longer) and compresses the timestamps back, so a
+4K capture gets K times the frames per second of footage on a busy machine; see
+`resolveSlowmo` in `scripts/lib/footage.ts`. `DEMO_FPS=60` renders at 60fps
+(default 30); styles that count motion in 30fps frames (`proof`, `ledger`,
+`stage`) refuse it. A demo and the reels cut from it must render at one rate.
 
 Needs **system ffmpeg** (`brew install ffmpeg`) for `pnpm analyze` and
 `pnpm reel` — Remotion's bundled one is filter-whitelisted (no `signalstats`,
@@ -121,6 +173,12 @@ it that path guesses the trim and warns.
 - **Demo flows are gitignored** except `smoke`, `google-search`,
   `skillsmp-search`. Same for `intros/`, `reels/` and `shots/`. The engine is
   public; account-specific demos are not.
+- **`actions/` and `surfaces/` are committed**, unlike `flows/`: the action
+  library is shared and versioned. So they hold no account data: no URL,
+  hostname, workspace/project/app id or token. A surface reads its start URL
+  from `DEMO_URL_<SURFACE>` (documented in `.env.example`), and
+  `scripts/lib/action-hygiene.test.ts` fails on any URL, host or id-shaped
+  literal. `flows/` stays gitignored.
 - **Other agents may be working here.** Do not commit, amend or revert work you
   did not create.
 
@@ -163,6 +221,9 @@ carries uncommitted work, so `HEAD` is not the baseline you think it is.
 | Path | |
 | --- | --- |
 | `flows/` | one file per demo (the recorded flow + selectors) |
+| `surfaces/` | committed: one file per product surface (start-URL env key, ready check, viewport, backdrop) |
+| `actions/` | committed: `actions/<surface>/<id>.ts`, one verified product action each (params, declared labels, verified `prepare`, steps); `pnpm actions:check` probes them |
+| `brands/` | committed: one reel brand pack per brand (`brands/<id>/brand.json`: palette, faces, logo SVGs). Licensed font files stay gitignored where the pack's `fontDir` says; `scripts/lib/brand-assets.ts` stages them into gitignored `public/brand/` |
 | `reels/` | one file per reel (cards + clip ranges) |
 | `intros/` | single title cards, JSON or TS (`pnpm intro`) |
 | `shots/` | one file per still (steps + the region to capture) |

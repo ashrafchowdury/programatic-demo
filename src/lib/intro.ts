@@ -10,6 +10,7 @@
  * Pure by design — no React, no Remotion — so the schedule is unit-testable
  * without rendering a frame. src/Intro.tsx is the only consumer that eases it.
  */
+import { brandProblem } from "./brand";
 import { cameraEase } from "./camera";
 import { type ReelLook } from "./look";
 import { type PushSpec } from "./push";
@@ -28,6 +29,12 @@ import { OUTPUT_WIDTH, type ClickLog, type CursorSample } from "./click-log";
 export type IntroStoryboard = {
   /** Must match the demo name: it names out/reel/<name>.intro.mp4 and sizes the card from that demo's log. */
   name: string;
+  /**
+   * A brand pack id (src/lib/brand.ts): the card's grounds, inks, faces and
+   * logo come from the pack, its motion from the style. Absent = the style's
+   * own look, exactly as before packs existed.
+   */
+  brand?: string;
   /** Split on whitespace and staggered word by word. CSS does the wrapping. */
   headline: string;
   /** Optional second line. Fades in as one unit, not word by word. */
@@ -169,6 +176,8 @@ export type WordStyle = {
   italic?: boolean;
   /** `true` uses the palette's highlight; a `#hex` string is a custom pill. */
   highlight?: boolean | string;
+  /** Set in the style's accent face (`type.accentFamily`), from `^^word^^`. */
+  accent?: boolean;
 };
 
 /** One whitespace-delimited stagger unit, markers stripped, style resolved. */
@@ -198,6 +207,7 @@ const GLUE_RE = /^[.,;:!?%)\]}"'’”…]+$/;
  *   _word_            italic
  *   ==word==          highlight, palette colour
  *   ==word|#ffd54a==  highlight, custom colour
+ *   ^^word^^          the brand's accent face (a pack's `faces.accent`)
  *   {chip}            live control (unchanged)
  *
  * A marked run may span several words — `*two words*` bolds both — but each
@@ -207,7 +217,7 @@ const GLUE_RE = /^[.,;:!?%)\]}"'’”…]+$/;
  * not match and is rendered literally, so a lone `*` in copy is not an error.
  */
 const HEX = /^#[0-9a-fA-F]{3,8}$/;
-const MARK_RE = /\*([^*]+)\*|_([^_]+)_|==([^=]+)==/g;
+const MARK_RE = /\*([^*]+)\*|_([^_]+)_|==([^=]+)==|\^\^([^^]+)\^\^/g;
 
 function styleOfHighlight(inner: string): { text: string; style: WordStyle } {
   // A `|` always introduces a colour: "word|#ffd54a" -> custom pill. The colour
@@ -252,7 +262,7 @@ export function parseHeadline(headline: string): StyledToken[] {
     else if (m[3] !== undefined) {
       const { text, style } = styleOfHighlight(m[3]);
       pushRun(text, style);
-    }
+    } else if (m[4] !== undefined) pushRun(m[4], { accent: true });
     last = MARK_RE.lastIndex;
   }
   if (last < headline.length) pushRun(headline.slice(last));
@@ -320,6 +330,12 @@ export type IntroLook = {
   highlightInk: string;
   flat: boolean;
   columnFrac: number;
+  /** The full logo a logo card draws on this ground, when a brand pack sets one. */
+  logo?: string;
+  /** The face `^^accent^^` words are set in, when the style has one. */
+  accentFamily?: string;
+  /** The face for the wordmark eyebrow and the subhead, when a pack sets one. */
+  bodyFamily?: string;
 };
 
 /**
@@ -392,6 +408,7 @@ export function introLook(
     highlightInk: highlight.ink,
     flat: !g.backdrop,
     columnFrac: g.backdrop ? COLUMN_FRAC_PLATE : COLUMN_FRAC_FLAT,
+    ...(g.logo ? { logo: g.logo } : {}),
   };
 }
 
@@ -975,7 +992,11 @@ export function resolveCard(intro: IntroStoryboard): CardRender {
       ? { scale: card.exit.scale, durationS: card.exit.durationS }
       : null;
   return {
-    look: introLook(intro.background ?? card.background, preset.palette),
+    look: {
+      ...introLook(intro.background ?? card.background, preset.palette),
+      ...(preset.type.accentFamily ? { accentFamily: preset.type.accentFamily } : {}),
+      ...(preset.type.bodyFamily ? { bodyFamily: preset.type.bodyFamily } : {}),
+    },
     fullbleed: preset.look === "fullbleed",
     emphasis: card.emphasis,
     push,
@@ -1097,6 +1118,10 @@ export function introProblem(value: unknown): string | null {
     return "missing a `name`";
   if (typeof intro.headline !== "string" || intro.headline.trim() === "")
     return "missing a `headline`";
+  if (intro.brand !== undefined) {
+    const bad = brandProblem(intro.brand);
+    if (bad) return `\`brand\`: ${bad}`;
+  }
   if (
     intro.background !== undefined &&
     !BACKGROUNDS.includes(intro.background as IntroBackground)

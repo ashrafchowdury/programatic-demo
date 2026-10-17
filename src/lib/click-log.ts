@@ -231,8 +231,37 @@ export const DESIGN_WIDTH = 1920;
  * reel, intro. One constant so a reel's frame counts, its HUD timing and the
  * delivery check cannot disagree with the composition that rendered them.
  * Capture runs at its own rate (CAPTURE_FPS in scripts/lib/screencast.ts).
+ *
+ * 30 unless DEMO_FPS=60 is set for the run. 60 doubles every camera, cursor
+ * and card step, which is most of what a reference film's "smooth as a line"
+ * is; it costs about twice the render time. Every composition timeline is in
+ * seconds, so only styles that count motion in FRAMES (push envelopes,
+ * dissolves, exit overlaps) are not ready for it: see fpsProblem.
+ *
+ * Read from the environment in Node only. Inside the Remotion bundle the
+ * environment is not ours, so the scripts pass `fps` as a prop and every
+ * composition takes its rate from it (src/Root.tsx).
  */
-export const FPS = 30;
+export const OUTPUT_FPS = [30, 60] as const;
+export function resolveOutputFps(raw?: string): number {
+  if (raw == null || raw.trim() === "") return 30;
+  const n = Number(raw);
+  if (!(OUTPUT_FPS as readonly number[]).includes(n))
+    throw new Error(`DEMO_FPS must be ${OUTPUT_FPS.join(" or ")} (got ${JSON.stringify(raw)})`);
+  return n;
+}
+export let FPS = resolveOutputFps(
+  typeof process !== "undefined" ? process.env?.DEMO_FPS : undefined,
+);
+
+/**
+ * Set the run's output rate once its house is known (a house may name `fps`;
+ * see scripts/lib/brief-io.ts). Module exports are live bindings, so every
+ * importer reads the new value; call it before anything is cut or rendered.
+ */
+export function setOutputFps(fps: number): void {
+  FPS = resolveOutputFps(String(fps));
+}
 
 /** Fallback lead-in when a log has no tDepartMs (older recordings). */
 export const LEAD_FALLBACK_S = 0.75;

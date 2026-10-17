@@ -72,6 +72,8 @@ export const LIGHT_BACKDROPS: readonly string[] = [
   "mist",
   "chalk",
   "aurora",
+  "honey",
+  "fells",
 ];
 
 export const isLightBackdrop = (name: string): boolean =>

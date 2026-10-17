@@ -10,6 +10,7 @@ import {
   STILL_SHORT_EDGE,
   anchorBox,
   bleedLayout,
+  runOffZoom,
   captureTargetPx,
   cutoutLayout,
   framingProblem,
@@ -751,6 +752,27 @@ describe("unintendedEdges", () => {
     const box = productBox(meta(), "window", STILL_PRESETS.story, FIT);
     assert.deepEqual(unintendedEdges("window", box, STILL_PRESETS.story), []);
     assert.deepEqual(unintendedEdges("bleed", { x: -10, y: -10, width: 9999, height: 9999 }, STILL_PRESETS.story), []);
+  });
+});
+
+describe("bleedLayout near-miss", () => {
+  it("runs a window that stops just short of its far edge off it", () => {
+    // channels-publish-screen: a 1440x640 page at 1.25 on wide, top-right,
+    // stopped ~7% above the bottom — under the warning, so it shipped.
+    const wide = STILL_PRESETS.wide;
+    const m = meta({ region: { width: 1440, height: 640 }, look: "bleed" });
+    const box = bleedLayout(m, wide, FIT, { zoom: 1.25, anchor: "top-right", inset: 0.08 });
+    assert.ok(box.y + box.height > wide.height, `bottom at ${box.y + box.height}`);
+    assert.ok(box.x < 0, "and still off the left");
+    assert.deepEqual(bleedGaps(box, wide, { anchor: "top-right" }), {});
+  });
+
+  it("leaves a zoom that already runs off, or misses by a lot, as asked", () => {
+    const wide = STILL_PRESETS.wide;
+    const base = windowBox(shotAspect(meta()), wide, FIT);
+    const box = bleedLayout(meta(), wide, FIT, { zoom: 1.6 });
+    assert.equal(box.width, Math.round(base.width * 1.6));
+    assert.equal(runOffZoom({ width: 100, height: 50 }, { width: 1000, height: 1000 }, 1, "top-left", 0), 1);
   });
 });
 

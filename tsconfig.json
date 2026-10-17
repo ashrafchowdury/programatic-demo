@@ -10,10 +10,11 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "noUnusedLocals": true
+    "noUnusedLocals": true,
+    "resolveJsonModule": true
   },
   // Covers the whole repo on purpose. This used to be ["src"] with scripts
   // and flows excluded, which meant `pnpm lint` typechecked a third of the
   // codebase — two missing imports shipped that way before it was widened.
-  "include": ["src", "scripts", "flows", "shots", "remotion.config.ts"]
+  "include": ["src", "scripts", "flows", "shots", "actions", "surfaces", "remotion.config.ts"]
 }

@@ -252,6 +252,19 @@ decelerating, hold, accelerate away, cut mid-move. The mark opens it.
 
 `reels/agent-schedule-stage.ts`, `reels/agent-tool.ts`
 
+### one-take — the whole demo, uncut (the Agenta default)
+
+A title card, then the recorded interaction as ONE clip in the window, the
+click-driven camera moving in on every action and back out, then a closing
+line and the logo. Nothing is cut out of the demo. Briefs under the
+`agenta@2` house compile to it; a hand-written reel names `style: "one-take"`.
+
+| card | footage | sign-off |
+| --- | --- | --- |
+| <img src="docs/catalog/reel-one-take-card.jpg" width="300"> | <img src="docs/catalog/reel-one-take-footage.jpg" width="300"> | <img src="docs/catalog/reel-one-take-signoff.jpg" width="300"> |
+
+`reels/scratch-onetake.ts` (unbranded), any brief under `agenta@2`
+
 ### Aspect — 16:9, 1:1, 9:16 from one spec
 
 Any style, cut square or vertical. The footage becomes a crop that moves with
