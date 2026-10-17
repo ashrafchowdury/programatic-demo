@@ -1,6 +1,6 @@
 ---
 name: agenta-social-graphic
-description: Make Agenta social post images (X, LinkedIn; 2839×1596) strictly inside Agenta's brand assets, from a single post to a month-long series, without asking the user — post copy in; three candidates per post A/B-tested internally; only the winners, audited, and a review gallery out. 21 on-brand formats, premium first. Use for any Agenta launch, feature, channel, integration, approval, eval-result or link-card post. For another brand, use the general social-graphic skill.
+description: Make Agenta social post images (X, LinkedIn; 2839×1596) strictly inside Agenta's brand assets, from a single post to a month-long series, without asking the user — post copy in; three candidates per post A/B-tested internally; only the winners, audited, and a review gallery out. 17 on-brand formats, premium first. Use for any Agenta launch, feature, channel, integration, approval, eval-result or link-card post. For another brand, use the general social-graphic skill.
 metadata:
   tags: social, image, brand, agenta, launch, x, linkedin
 ---
@@ -47,8 +47,13 @@ Run this end to end without asking the user anything. They review the result
 in the gallery, not the process.
 
 1. **Read the brief.** Put the post copy in `social/<name>/brief.md`, one
-   `## <date>` section per post. Add the `brand` file (one line:
-   `.agents/skills/agenta-social-graphic/brand`).
+   `## <date>` section per post, with where each post is published. Add the
+   `brand` file (one line: `.agents/skills/agenta-social-graphic/brand`).
+   - **Size follows the destination,** never the format: an X or LinkedIn
+     post is `x`, a link card `card`, a square post `square`, a newsletter or
+     blog header `banner`. The size guide is in the general skill's "Render
+     and audit" step. Pass `--preset` to every render below, and render each
+     size a post is published at.
 2. **Read the taste ledger.** [taste.md](./taste.md) lists every look the user
    approved or rejected. A rejected look is never used again, in any form.
 3. **Plan the series** in `social/<name>/plan.md`, one row per post:
@@ -60,18 +65,19 @@ in the gallery, not the process.
 
      | The message is about… | Best fit |
      | --- | --- |
-     | a person and an agent talking, or an approval in a channel | daylight (chat), exchange |
-     | a partner, channel or model joining | connect, sunrise, spotlight, haze, pair |
-     | one feature with a hero card | studio, prompt |
+     | a person and an agent talking, or an approval in a channel | context (the kit's `.chat` among faded cards) |
+     | a partner, channel or model joining | lockup, pair, spotlight |
+     | everything an agent works with, many tools or integrations | hub |
+     | how messages flow through an agent to tools | sankey |
+     | several product capabilities at once | bento, bento-split, modules |
+     | one feature with a hero card | prompt, window |
      | a feature with a real screen | window (real capture) |
-     | a row, status or setting inside a list | depth |
      | a real number | milestone |
      | a new option among existing ones | tiles |
-     | a short claim with no screen | statement, monogram, aurora |
+     | a short claim with no screen | statement, monogram |
      | a story with results | plate |
      | the workflow around a feature | context |
-     | change over time | grid |
-     | a link card or quiet announcement | quiet, press |
+     | a link card or quiet announcement | quiet |
 
    - The three candidates are the three best fits. When fewer than three
      formats fit, vary the one that fits instead: its ground, its subject
@@ -79,8 +85,6 @@ in the gallery, not the process.
      composition. Never pad with a format that does not fit.
    - Repeating a format across days is fine (the user's decision,
      2026-10-16). Never take a weaker fit just to vary the series.
-   - When candidates tie on fit, prefer the flat one. Lit or flat is never a
-     goal in itself; the message decides.
    - The title is the claim in at most 8 words (rules below). If the claim
      needs more, it belongs in the post text. All three candidates carry the
      same title, so the test is about the picture.
@@ -100,6 +104,10 @@ in the gallery, not the process.
    - **Crop screenshots** to the part that proves the claim. A whole app
      shrunk to fit turns to mush, and the audit fails any capture whose UI
      text lands under the texture floor.
+   - Icons are line SVGs (1.5 px at 1×), never Unicode characters (✓ ↵ ⇧ →):
+     Inter and GT Alpina lack them, and the audit fails any glyph that falls
+     back to a system font. GT Alpina Light is a trial cut; brand.css fills
+     its missing punctuation from the full Regular.
    - Channel posts use the kit's `.chat` component as it is; don't rebuild
      bubbles by hand. Every box stays inside its parent box; mark a
      deliberate overlap (a badge on a corner) `data-overhang`.
@@ -191,26 +199,23 @@ gets only the winner.
 These are the only formats `brand.json` allows. Anything else fails the audit.
 Premium formats come first: they're the default pick for their post type.
 
-**Premium (first choice).** The haze, aurora, connect, spotlight, milestone, prompt, monogram and
+**Premium (first choice).** The spotlight, milestone, prompt, monogram and
 tiles formats come from the user's own reference picks (see
 `../social-graphic/studies/keep-picks.md`).
 
 | Post type | Format | What it is | Lit |
 | --- | --- | --- | --- |
-| Feature with one hero card or screen | **studio** | The card shot like a product photo: seamless sweep, key light, contact shadow | lit |
-| A setting, a row, a status in a list | **depth** | A real list with one row in focus and the rest falling away in blur | flat |
-| Customer story, case study, results | **plate** | Print plates: a paper title column, a grained yellow plate and a halftone plate, one card crossing the seam | lit |
-| Link card, quiet announcement | **press** | The post as a press sheet: crop marks, registration targets, a colour bar | flat |
-| Before/after, a timeline, learning over time | **grid** | The editorial grid left visible, the title split across it, one yellow block | flat |
-| Launch with a real screen | **window** | The whole workspace rising from the bottom edge over textured paper | lit |
-| Channel, integration, launch | **daylight** | A product window over tone-on-tone yellow dunes | lit |
-| Partner pair, single moment | **sunrise** | The subject in a white sun rising from the yellow ground | lit |
-| Partnership, event, launch | **haze** | White ground only. Paper, white and yellow blurred into one field; the ink lockup and partner name centred, split by a slash | lit |
-| Model or feature launch | **aurora** | A yellow wave rising out of paper; the title is a 1–3 word name with the mark, never a sentence | lit |
-| Integration, partner | **connect** | Two white lockup cards on a paper grid, one ink connector, a yellow node | flat |
-| Launch across partners or models | **spotlight** | The Agenta tile raised between partner tiles, white beams on yellow | lit |
-| Funding, usage, milestone (real numbers) | **milestone** | A GT Alpina numeral shading from ink to grey, a hairline frame of teams under it | flat |
-| Model availability, composer features | **prompt** | A model name above the composer, with the model chip and the yellow Run key, on a yellow bloom | lit |
+| Several capabilities in one launch | **bento** | The title in the largest block, product blocks around it (an approval, a trace, one yellow block) | flat |
+| What a product is made of | **bento-split** | The title on the left, a bento of parts on the right, one part in yellow | flat |
+| Partnership, integration, event | **lockup** | The Agenta lockup and the partner's, side by side, split by a thin slash; no title | flat |
+| Integrations, many tools | **hub** | The Agenta tile in yellow at the centre of hairline rings, tool tiles orbiting, the rings bleeding off the bottom | flat |
+| A launch told in parts | **modules** | A Swiss grid left visible: the title across four modules, one idea per module, one module in yellow | flat |
+| Channels in, work out | **sankey** | Channel tiles flowing through the agent to tool tiles, the busiest band in yellow | flat |
+| Customer story, case study, results | **plate** | Print plates: a paper title column, a solid yellow plate and a halftone plate, one card crossing the seam | flat |
+| Launch with a real screen | **window** | The whole workspace rising from the bottom edge | flat |
+| Launch across partners or models | **spotlight** | The Agenta tile raised between partner tiles on yellow | flat |
+| Funding, usage, milestone (real numbers) | **milestone** | A solid GT Alpina numeral, a hairline frame of teams under it | flat |
+| Model availability, composer features | **prompt** | A model name above the composer, with the model chip and the yellow Run key | flat |
 | Brand moment, announcement | **monogram** | A large title left, the black Agenta mark at 60 %H right | flat |
 | A new channel or option | **tiles** | Four option tiles with line icons, the new one with the yellow "New" badge | flat |
 
@@ -219,8 +224,7 @@ tiles formats come from the user's own reference picks (see
 | Post type | Format | Agenta notes |
 | --- | --- | --- |
 | Feature, GA, capability, one-line claim | **statement** | The title centred and set large, a yellow block in the top-right corner, one PP Mondwest word in the grey key-cap chip. |
-| Integration, partner, model | **pair** | The Agenta tile and the partner tile, no words. |
-| Approvals, human-in-the-loop, agent in a channel | **exchange** | The primary keycap button is the yellow moment. |
+| Integration, partner, model | **pair** | The Agenta tile and the partner tile, no words. White ground only. |
 | Feature whose value is the surrounding workflow | **context** | Faded cards around one centred title; the one full-colour detail is a yellow chip. |
 | Link card for a post, guide, changelog | **quiet** | A centred title on an empty ground. |
 
@@ -231,17 +235,17 @@ it. Templates written on carbon are re-roled onto paper or yellow (see
 so nothing else may be yellow: use the `dark` button, not `primary`. The black
 lockup sits straight on the yellow.
 
-**Lit or flat follows the message.** A lit format uses gradients, glow or
-grain; every other format stays flat. Neither is preferred for its own sake;
-on a tie in fit, take the flat one. Light uses Agenta
-tokens only (yellow, paper, white, ink, any alpha), never a new hue (the
-user's decision, 2026-10-16). The audit checks every gradient stop and SVG
-paint.
+**Flat only.** Agenta posts use no gradients, glow or grain. The light-led
+formats (daylight, sunrise, haze, aurora) were removed, and prompt,
+window, spotlight, plate and milestone were flattened: "those look like low
+quality graphics" (the user's decision, 2026-10-16). `brand.json` sets
+`allowLight: false`, so the audit refuses any light layer. Depth comes from
+real UI, scale, and an honest drop shadow.
 
 **Not for Agenta:** lamplight, live-line and construction need a dark ground.
 Mosaic, proof, woven, ledger, graphite, field, annotated, emboss, figure,
-field-report and isometric were dropped in review (see taste.md). Their templates stay in the general kit for
-other brands.
+field-report, isometric, exchange, press, grid, connect, daylight, sunrise, haze, aurora, studio and depth were dropped in review (see taste.md). Daylight,
+sunrise, haze, aurora, studio and depth are deleted from the kit; the rest stay there for other brands.
 
 ## Agenta rules the audit cannot check
 

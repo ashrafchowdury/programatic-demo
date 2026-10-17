@@ -65,22 +65,24 @@ print and product-photography techniques that read as mature on any brand:
 
 | Post type | Format | The one technique |
 | --- | --- | --- |
-| Feature with one hero card or screen | **studio** | The card on a seamless sweep with a key light and a contact shadow (lit) |
-| A setting, a row, a status in a list | **depth** | One row in focus; the rows around it fall away in opacity and blur (Linear's ladder: 0.42/5.5 px, 0.16/16 px) |
-| Customer story, case study | **plate** | A flat title column against a grained accent plate and a halftone plate, one card crossing the seam (Granola; lit) |
+| Several capabilities at once | **bento** | Product blocks of different sizes, the title inside the largest |
+| What a product is made of | **bento-split** | The title on the left, a bento of its parts on the right |
+| Partnership, integration, event | **lockup** | The two lockups side by side, split by a thin slash, nothing else |
+| Integrations, many tools | **hub** | The brand tile at the centre of hairline rings, tool tiles orbiting |
+| A launch told in parts | **modules** | A Swiss grid left visible; the title spans four modules, one idea per module |
+| Flow through a product | **sankey** | Flat Sankey bands from sources through the brand to destinations |
+| Customer story, case study | **plate** | A flat title column against a solid accent plate and a halftone plate, one card crossing the seam (Granola) |
 | Versions, releases, registries | **isometric** | Three versions of one artefact stacked in CSS 3D, the latest on top (Resend's specimen object) |
 | Milestone, eval result, event | **field** | Monumental eval rings in heavy ink over photocopy grain (Raycast's field poster; lit) |
 | Feature whose value is one word | **annotated** | A proofreader's box on the key word and a pointer to a short note |
 | Link card, quiet announcement | **press** | Crop marks, registration targets and a colour bar of the brand's own inks |
 | Before/after, a timeline | **grid** | The editorial grid left visible, the title split across it, one accent block |
 | A feature named by a verb | **emboss** | The verb blind-embossed into the ground, monumental and cropped |
-| Launch with a real screen | **window** | The whole workspace rising from the bottom edge over textured paper (Perplexity; lit) |
-| Partnership, event, launch | **haze** | The whole canvas one defocused light field; only the centred partner lockup is sharp (Runway; lit) |
-| Model or feature launch | **aurora** | A wave of accent light rising from the bottom edge, the title small above its crest (Lovable; lit) |
+| Launch with a real screen | **window** | The whole workspace rising from the bottom edge (Perplexity) |
 | Integration, partner | **connect** | Two lockup cards on a blueprint grid joined by one connector with end nodes (Mistral) |
-| Launch across partners or models | **spotlight** | Three tiles, the brand's raised in the middle, a fan of light behind it (Lovable; lit) |
-| Funding, usage, milestone; real numbers only | **milestone** | One monumental numeral shading top to bottom, a hairline frame of names under it (Clerk) |
-| Model availability, composer features | **prompt** | A name above a large prompt box on a soft accent bloom (Bolt; lit) |
+| Launch across partners or models | **spotlight** | Three tiles, the brand's raised and larger in the middle (Lovable) |
+| Funding, usage, milestone; real numbers only | **milestone** | One monumental numeral in solid ink, a hairline frame of names under it (Clerk) |
+| Model availability, composer features | **prompt** | A name above a large prompt box (Bolt) |
 | Brand moment, announcement | **monogram** | A large title left, the brand mark monumental on the right, one colour (v0) |
 | A new option among existing ones | **tiles** | A centred row of option tiles with line icons, the new one flagged (Bolt) |
 
@@ -108,8 +110,6 @@ need a brand that allows light (`"allowLight": true`):
 | Launch, milestone, countdown; 1–4 words | **lamplight** | An arc of light that the letters take where it crosses them, plus grain (Resend, Raycast) |
 | Cost, latency or eval win | **live-line** | One emissive stroke drawn from the real series, with no axes (Raycast) |
 | Concept with no screen | **construction** | The real structure as line art in three stroke weights, with one accent node (Linear) |
-| Channel, integration, launch; a product window | **daylight** | A pale sky warming into tone-on-tone accent dunes with rim light; the window floats centred |
-| Partner pair, milestone, one moment | **sunrise** | A white sun rising from the bottom of an accent ground, rays and rings; the subject sits in its glow |
 
 The light-led formats are part of the collection, not the default. Most posts
 stay in the everyday set; reach for light when the message is best told with
@@ -139,9 +139,21 @@ quiet).
    pnpm exec tsx .agents/skills/social-graphic/render.mts <name>
    ```
 
-   `--preset card` gives 2400×1260 (a 1.91:1 link card), `--preset square`
-   gives 2160×2160, and `--preset all` renders every preset. The output goes to
-   `out/social/<name>/`.
+   Pick the size from where the image is published, and pass it with
+   `--preset`:
+
+   | Published as | Preset | Size |
+   | --- | --- | --- |
+   | X or LinkedIn post (the default) | `x` | 2839×1596 |
+   | Link card: Open Graph, X summary card | `card` | 2400×1260 (1.91:1) |
+   | Square post: Instagram, a LinkedIn square | `square` | 2160×2160 |
+   | Newsletter, blog or changelog header | `banner` | 2400×1060 (2.26:1) |
+
+   `--preset all` renders x, card and square; `banner` is asked for by name.
+   One post can go out at several sizes: render each one it needs. Most
+   formats are laid out for `x`, so open every other size and check it before
+   you deliver it. The output goes to `out/social/<name>/`, with the preset in
+   the file name for any size but `x`.
 
    The audit fails the run on:
    - an off-palette colour
@@ -165,6 +177,9 @@ quiet).
      deliberate overlap `data-overhang`
    - in a series, the accent face on more titles than `accentFaceShare`
      allows
+   - any glyph the brand face lacks, which the browser silently draws in a
+     system font (a curly quote, an arrow typed as text); draw icons as line
+     SVGs, never as Unicode characters
 
    It warns when a post reads empty (over 86 % bare ground; the striking
    references leave 14–49 %) or lopsided (visual weight outside 0.34–0.66 W).

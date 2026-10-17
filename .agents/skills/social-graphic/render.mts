@@ -57,7 +57,8 @@ type Brand = {
   accentFaceShare?: number;
 };
 const ROOT = path.resolve(SKILL, "..", "..", "..");
-const PRESETS = { x: [2839, 1596], card: [2400, 1260], square: [2160, 2160] } as const;
+// banner is a newsletter or blog header (2.26:1); "all" leaves it out, since a post template is not laid out for it
+const PRESETS = { x: [2839, 1596], card: [2400, 1260], square: [2160, 2160], banner: [2400, 1060] } as const;
 type Preset = keyof typeof PRESETS;
 
 const argv = process.argv.slice(2);
@@ -70,11 +71,11 @@ const selfTest = argv.includes("--templates");
 const cand = argv.includes("--candidates");
 const name = selfTest ? "_templates" : argv.find((a, i) => !a.startsWith("-") && argv[i - 1] !== "--preset");
 if (!name) {
-  console.error("usage: render.mts <name> [--preset x|card|square|all] | --templates");
+  console.error("usage: render.mts <name> [--preset x|card|square|banner|all] | --templates");
   process.exit(2);
 }
 const presetArg = flag("--preset") ?? "x";
-const presets: Preset[] = presetArg === "all" ? (Object.keys(PRESETS) as Preset[]) : [presetArg as Preset];
+const presets: Preset[] = presetArg === "all" ? ["x", "card", "square"] : [presetArg as Preset];
 if (!presets.every((p) => p in PRESETS)) {
   console.error(`unknown preset ${presetArg}; one of ${Object.keys(PRESETS).join(", ")}, all`);
   process.exit(2);
@@ -272,10 +273,15 @@ async function audit(page: Page, W: number, H: number) {
       const subj = root.querySelector<HTMLElement>("[data-subject]");
       const ttl = root.querySelector<HTMLElement>(".title");
       let gapPct: number | null = null;
-      if (subj && ttl) {
+      // only for a title set above its subject; a title inside its subject (a bento block) or beside it has no vertical gap
+      const stacked = !!subj && !!ttl && !subj.contains(ttl) && (() => {
+        const a = ttl.getBoundingClientRect(), b = subj.getBoundingClientRect();
+        return b.top >= a.top && Math.min(a.right, b.right) - Math.max(a.left, b.left) > 0;
+      })();
+      if (subj && ttl && stacked) {
         const rg = document.createRange(); rg.selectNodeContents(ttl);
         const tb = Math.max(...Array.from(rg.getClientRects()).map((q) => q.bottom));
-        // measure the untilted layout box: a perspective tilt (studio) moves the projected top without moving the layout
+        // measure the untilted layout box: a perspective tilt moves the projected top without moving the layout
         const saved = subj.style.transform; subj.style.transform = "none";
         const gap = (subj.getBoundingClientRect().top - tb) / H * 100;
         subj.style.transform = saved;
@@ -446,6 +452,26 @@ for (const file of files) {
     const loaded = await page.evaluate(() => Array.from(document.fonts).filter((f) => f.status === "error").map((f) => f.family));
     const broken = await page.evaluate(() => Array.from(document.images).filter((i) => !i.complete || i.naturalWidth === 0).map((i) => i.getAttribute("src")));
     const report = await audit(page, W, H);
+    // A face missing a glyph falls back to a system font for that glyph alone (the trial GT Alpina Light has no curly
+    // apostrophe). Only the browser's font engine knows, so ask it for every element that holds text.
+    {
+      const cdp = await page.context().newCDPSession(page);
+      await cdp.send("DOM.enable"); await cdp.send("CSS.enable");
+      const doc = await cdp.send("DOM.getDocument", { depth: -1 });
+      const { nodeIds } = await cdp.send("DOM.querySelectorAll", { nodeId: doc.root.nodeId, selector: "main.post *" });
+      const seen = new Set<string>();
+      for (const id of nodeIds) {
+        const { fonts } = await cdp.send("CSS.getPlatformFontsForNode", { nodeId: id }).catch(() => ({ fonts: [] as { familyName: string; isCustomFont: boolean; glyphCount: number }[] }));
+        // a face the brand declares is fine even when it is a system font (the example brand sets Georgia)
+        for (const f of fonts) if (!f.isCustomFont && !(f.familyName in brand.fonts) && !seen.has(f.familyName)) {
+          seen.add(f.familyName);
+          const { outerHTML } = await cdp.send("DOM.getOuterHTML", { nodeId: id });
+          const text = outerHTML.replace(/<[^>]+>/g, "").trim().slice(0, 40);
+          report.errors.push(`${f.glyphCount} glyph(s) fell back to ${f.familyName} in "${text}": the brand face lacks them (a curly quote or symbol); use a plain character or rephrase`);
+        }
+      }
+      await cdp.detach();
+    }
     if (loaded.length) report.errors.push(`fonts failed to load: ${[...new Set(loaded)].join(", ")}`);
     for (const src of broken) report.errors.push(`image failed to load: ${src}`);
     const suffix = presets.length > 1 || preset !== "x" ? `.${preset}` : "";
@@ -453,7 +479,7 @@ for (const file of files) {
     const px = await pixels(page, png, W, H);
     fs.writeFileSync(path.join(outDir, `${variant}${suffix}.feed.png`), Buffer.from(px.feed.split(",")[1], "base64"));
     // composition, measured against the striking references (bare ground 14-49 %, weight centred at 0.47-0.51 W)
-    if (px.bare > 0.86 && !["quiet", "statement", "press"].includes(report.stats.archetype)) report.warnings.push(`reads empty: ${(px.bare * 100).toFixed(0)} % of the canvas is bare ground; the striking references leave 14-49 %`);
+    if (px.bare > 0.86 && !["quiet", "statement", "press", "context"].includes(report.stats.archetype)) report.warnings.push(`reads empty: ${(px.bare * 100).toFixed(0)} % of the canvas is bare ground; the striking references leave 14-49 %`);
     const sw = report.stats.subjectW, sh = report.stats.subjectH;
     if (sw !== null && sh !== null && sw < 0.42 && sh < 0.42 && px.bare > 0.75)
       report.errors.push(`the subject is too small for the canvas (${Math.round(sw * 100)} %W × ${Math.round(sh * 100)} %H on ${Math.round(px.bare * 100)} % bare ground); give it at least 42 % of the width or the height`);

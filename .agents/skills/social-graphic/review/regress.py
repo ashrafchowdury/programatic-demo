@@ -22,6 +22,7 @@ expect = {
     "03-tiny-screenshot": ["mush in the feed", "subject is too small"],
     "04-diagram": ["Title Case", "subject is too small"],
     "05-title-covered": ["covers the title"],
+    "06-glyph-icon": ["fell back to"],
     "series": ["use the accent face"],
 }
 blocks, cur = {}, None

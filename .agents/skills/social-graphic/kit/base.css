@@ -7,7 +7,7 @@
  *             --ink --ink-2 --ink-3
  *             --dark --dark-2 --dark-3 --dark-line --on-dark --on-dark-2
  *             --accent --accent-ink --data --data-muted --ok --wait
- *             optional --accent-2 --accent-3 (deeper accent tones; light-led daylight)
+ *             optional --accent-2 --accent-3 (deeper accent tones)
  *   type      --font-display --font-accent --display-weight --read-weight
  *             --cap-display --cap-accent        (cap height / em, measured per face)
  *             optional --font-ui --cap-ui        (UI and card text; falls back to the display face)
@@ -34,6 +34,8 @@ svg, img { display: block; }
 
 /* ── canvas ─────────────────────────────────────────────── */
 .post {
+  /* re-derived here so a preset's --W and --H scale every unit, margin and type size, not just the canvas */
+  --u: calc(var(--H) / 100); --mx: calc(var(--W) * 0.0634); --my: calc(var(--H) * 0.094);
   position: relative; width: var(--W); height: var(--H); overflow: hidden;
   font-family: var(--font-display); font-weight: var(--display-weight);
   color: var(--ink); background: var(--ground);
@@ -45,6 +47,7 @@ svg, img { display: block; }
 .post[data-preset="x"]      { --W: 2839px; --H: 1596px; }
 .post[data-preset="card"]   { --W: 2400px; --H: 1260px; }
 .post[data-preset="square"] { --W: 2160px; --H: 2160px; }
+.post[data-preset="banner"] { --W: 2400px; --H: 1060px; }
 
 /* fixed furniture: a raised panel inside a gutter, bound by a hairline */
 .post.paper { background: var(--ground); }
@@ -156,3 +159,11 @@ svg, img { display: block; }
   display: flex; flex-direction: column; align-items: center; gap: var(--stack-gap, calc(var(--H) * 0.065)); }
 .stack > .title { position: relative; text-align: center; white-space: nowrap; }
 .stack > [data-subject] { position: relative; }
+
+/* ── UI text and layout helpers for the bento, hub, modules and sankey formats ──
+   .ui-t is UI text at texture size (mark it data-texture), .ui-r a readable UI label, .btn.sm a texture-size key. */
+.ui-t { font-family: var(--font-ui, var(--font-display)); font-size: var(--fs-texture); line-height: 1.2; letter-spacing: -0.01em; color: var(--ink-2); white-space: nowrap; }
+.ui-r { font-family: var(--font-ui, var(--font-display)); font-size: var(--fs-read); line-height: 1.15; letter-spacing: -0.015em; font-weight: 500; white-space: nowrap; }
+.ui-row { display: flex; align-items: center; }
+.ui-col { display: flex; flex-direction: column; }
+.btn.sm { height: calc(var(--u) * 5.2); font-size: var(--fs-texture); padding: 0 calc(var(--u) * 2); border-radius: 14px; }

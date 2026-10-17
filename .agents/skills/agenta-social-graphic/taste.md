@@ -7,6 +7,38 @@ on review notes.
 
 ## Rejected
 
+- **2026-10-17 · Connect.** Disliked. Removed from the Agenta brand; lockup and
+  pair cover partner posts. The template stays in the kit for other brands.
+
+- **2026-10-17 · Pair is too flat, and three fixes missed:** overlapping big
+  tiles, tiles inside interlocking hairline rings, and tiles on a tint stage
+  joined by a connector. The user asked for a simple change instead (approved
+  below).
+
+- **2026-10-17 · Grid.** Dropped in review. Removed from the Agenta brand;
+  the template stays in the kit for other brands.
+
+- **2026-10-17 · Thirteen of eighteen draft formats:** flow, branch,
+  anatomy, waterfall, heatmap, layers, timeline, steps, kanban, venn, tree,
+  sequence, matrix, and the yellow bento and hub. Never added to the kit.
+
+- **2026-10-17 · Pair on yellow.** Dropped in review. `formatGrounds` limits
+  pair to white.
+
+- **2026-10-17 · Press.** Dropped in review. Removed from the Agenta brand;
+  the template stays in the kit for other brands. Link cards go to quiet.
+
+- **2026-10-17 · Exchange, studio and depth.** "Those are making the posters
+  look cheap." Removed from the Agenta brand; studio and depth are deleted
+  from the kit. Approvals and agent-in-a-channel posts go to context (the
+  `.chat` among faded cards); a hero card goes to prompt or window.
+
+- **2026-10-16 · Every gradient look.** "Those look like low quality graphics,
+  especially daylight and sunrise." Daylight, sunrise, haze and aurora are
+  removed from the kit; studio, prompt, window, spotlight, plate and
+  milestone are flattened; Agenta sets `allowLight: false`. No gradients,
+  glow or grain on any Agenta post.
+
 - **2026-10-16 · A "so bad and broken" series from another session.** Title
   Case titles, the bitmap chip on every title, small cards and arrow diagrams
   on empty canvases, a bubble spilling past its card, whole screenshots
@@ -74,6 +106,16 @@ on review notes.
 
 ## Approved
 
+- **2026-10-17 · Lockup,** the haze idea without the haze: the two lockups
+  split by a thin slash, flat, on white or yellow, no title.
+
+- **2026-10-17 · Pair, the simple change.** Same layout, tiles at 30 %H with a
+  real drop shadow and a soft top-to-bottom shade, like the brand's keys. A
+  gradient is fine on a tile, "but not much"; the ground stays flat.
+
+- **2026-10-17 · Bento, bento-split, hub, modules and sankey,** kept from
+  two rounds of drafts, on white only. Added to the kit and the Agenta brand.
+
 - **2026-10-16 · Internal A/B.** Three candidates per post, tested
   internally; the user sees only the winner, chosen for the message first,
   then for a clean, balanced picture.
@@ -95,8 +137,8 @@ on review notes.
 
 - **2026-10-16 · Stunning, mature, premium.** The bar for every post. Premium
   formats are the first choice.
-- **2026-10-16 · Light in brand colours.** Soft gradients and grain built only
-  from Agenta tokens, as optional lit formats.
+- **2026-10-16 · Light in brand colours** (superseded the same day: all
+  gradient looks were rejected as low quality).
 - **2026-10-16 · White or yellow grounds,** alternating across a series.
 - **2026-10-16 · GT Alpina Light titles,** Inter for UI text, one PP Mondwest
   word at most.

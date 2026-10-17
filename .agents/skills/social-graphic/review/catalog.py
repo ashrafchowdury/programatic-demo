@@ -29,10 +29,9 @@ for fmt in allowed:
     src = open(os.path.join(T, f"{fmt}.html")).read()
     native = re.search(r'class="post (paper|carbon|yellow)"', src).group(1)
     for g in grounds:
-        # light-led formats are built for one ground; don't force them onto another
-        if fmt in ("daylight", "window", "studio", "field", "aurora", "prompt", "milestone", "connect", "tiles") and g != "paper": continue
+        # these formats are built for one ground; don't force them onto another
+        if fmt in ("window", "field", "prompt", "milestone", "connect", "tiles") and g != "paper": continue
         if fmt == "spotlight" and g != "yellow": continue
-        if fmt == "sunrise" and g != "yellow": continue
         if g not in brand.get("formatGrounds", {}).get(fmt, [g]): continue
         h = re.sub(r'class="post (paper|carbon|yellow)"', f'class="post {g}"', src, count=1)
         if native == "carbon" and g != "carbon":

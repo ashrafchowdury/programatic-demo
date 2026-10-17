@@ -1,9 +1,10 @@
 <!-- pair: your brand + one partner, no words. Integration, channel, model. Put the partner's official
-     logo file in assets/ and keep data-third-party on its tile. -->
+     logo file in assets/ and keep data-third-party on its tile. The tiles carry a soft top-to-bottom shade, like an app icon;
+     a brand sets --tile-dark-top for its own shade (it falls back to --dark-2). -->
 <main class="post paper" data-archetype="pair">
-  <div style="left:50%;top:50%;transform:translate(-50%, -50%);display:flex;align-items:center;gap:calc(var(--u) * 6)">
-    <div class="tile dark" data-logo="brand" style="position:relative;width:calc(var(--u) * 22);height:calc(var(--u) * 22)"><img src="{{brand}}/logos/mark-dark-accent.svg" alt="Logo" style="width:58%;height:auto"></div>
-    <span style="font-size:calc(var(--u) * 9);line-height:1;color:var(--ink-3)">+</span>
-    <div class="tile" data-third-party style="position:relative;width:calc(var(--u) * 22);height:calc(var(--u) * 22)"><img src="assets/partner.svg" alt="Partner" style="width:58%;height:auto"></div>
+  <div style="left:50%;top:50%;transform:translate(-50%, -50%);display:flex;align-items:center;gap:calc(var(--u) * 7)">
+    <div class="tile dark" data-logo="brand" style="position:relative;width:calc(var(--u) * 30);height:calc(var(--u) * 30);background:linear-gradient(180deg, var(--tile-dark-top, var(--dark-2)) 0%, var(--dark) 100%);box-shadow:inset 0 2px 0 rgba(255,255,255,0.10), 0 0 0 2px rgba(36,36,36,0.08), 0 40px 96px rgba(36,36,36,0.22)"><img src="{{brand}}/logos/mark-dark-accent.svg" alt="Logo" style="width:58%;height:auto"></div>
+    <span style="font-size:calc(var(--u) * 10);line-height:1;color:var(--ink-3)">+</span>
+    <div class="tile" data-third-party style="position:relative;width:calc(var(--u) * 30);height:calc(var(--u) * 30);background:linear-gradient(180deg, var(--panel) 0%, var(--tint) 100%);box-shadow:inset 0 2px 0 #ffffff, 0 0 0 2px var(--line), 0 30px 80px rgba(36,36,36,0.12)"><img src="assets/partner.svg" alt="Partner" style="width:58%;height:auto"></div>
   </div>
 </main>

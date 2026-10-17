@@ -15,6 +15,9 @@
 @font-face { font-family: "GT Alpina"; src: url("fonts/GT-Alpina-Regular.woff2") format("woff2"); font-weight: 400; font-style: normal; }
 @font-face { font-family: "GT Alpina"; src: url("fonts/GT-Alpina-Regular-Italic.woff2") format("woff2"); font-weight: 400; font-style: italic; }
 @font-face { font-family: "GT Alpina"; src: url("fonts/GT-Alpina-Medium.woff2") format("woff2"); font-weight: 500; font-style: normal; }
+/* The Light cut is a trial file with a short character set (no curly quotes, no "?"). Any glyph it lacks comes from the full
+   Regular file instead of the system serif; at title size the difference in one punctuation mark doesn't show. */
+@font-face { font-family: "GT Alpina Fill"; src: url("fonts/GT-Alpina-Regular.woff2") format("woff2"); font-weight: 100 900; font-style: normal; }
 @font-face { font-family: "PP Mondwest"; src: url("fonts/PPMondwest-Regular.otf"); font-weight: 400; }
 
 :root {
@@ -66,6 +69,7 @@
   --dark: var(--c-carbon-950);
   --dark-2: var(--c-carbon-800);
   --dark-3: var(--c-carbon-900);
+  --tile-dark-top: var(--c-carbon-750);  /* the pair tile's shade, the same top as the dark key */
   --dark-line: rgba(255, 255, 255, 0.07);
   --on-dark: #ffffff;
   --on-dark-2: rgba(255, 255, 255, 0.64);
@@ -79,7 +83,7 @@
   --wait: var(--c-warning);
 
   /* type: GT Alpina cap = 0.680 em, PP Mondwest 0.640 em (measured) */
-  --font-display: "GT Alpina", serif;
+  --font-display: "GT Alpina", "GT Alpina Fill", serif;
   --font-accent: "PP Mondwest", monospace;
   --font-ui: "Inter", sans-serif;        /* card and UI text, per the README's type roles */
   --cap-ui: 0.7275;                       /* measured */
