@@ -1,0 +1,27 @@
+{
+  "name": "Agenta",
+  "source": "design-system artifact https://claude.ai/code/artifact/58da9a6c-45d0-40ea-b04a-69a1d904b8ef (project/tokens.json, project/fonts, Logos)",
+  "fonts": {
+    "GT Alpina": { "cap": 0.68 },
+    "GT Alpina Fill": { "cap": 0.68 },
+    "PP Mondwest": { "cap": 0.64, "maxWords": 1 },
+    "Inter": { "cap": 0.7275 }
+  },
+  "requiredFiles": ["fonts/GT-Alpina-Light.woff2", "fonts/GT-Alpina-Regular.woff2", "fonts/PPMondwest-Regular.otf"],
+  "accent": ["#f2f25c", "#e7e712"],
+  "accentClasses": [".btn.primary", ".ag-btn.primary", ".post.carbon .hchip"],
+  "accentMax": 1,
+  "logoNeverOnAccent": false,
+  "gradientClasses": [".btn", ".ag-btn", ".hchip", ".post[data-archetype=\"pair\"] .tile"],
+  "allowLight": false,
+  "maxShadowBlur": 96,
+  "minReadCapPct": 2.9,
+  "minTextureCapPct": 1.6,
+  "maxTitleWords": 8,
+  "maxReadWords": 16,
+  "archetypes": ["statement", "pair", "quiet", "context", "plate", "window", "spotlight", "milestone", "prompt", "monogram", "tiles", "bento", "bento-split", "hub", "modules", "sankey", "lockup"],
+  "grounds": ["paper", "yellow"],
+  "properNouns": ["Agenta", "WhatsApp", "Slack", "Telegram", "Discord", "Teams", "Gmail", "Google", "GitHub", "GitLab", "Linear", "Notion", "Jira", "HubSpot", "Salesforce", "Stripe", "Shopify", "Zendesk", "Intercom", "OpenAI", "Claude", "Anthropic", "Gemini", "Opus", "Sonnet", "Haiku", "GPT", "Mistral", "Llama", "Marketplace", "I"],
+  "accentFaceShare": 0.25,
+  "formatGrounds": { "monogram": ["paper", "yellow"], "pair": ["paper"], "bento": ["paper"], "bento-split": ["paper"], "hub": ["paper"], "modules": ["paper"], "sankey": ["paper"] }
+}

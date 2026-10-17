@@ -1,0 +1,20 @@
+<!-- grid: the editorial layout grid left visible. Hairline guides, the title split top-left and bottom-right, bracketed labels on
+     a guide, one solid accent block in a corner. Flat. Features with a before/after or a timeline. From the Agenta brand team's
+     editorial grid. Labels name a timeline, never pixel numbers. -->
+<main class="post paper" data-archetype="grid">
+  <i class="v" style="left:var(--mx)"></i><i class="v" style="left:24.6%"></i><i class="v" style="left:42.6%"></i><i class="v" style="left:64.8%"></i><i class="v" style="right:var(--mx)"></i>
+  <i class="h" style="top:var(--my)"></i><i class="h" style="top:55%"></i><i class="h" style="top:58%"></i><i class="h" style="top:61%"></i><i class="h" style="bottom:var(--my)"></i>
+  <div style="right:0;top:0;width:38%;height:37.6%;background:var(--accent)"></div>
+  <i class="t" style="left:var(--mx);top:55%"></i><i class="t" style="left:24.6%;top:55%"></i><i class="t" style="left:64.8%;top:58%"></i><i class="t" style="right:var(--mx);top:58%"></i>
+  <span class="l" data-texture style="left:calc(var(--mx) + var(--u));top:55.4%">[Hour 1]</span><span class="l" data-texture style="left:calc(24.6% + var(--u));top:55.4%">[Day 1]</span><span class="l" data-texture style="left:calc(42.6% + var(--u));top:55.4%">[Day 3]</span><span class="l" data-texture style="left:calc(64.8% + var(--u));top:58.4%">[Week 1]</span>
+  <div class="lockup" data-logo="brand"><img src="{{brand}}/logos/logo-light.svg" alt="Logo"></div>
+  <h1 class="title" style="left:0;top:0;width:100%;height:100%;font-size:calc(var(--fs-title) * 1.45);line-height:0.98"><span style="position:absolute;left:var(--mx);top:calc(var(--my) + var(--u) * 10)">AI coworkers<br>that learn</span><span style="position:absolute;right:var(--mx);bottom:calc(var(--my) + var(--u) * 2);text-align:right">how you<br>work.</span></h1>
+  <style>
+    .post[data-archetype="grid"]::before { display:none; }
+    .post[data-archetype="grid"] .v { top:0; bottom:0; width:2px; background:var(--line); }
+    .post[data-archetype="grid"] .h { left:0; right:0; height:2px; background:var(--line); }
+    .post[data-archetype="grid"] .t { width:4px; height:calc(var(--u) * 2.6); background:var(--ink-3); }
+    .post[data-archetype="grid"] .l { color:var(--ink-3); }
+    .post.yellow[data-archetype="grid"] .v, .post.yellow[data-archetype="grid"] .h { background:rgba(36,36,36,0.12); }
+  </style>
+</main>

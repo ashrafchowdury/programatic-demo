@@ -1,0 +1,22 @@
+<!-- isometric: the product as an object. Three versions of one artefact stacked in CSS 3D (rotateX 55, rotateZ -45), lifted
+     off the ground with a long soft shadow; the top one carries the accent. Flat ground, no light. Versions, releases, registries.
+     From Resend's specimen object (one centred artefact, 40 %W x 50 %H), on a light ground. -->
+<main class="post paper" data-archetype="isometric">
+  <div class="lockup" data-logo="brand"><img src="{{brand}}/logos/logo-light.svg" alt="Logo"></div>
+  <h1 class="title" style="left:50%;top:17%;transform:translateX(-50%);text-align:center;white-space:nowrap">Publish once, install anywhere.</h1>
+  <div style="left:50%;top:68%;width:calc(var(--W) * 0.3);height:calc(var(--W) * 0.3);transform:translate(-50%,-50%) rotateX(55deg) rotateZ(-45deg);transform-style:preserve-3d">
+    <div style="position:absolute;inset:0;transform:translate3d(70px,70px,0);background:color-mix(in srgb, var(--ink) 22%, transparent);filter:blur(36px);border-radius:var(--r-xl)"></div>
+    <div class="iso" style="transform:translateZ(0)"><span data-texture>v1</span></div>
+    <div class="iso" style="transform:translateZ(120px)"><span data-texture>v2</span></div>
+    <div class="iso top" style="transform:translateZ(240px)">
+      <div style="display:flex;align-items:center;gap:calc(var(--u) * 1.4)"><img src="{{brand}}/logos/mark-light.svg" alt="" style="height:calc(var(--u) * 3);width:auto"><span class="read" style="font-weight:500;white-space:nowrap;font-size:calc(var(--fs-read) * 1.5)">release-notes</span></div>
+      <div data-texture style="color:var(--ink-3)">Skill · drafts our release notes</div>
+      <div style="display:flex;gap:calc(var(--u) * 1);margin-top:auto"><span class="btn primary">v3 · Latest</span></div>
+    </div>
+  </div>
+  <style>
+    .post[data-archetype="isometric"] .iso { position:absolute; inset:0; background:var(--panel); border-radius:var(--r-xl); box-shadow:0 0 0 2px var(--line), 10px 10px 0 0 var(--line), 12px 12px 0 2px rgba(36,36,36,0.10); padding:calc(var(--u) * 3); display:flex; flex-direction:column; gap:calc(var(--u) * 1.4); }
+    .post[data-archetype="isometric"] .iso:not(.top) { background:var(--panel-2); }
+    .post[data-archetype="isometric"] .iso:not(.top) [data-texture] { color:var(--ink-3); }
+  </style>
+</main>

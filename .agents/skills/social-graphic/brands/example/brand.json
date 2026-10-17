@@ -1,0 +1,20 @@
+{
+  "name": "Example",
+  "fonts": {
+    "Georgia": { "cap": 0.693 },
+    "Courier New": { "cap": 0.571, "maxWords": 1 }
+  },
+  "requiredFiles": [],
+  "accent": ["#4f46e5"],
+  "accentClasses": [".btn.primary", ".post.carbon .hchip"],
+  "accentMax": 1,
+  "logoNeverOnAccent": true,
+  "gradientClasses": [".hchip", ".post[data-archetype=\"pair\"] .tile"],
+  "allowLight": true,
+  "maxShadowBlur": 96,
+  "minReadCapPct": 2.9,
+  "minTextureCapPct": 1.6,
+  "maxTitleWords": 8,
+  "maxReadWords": 16,
+  "archetypes": "all"
+}

@@ -1,0 +1,20 @@
+<!-- plate: print plates. A flat paper column (0-44 %W, wide enough that the title sets in two or three lines) carries the
+     title; a solid accent plate and a halftone plate fill the rest, and one product card crosses the seam between them. Flat.
+     From Granola's plate split (column, plates, hero crossing the seam, bleeding the bottom). -->
+<main class="post paper" data-archetype="plate">
+  <div style="left:44%;right:0;top:0;height:60%;background:var(--accent);overflow:hidden"></div>
+  <svg viewBox="0 0 100 100" preserveAspectRatio="none" style="left:44%;right:0;top:60%;bottom:0;width:56%;height:40%"><defs><pattern id="ht" width="26" height="26" patternUnits="userSpaceOnUse"><circle cx="13" cy="13" r="8" style="fill:var(--ink)" fill="currentColor"/></pattern></defs><rect width="100%" height="100%" style="fill:var(--tint)" fill="currentColor"/></svg><svg style="left:44%;right:0;top:60%;bottom:0;width:56%;height:40%"><rect width="100%" height="100%" fill="url(#ht)"/></svg>
+  <div style="left:44%;top:0;bottom:0;width:2px;background:var(--line)"></div>
+  <div class="lockup" data-logo="brand"><img src="{{brand}}/logos/logo-light.svg" alt="Logo"></div>
+  <h1 class="title" style="left:var(--mx);top:var(--my);margin-top:calc(var(--u) * 12);max-width:calc(var(--W) * 0.34)">Customer stories, told by agents.</h1>
+  <div class="card" style="left:52%;top:24%;width:calc(var(--W) * 0.38);height:calc(var(--H) * 0.9);padding:calc(var(--u) * 3.6);box-shadow:0 0 0 2px rgba(36,36,36,0.05), 0 40px 96px rgba(36,36,36,0.18);display:flex;flex-direction:column;gap:calc(var(--u) * 2.2)">
+    <div style="display:flex;align-items:center;gap:calc(var(--u) * 1.6)"><img src="{{brand}}/logos/mark-light.svg" alt="" style="height:calc(var(--u) * 3.4);width:auto"><span class="read" style="font-weight:500">Support agent</span><span data-texture style="margin-left:auto;color:var(--ink-3)">This week</span></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:calc(var(--u) * 1.6)">
+      <div style="background:var(--tint);border-radius:var(--r-md);padding:calc(var(--u) * 2)"><div data-texture style="color:var(--ink-3)">Tickets closed</div><div class="read" style="font-size:calc(var(--fs-read) * 1.6)">412</div></div>
+      <div style="background:var(--tint);border-radius:var(--r-md);padding:calc(var(--u) * 2)"><div data-texture style="color:var(--ink-3)">Asked first</div><div class="read" style="font-size:calc(var(--fs-read) * 1.6)">37</div></div>
+    </div>
+    <div style="height:2px;background:var(--line)"></div>
+    <div data-texture style="color:var(--ink-3)">Refunded order #4821 and emailed the customer.</div>
+    <div data-texture style="color:var(--ink-3)">Escalated a billing dispute to finance.</div>
+  </div>
+</main>

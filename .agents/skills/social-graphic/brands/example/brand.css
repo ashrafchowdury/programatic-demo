@@ -1,0 +1,68 @@
+/*
+ * Example brand pack: a neutral stand-in so the kit renders with nothing installed.
+ * Copy this folder to make your own: replace the palette, the roles, the faces and the logos,
+ * then measure your faces' cap ratio (see SKILL.md, "Make a brand pack").
+ * System faces only, so it works offline: Georgia (cap 0.693 em) and Courier New (cap 0.571 em), measured.
+ */
+:root {
+  --c-white: #ffffff;
+  --c-paper: #f2f2f0;
+  --c-paper-2: #fafafa;
+  --c-line: #e3e3e0;
+  --c-chip-top: #f0f0ee;
+  --c-chip-bottom: #e6e6e3;
+  --c-ink: #1a1a1a;
+  --c-ink-2: #5c5c62;
+  --c-ink-3: #a0a0a6;
+  --c-night: #141416;
+  --c-night-2: #1f1f23;
+  --c-night-3: #2a2a2f;
+  --c-accent: #4f46e5;
+  --c-data: #e4572e;
+  --c-data-muted: #e3e3e0;
+  --c-ok: #3fa34d;
+  --c-wait: #e3a23b;
+
+  --ground: var(--c-paper);
+  --panel: var(--c-white);
+  --panel-2: var(--c-paper-2);
+  --tint: var(--c-paper);
+  --line: var(--c-line);
+  --ink: var(--c-ink);
+  --ink-2: var(--c-ink-2);
+  --ink-3: var(--c-ink-3);
+  --dark: var(--c-night);
+  --dark-2: var(--c-night-2);
+  --dark-3: var(--c-night-3);
+  --dark-line: rgba(255, 255, 255, 0.08);
+  --on-dark: #ffffff;
+  --on-dark-2: rgba(255, 255, 255, 0.64);
+  --accent: var(--c-accent);
+  --accent-ink: #ffffff;
+  --data: var(--c-data);
+  --data-muted: var(--c-data-muted);
+  --ok: var(--c-ok);
+  --wait: var(--c-wait);
+
+  --font-display: Georgia, serif;
+  --font-accent: "Courier New", monospace;
+  --display-weight: 400;
+  --read-weight: 400;
+  --cap-display: 0.693;
+  --cap-accent: 0.571;
+
+  --chip-top: var(--c-chip-top);
+  --chip-bottom: var(--c-chip-bottom);
+  --chip-dark: rgba(255, 255, 255, 0.08);
+
+  --r-sm: 16px;
+  --r-md: 20px;
+  --r-lg: 24px;
+  --r-xl: 32px;
+  --shadow-ring: 0 0 0 2px rgba(0, 0, 0, 0.06), 0 2px 6px rgba(0, 0, 0, 0.06);
+  --shadow-frame: 0 0 0 2px rgba(0, 0, 0, 0.06), 0 0 0 12px var(--c-paper), 0 0 0 14px var(--c-line);
+  --shadow-float: 0 0 0 2px rgba(0, 0, 0, 0.06), 0 40px 96px rgba(0, 0, 0, 0.16);
+}
+
+/* this brand never puts its logo on the accent (logoNeverOnAccent), so on an accent ground the lockup sits on a panel plate */
+.post.yellow .lockup { background: var(--panel); padding: calc(var(--u) * 1.3) calc(var(--u) * 1.8); box-sizing: content-box; }

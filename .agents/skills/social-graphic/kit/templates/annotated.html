@@ -1,0 +1,18 @@
+<!-- annotated: a proofreader's mark on a headline. Right-weighted two-line title; one word boxed with corner squares; a pointer
+     drops from it and turns to a short note. Flat. A feature whose value sits in one word. From the Agenta brand team's annotated
+     headline. Offsets scale from the title size: drop 0.8x, arm 0.6x, squares 0.11x. -->
+<main class="post paper" data-archetype="annotated">
+  <div class="lockup" data-logo="brand"><img src="{{brand}}/logos/logo-light.svg" alt="Logo"></div>
+  <h1 class="title" style="right:var(--mx);top:30%;text-align:right;white-space:nowrap;font-size:calc(var(--fs-title) * 1.25);line-height:1.1">AI coworkers that learn<br>how <span class="mark" data-overhang>you<i class="sq a"></i><i class="sq b"></i><i class="drop"></i><i class="arm"></i><span class="note" data-texture>Learned:<br><b>tone, format, Monday 9:00</b></span></span> work.</h1>
+  <style>
+    .post[data-archetype="annotated"] .mark { position:relative; display:inline-block; background:var(--accent); padding:0 0.12em; box-shadow:0 0 0 3px var(--ink); }
+    .post.yellow[data-archetype="annotated"] .mark { background:var(--panel); }
+    .post[data-archetype="annotated"] .sq { position:absolute; width:0.11em; height:0.11em; background:var(--ink); }
+    .post[data-archetype="annotated"] .sq.a { left:-0.06em; top:-0.06em; }
+    .post[data-archetype="annotated"] .sq.b { right:-0.06em; bottom:-0.06em; }
+    .post[data-archetype="annotated"] .drop { position:absolute; left:50%; top:100%; width:3px; height:0.8em; background:var(--ink); }
+    .post[data-archetype="annotated"] .arm { position:absolute; left:50%; top:calc(100% + 0.8em); width:0.6em; height:3px; background:var(--ink); }
+    .post[data-archetype="annotated"] .note { position:absolute; left:calc(50% + 0.72em); top:calc(100% + 0.68em); white-space:nowrap; text-align:left; letter-spacing:0; line-height:1.3; font-size:calc(var(--u) * 2.4 / var(--cap-ui, var(--cap-display))); font-weight:500; }
+    .post[data-archetype="annotated"] .note b { font-weight:400; color:var(--ink-2); }
+  </style>
+</main>

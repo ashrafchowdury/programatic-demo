@@ -1,0 +1,20 @@
+<!-- proof: the sentence on the left, the real screen that proves it bleeding off right and bottom.
+     The fade sits on an inner wrapper: a mask on the frame itself would clip the frame's shadow too.
+     Swap the mock for a real capture: <img src="assets/screen.png" style="width:100%"> from `pnpm still <shot>`. -->
+<main class="post paper" data-archetype="proof">
+  <div class="lockup" data-logo="brand"><img src="{{brand}}/logos/logo-light.svg" alt="Logo"></div>
+  <h1 class="title" style="left:var(--mx);top:50%;transform:translateY(-50%);max-width:calc(var(--W) * 0.4)">Every run, traced end to end.</h1>
+  <div class="frame" data-bleed data-texture style="left:calc(var(--W) * 0.5);top:calc(var(--H) * 0.22);width:calc(var(--W) * 0.62);height:calc(var(--H) * 0.95);box-shadow:var(--shadow-float);font-size:calc(var(--u) * 2.4 / var(--cap-display))">
+    <div class="fade-b" style="height:100%">
+    <div style="padding:72px 80px;display:flex;flex-direction:column;gap:40px;color:var(--ink-2)">
+      <div style="display:flex;gap:24px;color:var(--ink)"><span>Trace</span><span style="color:var(--ink-3)">run_7f3a9c · 4.2 s</span></div>
+      <div style="height:2px;background:var(--line)"></div>
+      <div style="display:flex;gap:24px;align-items:center"><span style="width:44%;height:48px;border-radius:8px;background:var(--ink)"></span><span>agent.run</span></div>
+      <div style="display:flex;gap:24px;align-items:center;padding-left:8%"><span style="width:22%;height:48px;border-radius:8px;background:var(--data)"></span><span>search_orders</span></div>
+      <div style="display:flex;gap:24px;align-items:center;padding-left:30%"><span style="width:14%;height:48px;border-radius:8px;background:var(--ink-3)"></span><span>llm.call</span></div>
+      <div style="display:flex;gap:24px;align-items:center;padding-left:44%"><span style="width:18%;height:48px;border-radius:8px;background:var(--ink-3)"></span><span>approve_refund</span></div>
+      <div style="display:flex;gap:24px;align-items:center;padding-left:62%"><span style="width:10%;height:48px;border-radius:8px;background:var(--ink-3)"></span><span>reply</span></div>
+    </div>
+    </div>
+  </div>
+</main>

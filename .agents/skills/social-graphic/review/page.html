@@ -1,0 +1,188 @@
+<title>Poster Review</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Newsreader:opsz,wght@6..72,300;6..72,400&family=JetBrains+Mono:wght@400&display=swap">
+<style>
+/* Layout: a proofing board. Sticky tally and filters on top, one section per source, cards in a two-up grid so white/yellow pairs sit side by side. */
+:root{
+  --bg:#f1eeec; --panel:#ffffff; --ink:#242424; --muted:#676770; --line:#e5e0dd;
+  --mark:#f2f25c; --mark-ink:#242424; --keep:#3f8a5e; --keep-bg:#e6f2ea; --drop:#b4482f; --drop-bg:#f8e7e2;
+  --display:"Newsreader",Georgia,serif; --sans:"Inter",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#1e1d1c;--panel:#242220;--ink:#f1eeec;--muted:#a3a19f;--line:#3c3a38;--mark:#f2f25c;--mark-ink:#242424;--keep:#6fbf8e;--keep-bg:#22332a;--drop:#e0735c;--drop-bg:#3a2520;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#1e1d1c;--panel:#242220;--ink:#f1eeec;--muted:#a3a19f;--line:#3c3a38;--mark:#f2f25c;--mark-ink:#242424;--keep:#6fbf8e;--keep-bg:#22332a;--drop:#e0735c;--drop-bg:#3a2520;color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.5}
+.wrap{max-width:1320px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:40px 80px}
+header h1{font-family:var(--display);font-weight:300;font-size:clamp(34px,5vw,56px);line-height:1.05;letter-spacing:-0.02em;margin:0 0 10px;text-wrap:balance}
+header p{color:var(--muted);max-width:66ch;margin:0}
+.bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);border-bottom:1px solid var(--line);margin:28px 0 8px;padding:12px 0;display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center}
+.tally{display:flex;gap:14px;font-variant-numeric:tabular-nums;font-size:13px;color:var(--muted)}
+.tally b{color:var(--ink);font-weight:600}
+.filters{display:flex;flex-wrap:wrap;gap:6px;margin-left:auto}
+.chip{font:500 13px var(--sans);border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:999px;padding:5px 12px;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.chip:focus-visible,.seg button:focus-visible,textarea:focus-visible,.thumb:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.notice{margin:12px 0 0;padding:10px 14px;border:1px solid var(--line);background:var(--panel);font-size:13px;color:var(--muted)}
+nav.toc{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;margin:14px 0 0}
+nav.toc a{color:var(--muted);text-decoration:none;border-bottom:1px solid var(--line)}
+section{margin-top:44px}
+section h2{font-family:var(--display);font-weight:400;font-size:28px;margin:0 0 4px;letter-spacing:-0.01em}
+section .sub{color:var(--muted);font-size:14px;margin:0 0 18px;max-width:72ch}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+@media (max-width:760px){.grid{grid-template-columns:minmax(0,1fr)}}
+.card{background:var(--panel);border:1px solid var(--line);display:flex;flex-direction:column;min-width:0}
+.card[data-status="update"]{box-shadow:inset 0 4px 0 var(--mark)}
+.card[data-status="keep"]{box-shadow:inset 0 4px 0 var(--keep)}
+.card[data-status="drop"]{box-shadow:inset 0 4px 0 var(--drop)}
+.thumb{display:block;padding:0;border:0;background:var(--line);cursor:zoom-in;aspect-ratio:2839/1596;max-width:100%}
+.thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.body{padding:14px 16px 16px;display:flex;flex-direction:column;gap:10px}
+.head{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.name{font-weight:600;font-size:15px}
+.ground{font-size:12px;border:1px solid var(--line);border-radius:999px;padding:1px 8px;color:var(--muted)}
+.ground.y{background:var(--mark);color:var(--mark-ink);border-color:transparent}
+.id{margin-left:auto;font:12px var(--mono);color:var(--muted)}
+.meta{color:var(--muted);font-size:13px;margin-top:-6px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;width:max-content;max-width:100%}
+.seg button{font:500 13px var(--sans);border:0;background:transparent;color:var(--ink);padding:6px 14px;cursor:pointer}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button[aria-pressed="true"][data-v="keep"]{background:var(--keep-bg);color:var(--keep)}
+.seg button[aria-pressed="true"][data-v="update"]{background:var(--mark);color:var(--mark-ink)}
+.seg button[aria-pressed="true"][data-v="drop"]{background:var(--drop-bg);color:var(--drop)}
+.seg button:disabled{cursor:not-allowed;opacity:.5}
+textarea{width:100%;min-height:64px;resize:vertical;font:14px/1.45 var(--sans);color:var(--ink);background:var(--bg);border:1px solid var(--line);padding:8px 10px}
+.saved{font-size:12px;color:var(--muted);min-height:16px}
+dialog{border:0;padding:0;max-width:min(96vw,1600px);background:transparent}
+dialog::backdrop{background:rgba(20,19,18,.86)}
+dialog img{display:block;width:100%;height:auto;max-height:86vh;object-fit:contain}
+dialog .cap{color:#f1eeec;font-size:14px;padding:10px 2px;display:flex;gap:12px;align-items:center}
+dialog .cap button{margin-left:auto}
+.empty{color:var(--muted);font-size:14px;padding:12px 0}
+@media (prefers-reduced-motion:no-preference){.card{transition:box-shadow .15s}}
+</style>
+<div class="wrap">
+  <header>
+    <h1>Poster review</h1>
+    <p>Mark each poster Keep, Update or Drop and leave a note. Notes save for everyone who opens this page, and Claude reads them back and acts on them.</p>
+  </header>
+  <div class="bar">
+    <div class="tally" aria-live="polite"><span><b id="t-update">0</b> update</span><span><b id="t-keep">0</b> keep</span><span><b id="t-drop">0</b> drop</span><span><b id="t-none">0</b> unmarked</span></div>
+    <div class="filters" role="group" aria-label="Filter">
+      <button class="chip" data-f="all" aria-pressed="true">All</button>
+      <button class="chip" data-f="update" aria-pressed="false">Update</button>
+      <button class="chip" data-f="keep" aria-pressed="false">Keep</button>
+      <button class="chip" data-f="drop" aria-pressed="false">Drop</button>
+      <button class="chip" data-f="none" aria-pressed="false">Unmarked</button>
+    </div>
+  </div>
+  <div class="notice" id="notice">Loading saved notes…</div>
+  <nav class="toc" id="toc"></nav>
+  <main id="sections"></main>
+</div>
+<dialog id="lb" aria-label="Poster at full size"><img id="lb-img" alt=""><div class="cap"><span id="lb-cap"></span><button class="chip" id="lb-close">Close</button></div></dialog>
+<script>
+const ITEMS = __ITEMS__;
+const SECTIONS = __SECTIONS__;
+const notes = {};           // id -> {status, note}
+let filter = "all", db = null, canWrite = false;
+const $ = (s, el=document) => el.querySelector(s);
+
+function card(it){
+  const el = document.createElement("article");
+  el.className = "card"; el.id = it.id; el.dataset.id = it.id;
+  el.innerHTML = `
+    <button class="thumb" type="button" aria-label="Open ${it.label} at full size"><img loading="lazy" src="${it.src}" alt=""></button>
+    <div class="body">
+      <div class="head"><span class="name"></span><span class="ground ${it.ground==="Yellow"?"y":""}"></span><span class="id"></span></div>
+      <div class="meta"></div>
+      <div class="seg" role="group" aria-label="Decision">
+        <button type="button" data-v="keep" aria-pressed="false">Keep</button>
+        <button type="button" data-v="update" aria-pressed="false">Update</button>
+        <button type="button" data-v="drop" aria-pressed="false">Drop</button>
+      </div>
+      <label class="sr" for="n-${it.id}" style="position:absolute;left:-9999px">Note for ${it.label}</label>
+      <textarea id="n-${it.id}" placeholder="What should change?"></textarea>
+      <div class="saved"></div>
+    </div>`;
+  $(".name", el).textContent = it.label;
+  $(".ground", el).textContent = it.ground;
+  $(".id", el).textContent = it.id;
+  $(".meta", el).textContent = it.meta;
+  $(".thumb", el).addEventListener("click", () => openLb(it));
+  el.querySelectorAll(".seg button").forEach(b => b.addEventListener("click", () => {
+    const cur = (notes[it.id]||{}).status || "";
+    save(it.id, {status: cur === b.dataset.v ? "" : b.dataset.v});
+  }));
+  const ta = $("textarea", el); let t;
+  ta.addEventListener("input", () => { clearTimeout(t); $(".saved", el).textContent = "Typing…"; t = setTimeout(() => save(it.id, {note: ta.value}), 700); });
+  ta.addEventListener("blur", () => { clearTimeout(t); if ((notes[it.id]||{}).note !== ta.value) save(it.id, {note: ta.value}); });
+  return el;
+}
+
+function build(){
+  const main = $("#sections"), toc = $("#toc");
+  for (const s of SECTIONS){
+    const list = ITEMS.filter(i => i.section === s.key);
+    const sec = document.createElement("section"); sec.id = s.key;
+    sec.innerHTML = `<h2></h2><p class="sub"></p><div class="grid"></div><p class="empty" hidden>Nothing here matches this filter.</p>`;
+    $("h2", sec).textContent = `${s.title} · ${list.length}`; $(".sub", sec).textContent = s.sub;
+    list.forEach(it => $(".grid", sec).appendChild(card(it)));
+    main.appendChild(sec);
+    const a = document.createElement("a"); a.href = "#" + s.key; a.textContent = `${s.title} (${list.length})`; toc.appendChild(a);
+  }
+}
+
+function paint(){
+  const c = {keep:0, update:0, drop:0, none:0};
+  for (const it of ITEMS){
+    const n = notes[it.id] || {}; const st = n.status || "";
+    c[st || "none"]++;
+    const el = document.getElementById(it.id);
+    el.dataset.status = st;
+    el.querySelectorAll(".seg button").forEach(b => { b.setAttribute("aria-pressed", String(b.dataset.v === st)); b.disabled = !canWrite; });
+    const ta = $("textarea", el); ta.disabled = !canWrite;
+    if (document.activeElement !== ta && ta.value !== (n.note || "")) ta.value = n.note || "";
+    el.hidden = !(filter === "all" || (filter === "none" ? !st : st === filter));
+  }
+  for (const k in c) $("#t-" + k).textContent = c[k];
+  document.querySelectorAll("section").forEach(s => { $(".empty", s).hidden = !!s.querySelector(".card:not([hidden])"); });
+}
+
+async function save(id, patch){
+  if (!db || !canWrite) return;
+  const next = {status: "", note: "", ...(notes[id]||{}), ...patch, updatedAt: Date.now()};
+  notes[id] = next; paint();
+  const el = document.getElementById(id); $(".saved", el).textContent = "Saving…";
+  try { await db.collection("notes").doc(id).set({status: next.status, note: next.note, updatedAt: next.updatedAt}); $(".saved", el).textContent = "Saved"; }
+  catch (e) { $(".saved", el).textContent = "Not saved: " + (e && e.message ? e.message : "try again"); }
+}
+
+let lbIndex = 0;
+function visible(){ return ITEMS.filter(i => !document.getElementById(i.id).hidden); }
+function openLb(it){ const v = visible(); lbIndex = Math.max(0, v.indexOf(it)); showLb(v); $("#lb").showModal(); }
+function showLb(v){ const it = v[lbIndex]; if (!it) return; $("#lb-img").src = it.src; $("#lb-img").alt = it.label; $("#lb-cap").textContent = `${it.label} · ${it.ground} · ${it.meta}  (← → to move)`; }
+$("#lb-close").addEventListener("click", () => $("#lb").close());
+$("#lb").addEventListener("click", e => { if (e.target.id === "lb") $("#lb").close(); });
+document.addEventListener("keydown", e => {
+  if (!$("#lb").open) return; const v = visible();
+  if (e.key === "ArrowRight") { lbIndex = (lbIndex + 1) % v.length; showLb(v); }
+  if (e.key === "ArrowLeft") { lbIndex = (lbIndex - 1 + v.length) % v.length; showLb(v); }
+});
+document.querySelectorAll(".chip[data-f]").forEach(b => b.addEventListener("click", () => {
+  filter = b.dataset.f; document.querySelectorAll(".chip[data-f]").forEach(x => x.setAttribute("aria-pressed", String(x === b))); paint();
+}));
+
+build(); paint();
+(async () => {
+  db = window.claude && window.claude.use ? await window.claude.use("db") : null;
+  if (!db){ $("#notice").textContent = "Notes can't be loaded or saved in this view. Open the page on claude.ai to annotate."; return; }
+  canWrite = true;
+  try { const u = await window.claude.use("user"); const w = u && u.can ? u.can("data.write") : null; if (w === false) canWrite = false; } catch (e) {}
+  $("#notice").textContent = canWrite ? "Notes save as you go and are shared with everyone who opens this page." : "You can read the notes here but not change them.";
+  db.collection("notes").onSnapshot(snap => {
+    for (const d of snap.docs){ const v = d.data(); if (v) notes[d.id] = {status: v.status || "", note: v.note || ""}; }
+    paint();
+  }, err => { $("#notice").textContent = "Couldn't load notes: " + (err && err.message ? err.message : "unknown error"); });
+})();
+</script>
