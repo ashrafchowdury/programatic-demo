@@ -114,6 +114,8 @@ export type RenderOptions = {
    * overlay layer: ProRes 4444 is the codec that carries alpha.
    */
   codec?: "h264" | "prores4444";
+  /** Remotion's `--scale`: output size as a share of the composition's. */
+  scale?: number;
 };
 
 /** The CLI flags `renderComposition` passes. Pure, so it can be tested. */
@@ -142,6 +144,7 @@ export function renderArgs(
     out,
     `--props=${JSON.stringify(props)}`,
     ...(opts.frames ? [`--frames=${opts.frames.first}-${opts.frames.last}`] : []),
+    ...(opts.scale != null && opts.scale !== 1 ? [`--scale=${opts.scale}`] : []),
     ...codec,
     `--gl=${resolveGl(env.DEMO_GL)}`,
     ...(concurrency != null ? [`--concurrency=${concurrency}`] : []),

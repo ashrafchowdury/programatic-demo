@@ -10,6 +10,12 @@ describe("renderArgs", () => {
     assert.equal(renderArgs("DemoClip", "/o.mp4", {}, {}, {}).some((a) => a.startsWith("--concurrency")), false);
   });
 
+  it("scales the output only when asked", () => {
+    assert.ok(renderArgs("DemoClip", "/o.mp4", {}, { scale: 0.75 }, {}).includes("--scale=0.75"));
+    assert.equal(renderArgs("DemoClip", "/o.mp4", {}, { scale: 1 }, {}).some((a) => a.startsWith("--scale")), false);
+    assert.equal(renderArgs("DemoClip", "/o.mp4", {}, {}, {}).some((a) => a.startsWith("--scale")), false);
+  });
+
   it("renders h264 at CRF 16 on the GPU, muted", () => {
     const args = renderArgs("Intro", "/o.mp4", {}, {}, {});
     assert.deepEqual(args.slice(0, 3), ["render", "Intro", "/o.mp4"]);

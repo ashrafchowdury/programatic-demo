@@ -68,6 +68,12 @@ export type IntroStoryboard = {
    * will have little contrast.
    */
   logo?: boolean;
+  /**
+   * Open already built: every word, the wordmark and the subhead are in place
+   * on the card's first frame, then it holds. For the card a reel opens on,
+   * whose first frame is the preview a feed shows before play.
+   */
+  poster?: boolean;
   /** Studio backdrop name, so a card matches the demo it introduces. */
   backdrop?: string;
   /**
@@ -860,7 +866,9 @@ export function introTiming(intro: IntroStoryboard): IntroTiming {
     length.openOn > 0 && !intro.logo
       ? schedule(0)[Math.min(length.openOn, units) - 1]
       : undefined;
-  const trimInS = Math.max(authoredTrimS, opening?.endS ?? 0);
+  // A poster trims the whole reveal: the last unit ends on frame 0.
+  const built = intro.poster && !intro.logo ? schedule(0)[units - 1] : undefined;
+  const trimInS = Math.max(authoredTrimS, opening?.endS ?? 0, built?.endS ?? 0);
   const words = schedule(trimInS);
   const last = words[words.length - 1];
   // An empty headline still has to produce a coherent schedule, or Studio

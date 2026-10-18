@@ -78,6 +78,8 @@ export type ZoomOptions = {
    * does today. Only reel clips ask for it.
    */
   drift?: number;
+  /** Frame for a camera that works inside a still window; see FrameGeometry.focus. */
+  focus?: boolean;
 };
 
 // Region-framing knobs.
@@ -121,6 +123,13 @@ export const REPOSE_MIN_DS = 0.12;
 const PAD = 80;
 const MENU_ROOM = 110;
 const FRAME_FRAC = 0.55;
+/**
+ * How much of the view a field being typed into may fill under focus framing
+ * (FrameGeometry.focus). At FRAME_FRAC the skills form's Name field (a third
+ * of the app's width) framed at 1.25x on screen; the text is the subject, so
+ * it fills the view up to the sharpness ceiling (sMax: 1.5x on screen).
+ */
+const FOCUS_TYPE_FRAC = 0.9;
 /**
  * How far inside the frame edge a click is kept, as a fraction of the frame.
  *
@@ -242,6 +251,23 @@ export type FrameGeometry = {
   fit?: number;
   /** Chrome strip on top of the group, as a fraction of it. Default 0. */
   chromeFrac?: number;
+  /**
+   * FOCUS framing, for the camera inside a still window (ShotStyle.camera
+   * "inside", framed at fit 1: the window is the whole view). Three changes,
+   * all off by default so every other track is untouched:
+   *
+   *   - A TYPING beat frames its field, not the populated region around it,
+   *     so the text being typed is what the zoom is about. Under content
+   *     framing the New skill form (a full-height drawer) held one pose at
+   *     1.07x on screen through all three fields and six seconds of typing.
+   *   - Any other beat with a populated region frames ALL of it, loosening
+   *     below the punch floor when it must: a drawer that opens is shown
+   *     whole, never with a punch's crop through it.
+   *   - The camera leaves for the next beat as soon as the last one has been
+   *     watched, instead of when the cursor leaves: the skills list slid in
+   *     under a camera still framed on the menu for a second before it moved.
+   */
+  focus?: boolean;
 };
 
 type Rect = { x: number; y: number; w: number; h: number };
@@ -314,8 +340,9 @@ export function frameFor(
   const focusX = mix(rectCx, c.x, CLICK_WEIGHT);
   const focusY = mix(rectCy, c.y, CLICK_WEIGHT);
 
-  const sByW = (FRAME_FRAC * W) / (extW + 2 * PAD * k);
-  const sByH = (FRAME_FRAC * H) / (extH + 2 * PAD * k);
+  const frac = geom.focus && c.typeEndMs != null ? FOCUS_TYPE_FRAC : FRAME_FRAC;
+  const sByW = (frac * W) / (extW + 2 * PAD * k);
+  const sByH = (frac * H) / (extH + 2 * PAD * k);
   // An explicit zoomScale overrides the fit: a wide target (a menu across most
   // of the frame) fits at S_MIN, but the author may want to crop TIGHT on it.
   // Still clamped to sMax, so "tight" never upscales past the sharpness ceiling.
@@ -369,7 +396,9 @@ export function frameFor(
 
   // Content-aware framing (D9). Only when the recorder logged the populated
   // region; without it every line below is skipped and framing is as before.
-  if (c.content) {
+  // Under focus framing a typing beat skips it: the field is the subject.
+  const focus = geom.focus === true;
+  if (c.content && !(focus && c.typeEndMs != null)) {
     const ext = { x: rect.x, y: rect.y, w: rect.w, h: rect.h + menuRoom };
     const u = clipTo(union(ext, c.content), W, H);
     if (u.w > 0 && u.h > 0) {
@@ -381,8 +410,10 @@ export function frameFor(
       // Blank share if the union were wholly in shot: 1 - area(u) / area(view).
       const sCap =
         Math.sqrt(((1 - BLANK_CAP) * W * H) / (u.w * u.h * (1 - cf))) / fit;
-      // Tighten, never loosen: the target's own fit already chose S.
-      S = Math.max(S, Math.min(sCap, sFill, sMax));
+      // Tighten, never loosen: the target's own fit already chose S. Focus
+      // framing loosens too, down to the whole app: the region is the subject.
+      const sContent = Math.min(sCap, sFill, sMax);
+      S = focus ? clamp(sContent, 1, sMax) : Math.max(S, sContent);
       // Aim at the union instead of the subject's base position.
       gx = (u.x + u.w / 2) / W;
       gy = toG(u.y + u.h / 2);
@@ -891,13 +922,18 @@ export function buildCameraTrack(
     return i + 1 < meta.length ? meta[i + 1].tIn : Infinity;
   };
 
+  // Focus framing leaves as soon as the last beat has been watched (see
+  // FrameGeometry.focus); otherwise when the cursor does.
+  const eager = (want: number, after: ClickEvent | null): number =>
+    geom.focus && after ? Math.min(want, watchUntil(after)) : want;
+
   for (let i = 0; i < meta.length; i++) {
     const { group, poses, tIn } = meta[i];
     const prev = i > 0 ? meta[i - 1].group : null;
     const prevLast = prev ? prev[prev.length - 1] : null;
     reach(
       settle(pose, poses[0], group[0], vp, geom),
-      tIn,
+      eager(tIn, prevLast),
       pressS(group[0]),
       prevLast
         ? { hard: watchUntil(prevLast), soft: holdUntil(prevLast) }
@@ -908,7 +944,7 @@ export function buildCameraTrack(
     for (let j = 1; j < group.length; j++) {
       reach(
         settle(pose, poses[j], group[j], vp, geom),
-        departS(group[j]) - CAMERA_LEAD_S,
+        eager(departS(group[j]) - CAMERA_LEAD_S, group[j - 1]),
         pressS(group[j]),
         { hard: watchUntil(group[j - 1]), soft: holdUntil(group[j - 1]) },
         false,
@@ -1104,7 +1140,7 @@ function cachedTrack(
     byKey = new Map();
     trackCache.set(log, byKey);
   }
-  const key = `${speed}|${geom.fit}|${geom.chromeFrac}`;
+  const key = `${speed}|${geom.fit}|${geom.chromeFrac}|${geom.focus}`;
   let track = byKey.get(key);
   if (!track) {
     track = buildCameraTrack(log, speed, geom);
@@ -1134,6 +1170,7 @@ export function zoomAt(
   const track = cachedTrack(log, speed, {
     fit: opts.fit && opts.fit > 0 ? opts.fit : WINDOW_FIT,
     chromeFrac,
+    focus: opts.focus === true,
   });
   const pose = driftPose(
     sampleTrack(track, t),

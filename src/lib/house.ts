@@ -98,6 +98,39 @@ export type House = {
    * ShotStyle.camera). Needs a `pack`. Absent = the style's and the pack's own.
    */
   readonly window?: { readonly ground: string; readonly camera: "window" | "inside" };
+  /**
+   * Where a one-take clip starts. `wide`: the first frame of the footage, so
+   * the take opens on the whole app and the camera's first zoom plays on
+   * screen. Absent: `cut.leadS` before the first press, where the camera has
+   * usually already pushed in.
+   */
+  readonly opening?: "wide";
+  /**
+   * The title card opens already built, so the reel's first frame (what X and
+   * LinkedIn show before play) is the title, not a half-written one; and the
+   * launch writes that frame beside the reel as `<name>.poster.jpg`.
+   */
+  readonly poster?: boolean;
+  /**
+   * How the reel renders, for a machine without a GPU (an Agenta agent's
+   * sandbox: 2 vCPU, 4 GB). Absent: 2560 wide with the camera shutter, after
+   * rendering the standalone demo. See docs/reel/design/agent-sandbox-spike.md.
+   */
+  readonly render?: {
+    /** Output size as a share of the 2560-wide composition: 0.75 = 1920x1080. */
+    readonly scale: number;
+    /** The camera shutter (motion blur). false: one sample per frame. */
+    readonly motionBlur: boolean;
+    /** Render out/demo/<demo>.mp4 before the reel. false: the reel only. */
+    readonly standaloneDemo: boolean;
+    /** DEMO_GL when the run does not set it: the sandbox has no GPU. */
+    readonly gl: "angle" | "swiftshader";
+    /**
+     * DEMO_CONCURRENCY when the run does not set it. One Chrome worker decoding
+     * 4K footage is ~1.2 GB; two swapped in a 4 GB sandbox and ran 3.4x slower.
+     */
+    readonly workers: number;
+  };
   /** Most closing lines a one-take brief may give (each a `signoff` card in length). */
   readonly outro?: { readonly max: number };
   readonly brand: HouseBrand;
@@ -366,6 +399,27 @@ const agenta5: House = {
   window: { ground: "neutral-200", camera: "inside" },
 };
 
+/**
+ * agenta@5, opened wide on a poster: the take starts on the footage's first
+ * frame (the whole app, then the first zoom), and the title is built on frame 0
+ * so a feed's preview is never blank.
+ */
+const agenta6: House = { ...agenta5, id: "agenta@6", opening: "wide", poster: true };
+
+/**
+ * agenta@6 for an agent's sandbox: 1080p, no camera shutter, no standalone
+ * demo render. Measured on a 2-CPU, 4 GB copy of the Agenta runner image
+ * (docs/reel/design/agent-sandbox-spike.md): agenta@6 cannot finish there
+ * (8 shutter samples, ~9.6 s a frame, frames past Remotion's timeout); one
+ * sample at 1080p is ~0.53 s a frame. X and LinkedIn deliver at most 1080p,
+ * and at 60fps the shutter is the smallest loss.
+ */
+const agenta7: House = {
+  ...agenta6,
+  id: "agenta@7",
+  render: { scale: 0.75, motionBlur: false, standaloneDemo: false, gl: "swiftshader", workers: 1 },
+};
+
 const deepFreeze = <T>(value: T): T => {
   if (typeof value === "object" && value !== null && !Object.isFrozen(value)) {
     for (const v of Object.values(value)) deepFreeze(v);
@@ -376,17 +430,18 @@ const deepFreeze = <T>(value: T): T => {
 
 /** Every published house, by id. */
 export const HOUSES: Readonly<Record<string, House>> = deepFreeze(
-  Object.fromEntries([agenta1, agentaClassic1, agenta2, agenta3, agenta4, agenta5].map((h) => [h.id, h])),
+  Object.fromEntries([agenta1, agentaClassic1, agenta2, agenta3, agenta4, agenta5, agenta6, agenta7].map((h) => [h.id, h])),
 );
 
 /**
- * One take in the Agenta pack, the app in a window on a grey ground, shot in
- * slow motion, rendered at 60fps, 16:9 only. Was "agenta@1" (beats, stage),
- * "agenta@2" (one take at 30fps), "agenta@3" (60fps, plus 9:16), then
- * "agenta@4" (agenta@5 with the window filling the frame on its zooms); a brief
- * that pins any of them still cuts exactly as before.
+ * One take in the Agenta pack, opened wide on a poster title, the app in a
+ * window on a grey ground, shot in slow motion, rendered at 60fps, 16:9 only.
+ * Was "agenta@1" (beats, stage), "agenta@2" (one take at 30fps), "agenta@3"
+ * (60fps, plus 9:16), "agenta@4" (the window filling the frame on its zooms),
+ * then "agenta@5" (agenta@6 opening where the camera had already pushed in); a
+ * brief that pins any of them still cuts exactly as before.
  */
-export const HOUSE_DEFAULT = "agenta@5";
+export const HOUSE_DEFAULT = "agenta@6";
 
 /** The house a brief names, or a sentence naming the ones that exist. */
 export function resolveHouse(id: string = HOUSE_DEFAULT): House | { problem: string } {

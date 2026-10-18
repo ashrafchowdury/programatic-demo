@@ -406,6 +406,25 @@ describe("one-take compilation", () => {
     assert.deepEqual(take(), take());
   });
 
+  it("carries agenta@7's render profile onto the reel, and only there", () => {
+    const r = compileBrief({ ...ONE, house: "agenta@7" }, BASIC, HOUSES["agenta@7"]);
+    assert.ok(!("problems" in r), JSON.stringify("problems" in r && r.problems));
+    assert.deepEqual(r.reel.render, { scale: 0.75, motionBlur: false });
+    assert.equal(take().reel.render, undefined);
+  });
+
+  it("opens agenta@6 wide, at the footage's start, on a poster title", () => {
+    const six = HOUSES["agenta@6"];
+    const r = compileBrief({ ...ONE, house: "agenta@6" }, BASIC, six);
+    assert.ok(!("problems" in r), JSON.stringify("problems" in r && r.problems));
+    const resolved = resolveReel(r.reel, BASIC, six.shoot.speed);
+    assert.ok(!("problem" in resolved));
+    const clip = (resolved as { reel: { segments: ReelClip[] } }).reel.segments.find(isClip)!.clip;
+    assert.equal(Number(clip.fromS.toFixed(4)), 0.05);
+    assert.equal((r.reel.segments[0] as { card: { poster?: boolean } }).card.poster, true);
+    assert.equal((take().reel.segments[0] as { card: { poster?: boolean } }).card.poster, undefined);
+  });
+
   it("floats the take in agenta@5's window on the pack's grey, and only there", () => {
     assert.equal(take().reel.window, undefined);
     const r = compileBrief({ ...ONE, house: "agenta@5" }, BASIC, HOUSES["agenta@5"]);

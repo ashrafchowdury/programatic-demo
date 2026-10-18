@@ -28,24 +28,33 @@ Drive the app only through this repo's Playwright scripts (`pnpm launch`,
    page, never a real agent: actions create and delete `demo-` data on it.
    Sign in once with `pnpm capture:session`.
 
-## The default: one take (`agenta@5`)
+## The default: one take (`agenta@6`)
 
 ```
 title card  →  the whole interaction, one uncut clip  →  outro line(s)  →  logo
 "Introducing ==Skills=="   camera moves in on each click and back out   "Agents that learn on the job."
 ```
 
-A brief with no `house` compiles under `agenta@5`: style `one-take`, the
+A brief with no `house` compiles under `agenta@6`: style `one-take`, the
 Agenta brand pack, 16:9 only, 1.25x, the music bed and SFX, at most 40s,
 **shot in slow motion (K=3) and rendered at 60fps**. The app sits in a
-window on a neutral 200 (`#EBEAEA`) ground; the camera zooms inside the
-window, so the ground, the rounded corners and the shadow stay in every frame. `pnpm launch` sets
-`DEMO_SLOWMO=3` and `DEMO_FPS=60` from the house; do not set them by hand. The
-take records about three times as long as it plays, and the render takes about
-twice as long as a 30fps one. `agenta@4` is the same film with the window
-growing past the frame on its zooms; `agenta@3` adds the 9:16 cut; `agenta@2`
-is the same film at 30fps in real time, both aspects, for when render time
-matters more than smoothness.
+window on a neutral 200 (`#EBEAEA`) ground and the camera works inside the
+window: the take opens on the whole app, punches in on each control, shows a
+panel that opens whole, and holds typing at 1.5x on its field. The title card
+is already built on frame 0, so a feed's preview is the title, and the launch
+writes that frame as `out/reel/<name>.poster.jpg` for a custom thumbnail.
+`pnpm launch` sets `DEMO_SLOWMO=3` and `DEMO_FPS=60` from the house; do not
+set them by hand. The take records about three times as long as it plays, and
+the render takes about twice as long as a 30fps one. `agenta@5` is the same
+film opening where the camera had already pushed in, with no poster;
+`agenta@4` lets the window grow past the frame on its zooms; `agenta@3` adds
+the 9:16 cut; `agenta@2` is the same film at 30fps in real time, both aspects.
+
+**Inside an Agenta agent** (a sandbox with no GPU), pin `"house": "agenta@7"`:
+the same film at 1080p, with no camera motion blur, and no standalone demo
+render. `agenta@6` does not finish there; `agenta@7` does (numbers in
+`docs/reel/design/agent-sandbox-spike.md`). Set `DEMO_GL=swiftshader`. Record
+only with the sandbox's own demo-account session, never a copy of a laptop's.
 There are no beats to choose, so nothing about the cut varies between
 launches: you choose the footage and three or four lines of copy.
 
@@ -71,7 +80,7 @@ launches: you choose the footage and three or four lines of copy.
   One line is the default; add a second only when the post makes a second
   claim the take shows.
 - No `beats`, `payoff` or `signoff`: `pnpm brief` refuses them under a one-take
-  house (`agenta@2` to `agenta@5`). To cut beats instead, pin `"house": "agenta@1"` and write the beats
+  house (`agenta@2` to `agenta@7`). To cut beats instead, pin `"house": "agenta@1"` and write the beats
   brief from `intro-reel`.
 
 ## The brand (enforced)
@@ -85,7 +94,7 @@ choice you make in the brief:
 | Primary | Icetrine `#F2F25C`: the pill, and the only accent ground |
 | Text and logo | Black `#1E1C1D` |
 | Background | White smoke `#F6F5F3`: every card |
-| Window ground | Neutral 200 `#EBEAEA` under `agenta@5` (White smoke before), audited against the pack |
+| Window ground | Neutral 200 `#EBEAEA` from `agenta@5` (White smoke before), audited against the pack |
 | Dark ground | `#181010` (neutral 900) |
 | Accents | Uranian Blue `#B8E1FF`, Rosewood `#5E0908`, never as a card ground |
 | Headings | GT Alpina Light |
@@ -132,7 +141,8 @@ is the only kind you hand over:
 4. `pnpm brief <name> --json`; fix every problem; at most two retries.
 5. `pnpm launch <name>` in the background (records, renders the house's aspects,
    gates, audits). It posts nothing.
-6. Hand over only when `status.json` passes: the two reel paths
-   (`out/reel/<name>.mp4`; `out/reel/<name>.9x16.mp4` too under `agenta@3`), the copy, and the gate
+6. Hand over only when `status.json` passes: the reel (`out/reel/<name>.mp4`,
+   plus `out/reel/<name>.9x16.mp4` under `agenta@3`), its poster
+   (`out/reel/<name>.poster.jpg`), the copy, and the gate
    summary, brand audit included. On a failure, read
    `out/launch/<name>/status.json`; a copy fix resumes `--from compile`.

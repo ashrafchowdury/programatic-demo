@@ -78,7 +78,7 @@ describe("demoDurationInFrames", () => {
 describe("demoGeometry", () => {
   it("is what DemoClip's useCameraAt draws with", () => {
     const { width, height } = demoSize(roomy);
-    assert.deepEqual(demoGeometry(roomy), { fit: WINDOW_FIT, chromeFrac: 0 });
+    assert.deepEqual(demoGeometry(roomy), { fit: WINDOW_FIT, chromeFrac: 0, focus: false });
     const chromeH = CHROME_H * (width / DESIGN_WIDTH);
     assert.equal(demoGeometry(roomy, true).chromeFrac, chromeH / (height + chromeH));
   });

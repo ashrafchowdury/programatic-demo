@@ -122,6 +122,50 @@ describe("frameFor", () => {
   });
 });
 
+describe("focus framing", () => {
+  // A 3840x2160 log like the skills take: a Name field across a third of the
+  // app, inside a form drawer the full height of the page.
+  const VP4 = { width: 3840, height: 2160 };
+  const drawer = { x: 2136, y: 44, w: 1656, h: 2076 };
+  const field = { x: 2512, y: 172, w: 1280, h: 64 };
+
+  it("punches a typing beat on its field, past the region around it", () => {
+    const typing = { tMs: 0, typeEndMs: 900, x: 3152, y: 204, rect: field, content: drawer };
+    const plain = frameFor(typing, VP4, 1.74, { fit: 1 });
+    const focus = frameFor(typing, VP4, 1.74, { fit: 1, focus: true });
+    assert.equal(focus.scale, 1.74);
+    assert.ok(plain.scale < 1.6, `content framing ${plain.scale}`);
+  });
+
+  it("shows a panel that opens whole, below the punch floor", () => {
+    const opened = { tMs: 0, x: 3691, y: 224, rect: { x: 3600, y: 190, w: 180, h: 64 }, content: drawer };
+    assert.ok(frameFor(opened, VP4, 1.74, { fit: 1 }).scale >= 1.45);
+    assert.equal(frameFor(opened, VP4, 1.74, { fit: 1, focus: true }).scale, 1);
+  });
+
+  it("leaves for the next beat once the last has been watched, not when the cursor does", () => {
+    const log: ClickLog = {
+      name: "focus",
+      viewport: VP4,
+      durationMs: 12000,
+      clicks: [
+        { tMs: 1000, tDepartMs: 600, x: 600, y: 600, rect: { x: 540, y: 570, w: 120, h: 60 } },
+        { tMs: 6000, tDepartMs: 5000, x: 3300, y: 1700, rect: { x: 3240, y: 1670, w: 120, h: 60 } },
+      ],
+    };
+    const plain = buildCameraTrack(log, 1, { fit: 1 });
+    const focus = buildCameraTrack(log, 1, { fit: 1, focus: true });
+    const leave = (keys: typeof plain) => {
+      const i = keys.findIndex((k, j) => j > 1 && k.t > 1.5 && !posesNearlyEqual(keys[j - 1].pose, k.pose));
+      return keys[i - 1].t;
+    };
+    // The watch ends ~0.5s after the 1.0s press; the plain camera waits for the
+    // cursor (departing 5.0s), trailing out only as late as it can.
+    assert.ok(leave(focus) < leave(plain) - 0.4, `focus leaves ${leave(focus)}, plain ${leave(plain)}`);
+    assert.ok(leave(focus) < 2, `focus leaves ${leave(focus)}`);
+  });
+});
+
 describe("buildCameraTrack", () => {
   it("starts at base and returns to base before the cut", () => {
     const keys = buildCameraTrack(smokeLog);

@@ -21,7 +21,7 @@
  * themselves, as `pnpm clip` does.
  */
 import "dotenv/config";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { aspectSlug, isNativeAspect, type Aspect } from "../src/lib/aspect";
@@ -92,7 +92,14 @@ const NEEDS: Partial<Record<StageName, { file: (c: Ctx) => string[]; madeBy: Sta
   convert: [{ file: (c) => [`recordings/${c.demo}.mkv`, `recordings/${c.demo}.webm`], madeBy: "record" }],
   "render-demo": [{ file: (c) => [`public/${c.demo}.mp4`], madeBy: "convert" }],
   compile: [{ file: (c) => [rel(clickLogFile(c.demo))], madeBy: "record" }],
-  "render-reel": [{ file: (c) => [`out/demo/${c.demo}.mp4`], madeBy: "render-demo" }],
+  "render-reel": [
+    {
+      // Only a house that renders the standalone demo needs it: the reel checks
+      // its clip ranges against that file's frame count.
+      file: (c) => (c.run.house?.render?.standaloneDemo === false ? [] : [`out/demo/${c.demo}.mp4`]),
+      madeBy: "render-demo",
+    },
+  ],
   gate: [{ file: (c) => reelFiles(c).map((r) => rel(r.file)), madeBy: "render-reel" }],
 };
 
@@ -183,6 +190,8 @@ const STAGE_RUN: Record<StageName, (c: Ctx, dir: string) => Promise<Outcome>> = 
 
   "render-demo": async (c) => {
     if (!c.shoots) return { skip: "demo brief" };
+    if (c.run.house!.render?.standaloneDemo === false)
+      return { skip: `${c.run.house!.id} renders the reel only` };
     return (await script("render.ts", [c.demo])) ?? { outputs: { demo: `out/demo/${c.demo}.mp4` } };
   },
 
@@ -212,13 +221,23 @@ const STAGE_RUN: Record<StageName, (c: Ctx, dir: string) => Promise<Outcome>> = 
           source: rel(c.run.file),
           outBase: path.basename(file, ".mp4"),
           ...(aspect === c.run.house!.aspects[0] ? {} : { aspect }),
+          ...(c.run.house!.render?.standaloneDemo === false ? { standaloneDemo: false } : {}),
         });
       } catch (err) {
         return fail("", `render ${aspect}: ${err instanceof Error ? err.message : err}`);
       }
       c.reels.push({ aspect, file });
     }
-    return { outputs: { reels: c.reels.map((r) => rel(r.file)) } };
+    // The poster: the reel's first frame (the built title) as an image, for a
+    // platform that takes a custom thumbnail. Only a house that builds one.
+    const posters: string[] = [];
+    if (c.run.house!.poster)
+      for (const { file } of c.reels) {
+        const poster = file.replace(/\.mp4$/, ".poster.jpg");
+        execFileSync("ffmpeg", ["-v", "error", "-y", "-i", file, "-frames:v", "1", "-q:v", "2", poster]);
+        posters.push(rel(poster));
+      }
+    return { outputs: { reels: c.reels.map((r) => rel(r.file)), ...(posters.length ? { posters } : {}) } };
   },
 
   gate: async (c, dir) => {
@@ -378,7 +397,10 @@ async function launch(name: string, from: StageName = "validate"): Promise<boole
 function summary(c: Ctx, status: Status, dir: string) {
   const b = c.run.brief!;
   console.log(`\nlaunch ${c.name}: passed · house ${c.run.house!.id}`);
-  for (const r of reelFiles(c)) console.log(`reel       -> ${rel(r.file)}  (${r.aspect})`);
+  for (const r of reelFiles(c)) {
+    console.log(`reel       -> ${rel(r.file)}  (${r.aspect})`);
+    if (c.run.house?.poster) console.log(`poster     -> ${rel(r.file.replace(/\.mp4$/, ".poster.jpg"))}`);
+  }
   console.log(`\ntitle      ${b.title}`);
   b.beats?.forEach((beat, i) => console.log(`beat ${i + 1}     ${beat.card}`));
   if (b.payoff) console.log(`payoff     ${b.payoff.card.replace("{chip}", `[${b.payoff.chip}]`)}`);

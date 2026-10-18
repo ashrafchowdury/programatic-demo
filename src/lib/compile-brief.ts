@@ -210,6 +210,12 @@ export function compileBrief(
  * tail, which is the camera's pull-back. The beat caps do not apply: the whole
  * take is the point, and `maxLengthS` is the guard.
  */
+/**
+ * Where a wide one-take starts, in demo seconds: just past the footage's first
+ * frame, which @remotion/media decodes as its magenta placeholder.
+ */
+const WIDE_FROM_S = 0.05;
+
 function oneTake(
   brief: Brief,
   log: ClickLog,
@@ -224,14 +230,18 @@ function oneTake(
   const types = last.event.typeEndMs !== undefined;
   const clip: ClipAnchors = {
     fromBeat: first.anchor,
-    leadS: cut.leadS,
+    // Wide: back to the start of the footage, wherever the first press is.
+    leadS:
+      house.opening === "wide"
+        ? WIDE_FROM_S - beatDemoS(first.event, log, house.shoot.speed)
+        : cut.leadS,
     toBeat: last.anchor,
     ...(types ? { toEdge: "typeEnd" as const } : {}),
     tailS: cut.payoffTailS,
     ...(cut.drift !== null ? { drift: cut.drift } : {}),
   };
   const segments: ReelSegmentInput[] = [
-    card({ headline: brief.title, wordmark, background: tone.card }),
+    card({ headline: brief.title, wordmark, background: tone.card, ...(house.poster ? { poster: true } : {}) }),
     { clip: { ...clip, label: `${first.label} → ${last.label}` } },
     ...brief.outro!.map((line) => card({ headline: line, background: tone.card })),
     card({ headline: wordmark, logo: true, background: tone.signoff }),
@@ -265,6 +275,9 @@ function finish(
             camera: house.window.camera,
           },
         }
+      : {}),
+    ...(house.render
+      ? { render: { scale: house.render.scale, motionBlur: house.render.motionBlur } }
       : {}),
     aspect: house.aspects[0],
     segments,

@@ -85,6 +85,15 @@ describe("wordSchedule", () => {
   });
 });
 
+describe("a poster card", () => {
+  it("is built on its first frame, then holds", () => {
+    const t = introTiming({ ...CARD, poster: true });
+    for (const cue of t.words) assert.ok(cue.endS <= 1e-9, `"${cue.word}" still arriving at frame 0`);
+    assert.ok(t.settledS <= introTiming(CARD).settledS);
+    assert.ok(t.totalS > 0);
+  });
+});
+
 describe("introTiming", () => {
   it("ends on the hold, with no fade-out reserved", () => {
     // The card is cut while still on screen and still being pushed. Reserving a

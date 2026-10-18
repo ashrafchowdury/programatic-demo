@@ -113,6 +113,12 @@ export function speedProblem(house: House): Problem | null {
       };
   }
   setOutputFps(house.fps ?? 30);
+  // A render profile's machine settings are defaults, not requirements: an
+  // agent on a bigger sandbox may raise the workers or keep a GPU.
+  if (house.render) {
+    if (!process.env.DEMO_GL) process.env.DEMO_GL = house.render.gl;
+    if (!process.env.DEMO_CONCURRENCY) process.env.DEMO_CONCURRENCY = String(house.render.workers);
+  }
   return null;
 }
 

@@ -129,3 +129,53 @@ Frame 888 of the skills take (typing the SKILL.md body):
 
 `agenta@5` = `agenta@4` + `window: { ground: "neutral-200", camera: "inside" }`,
 hash `3b4a2165b28cba9e`, the default.
+
+### The inside camera's framing, and the typing sound
+
+The first `inside` camera framed the track for a window that was its whole
+view (fit 1). The window is only 0.86 of the frame, so every zoom showed 14%
+less of the app than `agenta@4`, and the slide-in skills list and the New skill
+drawer came out cropped. It now runs `agenta@4`'s own track and shows, inside
+the still window, exactly the part of the app `agenta@4`'s frame showed
+(`insideCss`, src/lib/camera.ts): the whole app while that camera shows the
+window on its ground, the same view once it fills the frame. The app is drawn
+at 0.86 of `agenta@4`'s size; nothing it framed is cropped. Both limits are
+soft: a hard `max(1, scale)` and a hard pan clamp held the view still while
+`agenta@4` showed ground, then started every punch at full speed (footage move
+onset 17% of peak on the first frame, against 1% under `agenta@4`). Scale now
+passes a softplus knee and pan a tanh knee, so moves ease in as before.
+
+The typing sound was the whole 3s `typing.wav`, placed on the press. A name
+typed in ~0.55s kept clacking for 2.5s after it, and the SKILL.md body (~5.7s)
+went quiet halfway. A typing cue now starts at the first keystroke on screen
+(the first caret probe + `TYPING_SHOWN_MS`, 150ms, measured) and lasts to the
+last one, the sample played back to back and faded over 80ms at the end
+(`sfxPieces`, src/lib/reel-audio.ts).
+
+## Focus framing, a wide opening and a poster (agenta@6)
+
+Reviewed on the `agenta@5` skills take: it opened pushed in (the camera left
+for Add skill 0.9s into the footage, the clip started at 1.67s), the skills
+list slid in under a camera framed on the menu for a second, and the form held
+one pose at 1.07x on screen through three fields and six seconds of typing.
+
+- **Focus framing** (`FrameGeometry.focus`, src/lib/zoom.ts), for the `inside`
+  camera only, which is framed at fit 1 (the window is its view) instead of
+  through a remap of the window camera (`insideCss`, removed). A typing beat
+  frames its field at up to 90% of the view, so typing holds at 1.5x on screen,
+  the 4K capture's ceiling; any other beat with a populated region frames all
+  of it, loosening to the whole app, so a drawer that opens is shown whole; and
+  the camera leaves for the next beat once the last has been watched, not when
+  the cursor departs. On the skills take: wide, 1.32x on Add skill, the whole
+  app as the list opens, 1.5x on Name, Description and the SKILL.md body
+  (following the caret), the whole form for Create.
+- **Wide opening** (`House.opening`): the clip starts 0.05s into the footage
+  (frame 0 decodes as @remotion/media's magenta placeholder), so the take opens
+  on the whole app and its first zoom plays on screen.
+- **Poster** (`House.poster`, `IntroStoryboard.poster`): the title card is
+  built on its first frame (every word, the wordmark, the pill), so the reel's
+  frame 0, which X and LinkedIn show before play, is the title. The launch
+  writes it as `out/reel/<name>.poster.jpg`.
+
+`agenta@6` = `agenta@5` + `opening: "wide"` + `poster: true`, hash
+`635543c76ec5dea2`, the default.

@@ -6,6 +6,8 @@ import {
   AUDIO_FILTERS,
   buildAudioMux,
   clickReelTimes,
+  cueReelSpans,
+  sfxPieces,
   clipLabelWarnings,
   cueHits,
   missingAudioFilters,
@@ -210,7 +212,7 @@ describe("loudness (F9)", () => {
     const on = buildAudioMux([p], ["/a.mp3"], "/v.mp4", { loudnessLUFS: -14 });
     assert.match(
       on.filter,
-      /loudnorm=I=-14:TP=-1\.5:LRA=11,aresample=48000,apad\[aout\]/,
+      /loudnorm=I=-14:TP=-1\.5:LRA=11,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,apad\[aout\]/,
     );
   });
 
@@ -314,8 +316,35 @@ describe("clickReelTimes (F13 auto-SFX)", () => {
       { tMs: 500, typeEndMs: 1300, x: 0, y: 0 }, // span 800 -> typing
       { tMs: 100, typeEndMs: 300, x: 0, y: 0 }, // span 200 -> not typing
     ]);
-    // long span at demo 0.5 -> reel 1.5; short one excluded.
-    assert.deepEqual(clickReelTimes(segments, counts, 30, l, 1, "typing"), [1.5]);
+    // long span: no caret probe, so from the press, shown 150ms later: demo
+    // 0.65 -> reel 1.65; short one excluded.
+    assert.deepEqual(clickReelTimes(segments, counts, 30, l, 1, "typing"), [1.65]);
+  });
+
+  it("typing sounds from the first keystroke to the last on screen", () => {
+    const l = typed([
+      { tMs: 500, typeEndMs: 1300, x: 0, y: 0, caret: [{ tMs: 700, x: 0, y: 0, w: 1, h: 1 }] },
+    ]);
+    // caret 700 + 150 -> reel 1.85; typeEnd 1300 + 150 -> reel 2.45.
+    const [hit] = cueReelSpans(segments, counts, 30, l, 1, "typing");
+    assert.equal(Number(hit.startS.toFixed(4)), 1.85);
+    assert.equal(Number(hit.durS!.toFixed(4)), 0.6);
+  });
+
+  it("plays a sound back to back for as long as its action, fading at the end", () => {
+    const cue = { src: "audio/sfx/typing.wav", gain: 0.35 };
+    assert.deepEqual(sfxPieces(cue, { startS: 2, durS: 0.5 }, 3), [
+      { src: cue.src, gain: 0.35, role: "sfx", start: 2, duration: 0.5, fadeOutS: 0.08 },
+    ]);
+    const long = sfxPieces(cue, { startS: 2, durS: 7 }, 3);
+    assert.deepEqual(long.map((p) => [p.start, p.duration, p.fadeOutS]), [
+      [2, 3, undefined],
+      [5, 3, undefined],
+      [8, 1, 0.08],
+    ]);
+    assert.deepEqual(sfxPieces(cue, { startS: 2 }, 3), [
+      { src: cue.src, gain: 0.35, role: "sfx", start: 2, fadeOutS: undefined },
+    ]);
   });
 
   it("pop fires ~120ms after any typed input, long or short", () => {

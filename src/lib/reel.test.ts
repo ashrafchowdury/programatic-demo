@@ -83,6 +83,15 @@ describe("reelProblem", () => {
     assert.equal(reelProblem(over, 600), null);
   });
 
+  it("checks a reel's render settings", () => {
+    assert.equal(reelProblem({ ...REEL, render: { scale: 0.75, motionBlur: false } }, 560), null);
+    assert.match(reelProblem({ ...REEL, render: { scale: 1.5 } }, 560) ?? "", /`render`: `scale` must be a number in \(0, 1\]/);
+    assert.match(
+      reelProblem({ ...REEL, render: { motionBlur: "no" as unknown as boolean } }, 560) ?? "",
+      /`motionBlur` must be true or false/,
+    );
+  });
+
   it("checks a reel's window", () => {
     assert.equal(reelProblem({ ...REEL, window: { ground: "#d7d7d7", camera: "inside" } }, 560), null);
     assert.match(reelProblem({ ...REEL, window: { ground: "grey" } }, 560) ?? "", /`window`: `ground` must be a #rrggbb colour/);

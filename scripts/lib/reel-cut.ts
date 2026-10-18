@@ -147,6 +147,11 @@ export type CutOptions = {
    * caller names the output; see scripts/reel.ts.
    */
   aspect?: Aspect;
+  /**
+   * false: no out/demo/<demo>.mp4 is rendered (a house's render.standaloneDemo),
+   * so the clip ranges are checked against the length it would have.
+   */
+  standaloneDemo?: boolean;
 };
 
 export type Prepared = {
@@ -246,6 +251,8 @@ function prepare(authored: Reel, opts: CutOptions): Prepared {
         console.warn(`  ⚠️  ${stale} Checking against ${expected}.`);
         total = expected;
       }
+    } else if (opts.standaloneDemo === false) {
+      total = expected;
     } else if (opts.check) {
       console.warn(
         `  ⚠️  out/demo/${demo}.mp4 is not rendered yet; checking ranges against ` +
@@ -843,6 +850,8 @@ export function clipProps(p: Prepared, i: number): Record<string, unknown> {
     // its cache key changes with the brand and DemoClip resolves the same preset.
     ...(p.reel.brand ? { brand: p.reel.brand } : {}),
     ...(p.reel.window ? { window: p.reel.window } : {}),
+    // Only when off, so a clip with the shutter keeps its props and cache key.
+    ...(p.reel.render?.motionBlur === false ? { motionBlur: false } : {}),
     // The range is what lets a push know where the shot starts and ends:
     // --frames renders absolute frame numbers, so without it the envelope would
     // measure from the demo's frame 0.
@@ -878,6 +887,10 @@ function renderSegments(p: Prepared, workDir: string, keep: Set<string>): string
   const { reel, preset, log } = p;
   const footage = reel.segments.some(isClip) ? footageDigest(p.demo) : null;
   const size = aspectSize(compositionSize(log), p.aspect);
+  // Output size as a share of the composition's, for every segment alike so the
+  // concat agrees. Keyed only off the default, so a full-size cache stays valid.
+  const scale = reel.render?.scale ?? 1;
+  const sized = scale !== 1 ? { scale } : {};
 
   return reel.segments.map((seg, i) => {
     const index = String(i + 1).padStart(2, "0");
@@ -893,13 +906,13 @@ function renderSegments(p: Prepared, workDir: string, keep: Set<string>): string
             ...(FPS !== 30 ? { fps: FPS } : {}),
           },
           frames: undefined,
-          key: { size },
+          key: { size, ...sized },
         }
       : {
           id: "DemoClip",
           props: clipProps(p, i),
           frames: clipFrames(seg.clip, FPS),
-          key: { footage },
+          key: { footage, ...sized },
         };
     const file = path.join(
       workDir,
@@ -926,7 +939,7 @@ function renderSegments(p: Prepared, workDir: string, keep: Set<string>): string
     // Rendered beside its final name and moved into place, so a render killed
     // half-way cannot leave a truncated segment the cache would then serve.
     const tmp = file.replace(/\.mp4$/, ".partial.mp4");
-    renderComposition(job.id, tmp, job.props, job.frames ? { frames: job.frames } : {});
+    renderComposition(job.id, tmp, job.props, { ...(job.frames ? { frames: job.frames } : {}), ...sized });
     fs.renameSync(tmp, file);
     return file;
   });

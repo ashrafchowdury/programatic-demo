@@ -115,6 +115,11 @@ export type DemoClipProps = {
   brand?: string;
   /** The reel's window, over the style and the brand: its ground and where its camera works. */
   window?: WindowSpec;
+  /**
+   * The camera shutter. false: every frame is drawn once, at its own time, for
+   * a machine without a GPU (a house's render.motionBlur). Absent = on.
+   */
+  motionBlur?: boolean;
   style?: ReelStyle;
   /**
    * Static framing for the full-bleed look. Either a camera (`k` about
@@ -241,15 +246,15 @@ function useCameraAt(
   // rendered against before `windowFit` was wired through.
   const windowFit = shot.windowFit ?? WINDOW_FIT;
   // Under an `inside` camera the window holds at its fit and the camera works
-  // within it, so the camera is framed for a window that IS its whole view:
-  // fit 1, where frameFor and the pan clamp keep the window's own edge out of
-  // shot. The app is magnified windowFit x S either way.
+  // within it, so it is framed for a window that IS its whole view (fit 1)
+  // with focus framing (FrameGeometry.focus): typing punches on its field, a
+  // panel that opens is shown whole. The app is magnified windowFit x S.
   const inside = shot.camera === "inside";
   const fit = inside ? 1 : windowFit;
   const held = poseToCss(BASE_POSE, chromeFrac, windowFit);
   const styleAt = (frame: number) =>
     shot.zoom
-      ? zoomAt(frame, fps, log, { chromeFrac, speed, fit, drift })
+      ? zoomAt(frame, fps, log, { chromeFrac, speed, fit, drift, ...(inside ? { focus: true } : {}) })
       : // A CONSTANT POSE. Not `zoomAt` with the drift zeroed — that still
         // tracks the pointer and magnifies on every press. This holds the panel
         // at `fit` for the whole shot, so the only thing that moves it is its
@@ -488,6 +493,7 @@ const InsideShutter: React.FC<DemoClipProps> = (props) => {
   const travel = innerAt
     ? cornerTravelPx(innerAt(Math.max(0, frame - half)), innerAt(frame + half), width * k, height * k)
     : 0;
+  if (props.motionBlur === false) return <InsideApp {...props} />;
   return (
     <ShutterBlur groups={groupsFor(travel)} blend="average">
       <InsideApp {...props} />
@@ -1059,7 +1065,7 @@ export const DemoClip: React.FC<DemoClipProps> = (props) => {
           An `inside` camera keeps its own shutter, around the app alone
           (InsideShutter): the window does not move, so it needs none.
         */}
-        {shot.zoom && shot.camera !== "inside" ? (
+        {shot.zoom && shot.camera !== "inside" && props.motionBlur !== false ? (
           <ShutteredWindow {...props} chrome={chrome} />
         ) : (
           <WindowGroup {...props} chrome={chrome} />

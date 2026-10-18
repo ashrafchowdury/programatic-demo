@@ -112,11 +112,13 @@ crop. `pnpm render` and `pnpm intro` take `--style=` too.
 Brief: a launch reel from a social post with no hand-written flow or reel.
 Save the post verbatim to `reels/<name>.post.md`, write `reels/<name>.brief.json`,
 then the commands below. The house decides what a brief holds. The default,
-`agenta@5`, cuts **one take** in the Agenta brand pack, the app in a window on
-a grey ground with the camera zooming inside it, shot in slow motion and
-rendered at 60fps, 16:9 only (`agenta@4` lets the window fill the frame on its
-zooms; `agenta@3` adds 9:16; `agenta@2` is the same at 30fps in real time): a
-title, the footage
+`agenta@6`, cuts **one take** in the Agenta brand pack, the app in a window on
+a grey ground with the camera zooming inside it, opened wide on a title built
+on frame 0 (written as `<name>.poster.jpg`), shot in slow motion and rendered
+at 60fps, 16:9 only (`agenta@7` is the same for an agent's GPU-less sandbox:
+1080p, no motion blur, no standalone demo render; `agenta@5` opens already pushed in; `agenta@4` lets the
+window fill the frame on its zooms; `agenta@3` adds 9:16; `agenta@2` is the
+same at 30fps in real time): a title, the footage
 (actions from `actions/`, or an already-recorded `demo`), and 1-3 `outro`
 lines; the whole interaction plays uncut between them. A `beats` house
 (`"house": "agenta@1"`) takes a title, 2-5 beats of card copy plus the action

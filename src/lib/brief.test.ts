@@ -161,8 +161,8 @@ describe("brief shape", () => {
 
   it("names the published houses for an unknown one", () => {
     assert.equal(
-      one(briefProblems(brief({ house: "agenta@7" }), CTX), "house"),
-      'unknown house "agenta@7". Published: agenta@1, agenta-classic@1, agenta@2, agenta@3, agenta@4, agenta@5.',
+      one(briefProblems(brief({ house: "agenta@99" }), CTX), "house"),
+      'unknown house "agenta@99". Published: agenta@1, agenta-classic@1, agenta@2, agenta@3, agenta@4, agenta@5, agenta@6, agenta@7.',
     );
   });
 });

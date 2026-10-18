@@ -18,7 +18,8 @@ import {
 import {
   AUDIO_FILTERS,
   buildAudioMux,
-  clickReelTimes,
+  cueReelSpans,
+  sfxPieces,
   resolvePiece,
   segmentBoundsSeconds,
   type ResolvedPiece,
@@ -77,16 +78,20 @@ export function muxAudio(
   const paths: string[] = [];
   const durCache = new Map<string, number>();
 
-  const add = (piece: ReelAudioPiece) => {
-    const abs = path.join(ROOT, "public", piece.src);
+  const sourceDurS = (src: string): number => {
+    const abs = path.join(ROOT, "public", src);
     if (!fs.existsSync(abs))
-      throw new Error(`Missing audio file ${path.relative(ROOT, abs)} (src "${piece.src}").`);
+      throw new Error(`Missing audio file ${path.relative(ROOT, abs)} (src "${src}").`);
     let dur = durCache.get(abs);
     if (dur == null) {
       dur = mediaDurationS(abs);
       durCache.set(abs, dur);
     }
-    const r = resolvePiece(piece, totalReelS, dur, bounds);
+    return dur;
+  };
+  const add = (piece: ReelAudioPiece) => {
+    const abs = path.join(ROOT, "public", piece.src);
+    const r = resolvePiece(piece, totalReelS, sourceDurS(piece.src), bounds);
     if (r.durationS > 0) {
       resolved.push(r);
       paths.push(abs);
@@ -102,7 +107,7 @@ export function muxAudio(
     for (const kind of SFX_KINDS) {
       const cue = reel.sfx[kind];
       if (!cue) continue;
-      for (const t of clickReelTimes(
+      for (const hit of cueReelSpans(
         reel.segments,
         counts,
         fps,
@@ -114,7 +119,7 @@ export function muxAudio(
         // sum of the dissolves before it late — 33-333 ms on agent-schedule.
         joins,
       ))
-        add({ src: cue.src, start: t, gain: cue.gain, fadeOutS: cue.fadeOutS, role: "sfx" });
+        for (const piece of sfxPieces(cue, hit, sourceDurS(cue.src))) add(piece);
     }
   }
 

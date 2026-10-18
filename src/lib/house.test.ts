@@ -17,6 +17,8 @@ const PUBLISHED: Record<string, string> = {
   "agenta@3": "c242ede045a7c5cc",
   "agenta@4": "89c841e6ef27df1f",
   "agenta@5": "3b4a2165b28cba9e",
+  "agenta@6": "635543c76ec5dea2",
+  "agenta@7": "d847fb5b92a8c3a2",
 };
 
 /**
@@ -43,7 +45,7 @@ describe("house styles", () => {
   it("resolves the default and a pinned version", () => {
     const def = resolveHouse();
     assert.ok(!("problem" in def));
-    assert.equal(def.id, "agenta@5");
+    assert.equal(def.id, "agenta@6");
     assert.equal(def.style, "one-take");
     assert.deepEqual(def.aspects, ["16:9"]);
     const classic = resolveHouse("agenta-classic@1");
@@ -55,7 +57,7 @@ describe("house styles", () => {
   it("names the published versions for an unknown one", () => {
     const r = resolveHouse("agenta@9");
     assert.ok("problem" in r);
-    assert.equal(r.problem, 'unknown house "agenta@9". Published: agenta@1, agenta-classic@1, agenta@2, agenta@3, agenta@4, agenta@5.');
+    assert.equal(r.problem, 'unknown house "agenta@9". Published: agenta@1, agenta-classic@1, agenta@2, agenta@3, agenta@4, agenta@5, agenta@6, agenta@7.');
   });
 
   it("builds every house on a style that exists", () => {
@@ -118,6 +120,22 @@ describe("house styles", () => {
     assert.deepEqual(window, { ground: "neutral-200", camera: "inside" });
     assert.ok(window && window.ground in BRANDS.agenta.colors);
     assert.deepEqual(rest5, rest4);
+  });
+
+  it("opens agenta@6 wide on a poster title, otherwise as agenta@5", () => {
+    const { id: _a, opening, poster, ...rest6 } = HOUSES["agenta@6"];
+    const { id: _b, ...rest5 } = HOUSES["agenta@5"];
+    assert.equal(opening, "wide");
+    assert.equal(poster, true);
+    assert.deepEqual(rest6, rest5);
+  });
+
+  it("renders agenta@7 for a sandbox: 1080p, no shutter, the reel only, otherwise as agenta@6", () => {
+    const { id: _a, render, ...rest7 } = HOUSES["agenta@7"];
+    const { id: _b, ...rest6 } = HOUSES["agenta@6"];
+    assert.deepEqual(render, { scale: 0.75, motionBlur: false, standaloneDemo: false, gl: "swiftshader", workers: 1 });
+    assert.deepEqual(rest7, rest6);
+    assert.equal(HOUSE_DEFAULT, "agenta@6");
   });
 
   it("is frozen at runtime", () => {

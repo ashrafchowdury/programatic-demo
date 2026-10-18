@@ -593,9 +593,9 @@ const SentenceCard: React.FC<IntroProps> = ({ intro }) => {
   const { look, fullbleed, emphasis } = style;
 
   // Floored: the film's first frame is a card, and it must not be an empty field.
-  const wordmarkP = flooredEntry(
-    cameraEase(progressAt({ startS: 0, endS: WORDMARK_IN_S }, tS)),
-  );
+  const wordmarkP = intro.poster
+    ? 1
+    : flooredEntry(cameraEase(progressAt({ startS: 0, endS: WORDMARK_IN_S }, tS)));
   const subheadP = cameraEase(
     progressAt({ startS: t.subheadStartS, endS: t.subheadEndS }, tS),
   );

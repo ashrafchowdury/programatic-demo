@@ -348,6 +348,12 @@ export type Reel = {
    * the brand (see WindowSpec). Absent = theirs, as before.
    */
   window?: WindowSpec;
+  /**
+   * How it renders: output size as a share of the 2560-wide composition
+   * (0.75 = 1920x1080), and whether clips draw the camera shutter. Absent =
+   * full size with the shutter, as before.
+   */
+  render?: ReelRender;
   /** Visual treatment of the footage. Absent = "framed", i.e. unchanged. */
   look?: ReelLook;
   /**
@@ -454,6 +460,10 @@ export function reelProblem(
   if (reel.brand !== undefined) {
     const badBrand = brandProblem(reel.brand);
     if (badBrand) return `\`brand\`: ${badBrand}`;
+  }
+  if (reel.render !== undefined) {
+    const badRender = renderProblem(reel.render);
+    if (badRender) return `\`render\`: ${badRender}`;
   }
   if (reel.window !== undefined) {
     const badWindow = windowProblem(reel.window);
@@ -988,6 +998,21 @@ export function overlapJoins(
     return Math.min(f, exit.frames);
   });
   return { joins: out, blends };
+}
+
+/** See Reel.render. */
+export type ReelRender = { scale?: number; motionBlur?: boolean };
+
+/** Why a reel's render settings cannot be honoured, or null. */
+function renderProblem(render: ReelRender): string | null {
+  if (typeof render !== "object" || render === null) return "must be an object";
+  const extra = Object.keys(render).filter((k) => k !== "scale" && k !== "motionBlur");
+  if (extra.length) return `unknown field ${extra.map((k) => `\`${k}\``).join(", ")}`;
+  if (render.scale !== undefined && !(typeof render.scale === "number" && render.scale > 0 && render.scale <= 1))
+    return "`scale` must be a number in (0, 1]";
+  if (render.motionBlur !== undefined && typeof render.motionBlur !== "boolean")
+    return "`motionBlur` must be true or false";
+  return null;
 }
 
 /** Why a reel's window cannot be drawn, or null. */

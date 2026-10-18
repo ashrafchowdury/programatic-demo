@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { HOUSES } from "../../src/lib/house";
 import { speedProblem } from "./brief-io";
 
-const KEYS = ["DEMO_SPEED", "DEMO_SLOWMO", "DEMO_FPS"] as const;
+const KEYS = ["DEMO_SPEED", "DEMO_SLOWMO", "DEMO_FPS", "DEMO_GL", "DEMO_CONCURRENCY"] as const;
 const withEnv = (env: Partial<Record<(typeof KEYS)[number], string>>, fn: () => void) => {
   const saved = Object.fromEntries(KEYS.map((k) => [k, process.env[k]]));
   for (const k of KEYS) delete process.env[k];
@@ -24,7 +24,7 @@ describe("a house's shoot and render settings", () => {
       assert.equal(speedProblem(HOUSES["agenta@3"]), null);
       assert.deepEqual(
         KEYS.map((k) => process.env[k]),
-        ["1.25", "3", "60"],
+        ["1.25", "3", "60", undefined, undefined],
       );
     }));
 
@@ -33,6 +33,17 @@ describe("a house's shoot and render settings", () => {
       assert.equal(speedProblem(HOUSES["agenta@1"]), null);
       assert.deepEqual([process.env.DEMO_SLOWMO, process.env.DEMO_FPS], ["1", "30"]);
     }));
+
+  it("give a render profile its sandbox's GL and workers, unless the run sets them", () => {
+    withEnv({}, () => {
+      assert.equal(speedProblem(HOUSES["agenta@7"]), null);
+      assert.deepEqual([process.env.DEMO_GL, process.env.DEMO_CONCURRENCY], ["swiftshader", "1"]);
+    });
+    withEnv({ DEMO_GL: "angle", DEMO_CONCURRENCY: "2" }, () => {
+      assert.equal(speedProblem(HOUSES["agenta@7"]), null);
+      assert.deepEqual([process.env.DEMO_GL, process.env.DEMO_CONCURRENCY], ["angle", "2"]);
+    });
+  });
 
   it("refuse a hand-set value that disagrees", () =>
     withEnv({ DEMO_FPS: "30" }, () => {

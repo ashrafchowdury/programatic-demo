@@ -20,6 +20,7 @@ import {
   SFX_KINDS,
   type ReelSegment,
   type ReelSfx,
+  type SfxCue,
   type SfxKind,
 } from "./reel";
 
@@ -198,6 +199,12 @@ export type CueHit = {
   demoS: number;
   /** Seconds into that clip. */
   intoS: number;
+  /**
+   * How long it sounds, for a kind that lasts as long as its action (typing:
+   * the first keystroke to the last on screen, cut at the clip's end). Absent:
+   * the sample plays out.
+   */
+  durS?: number;
   label?: string;
 };
 
@@ -232,8 +239,13 @@ export function cueHits(
     for (const beat of log.clicks) {
       if (!beatMatches(beat, kind, labels)) continue;
       const demoS = logMsToDemoS(beatTimeMs(beat, kind, labels), log, speed);
-      if (demoS >= fromS && demoS < toS)
-        hits.push({ segment: i, demoS, intoS: demoS - fromS, label: beat.label });
+      if (!(demoS >= fromS && demoS < toS)) continue;
+      const hit: CueHit = { segment: i, demoS, intoS: demoS - fromS, label: beat.label };
+      if (kind === "typing" && !labels?.length && beat.typeEndMs != null) {
+        const endS = Math.min(toS, logMsToDemoS(beat.typeEndMs + TYPING_SHOWN_MS, log, speed));
+        if (endS > demoS) hit.durS = endS - demoS;
+      }
+      hits.push(hit);
     }
   }
   return hits;
@@ -258,10 +270,58 @@ export function clickReelTimes(
   labels?: string[],
   overlaps: number[] = [],
 ): number[] {
+  return cueReelSpans(segments, counts, fps, log, speed, kind, labels, overlaps).map((h) => h.startS);
+}
+
+/** Fade on a sound cut short to its action, so it does not click off. */
+export const SFX_CUT_FADE_S = 0.08;
+
+/**
+ * The audio pieces one cue hit places. A hit with a length (typing) plays the
+ * sample back to back until the action ends and fades out there: a 3s run of
+ * keys used to play whole over a half-second name and stop halfway through a
+ * six-second paragraph. Any other hit plays its sample out.
+ */
+export function sfxPieces(
+  cue: SfxCue,
+  hit: { startS: number; durS?: number },
+  sourceS: number,
+): ReelAudioPiece[] {
+  const base = { src: cue.src, gain: cue.gain, role: "sfx" as const };
+  if (hit.durS == null || !(sourceS > 0))
+    return [{ ...base, start: hit.startS, fadeOutS: cue.fadeOutS }];
+  const out: ReelAudioPiece[] = [];
+  for (let at = 0; hit.durS - at > 1e-6; at += sourceS) {
+    const duration = Math.min(sourceS, hit.durS - at);
+    const last = hit.durS - (at + duration) <= 1e-6;
+    out.push({
+      ...base,
+      start: hit.startS + at,
+      duration,
+      ...(last ? { fadeOutS: Math.min(SFX_CUT_FADE_S, duration) } : {}),
+    });
+  }
+  return out;
+}
+
+/** clickReelTimes with each hit's length (CueHit.durS), sorted by start. */
+export function cueReelSpans(
+  segments: ReelSegment[],
+  counts: number[],
+  fps: number,
+  log: ClickLog,
+  speed: number,
+  kind: SfxKind,
+  labels?: string[],
+  overlaps: number[] = [],
+): { startS: number; durS?: number }[] {
   const bounds = segmentBoundsSeconds(counts, fps, overlaps);
   return cueHits(segments, log, speed, kind, labels)
-    .map((h) => bounds.startS[h.segment] + h.intoS)
-    .sort((a, b) => a - b);
+    .map((h) => ({
+      startS: bounds.startS[h.segment] + h.intoS,
+      ...(h.durS != null ? { durS: h.durS } : {}),
+    }))
+    .sort((a, b) => a.startS - b.startS);
 }
 
 const s2 = (x: number): string => x.toFixed(2);
@@ -382,6 +442,13 @@ export function clipLabelWarnings(
 export const TYPING_MIN_MS = 500;
 /** How long after input the UI's pop/response lands. */
 export const POP_DELAY_MS = 120;
+/**
+ * How long after the recorder's clock a keystroke shows in the footage.
+ * MEASURED on skills-launch (slow-motion shoot): the typed text starts 0.13-0.29s
+ * after the first caret probe, which the recorder takes just before the first
+ * key, and settles ~0.16s after `typeEndMs`.
+ */
+export const TYPING_SHOWN_MS = 150;
 
 /** Length of a beat's typed span, or 0 if it isn't a typing beat. */
 const typeSpanMs = (beat: ClickEvent): number =>
@@ -407,13 +474,17 @@ function beatMatches(beat: ClickEvent, kind: SfxKind, labels?: string[]): boolea
  * A click sounds on the PRESS. `tDownMs` is mousedown — the frame the ripple and
  * the cursor squash fire on — and `tMs` is the beat anchor 114-203ms later, so
  * placing a tick there put it 91-108ms behind the picture on every harness beat,
- * past the ~50ms where audio and video read as one event. `typing` keeps `tMs`
- * (the run starts there) and `pop` is deliberately late — it is the UI answering.
+ * past the ~50ms where audio and video read as one event. `typing` starts on
+ * the first keystroke and `pop` is deliberately late — it is the UI answering.
  */
 function beatTimeMs(beat: ClickEvent, kind: SfxKind, labels?: string[]): number {
   if (labels && labels.length) return beat.tDownMs ?? beat.tMs;
   if (kind === "pop") return (beat.typeEndMs ?? beat.tMs) + POP_DELAY_MS;
   if (kind === "click") return beat.tDownMs ?? beat.tMs;
+  // Typing sounds with the first keystroke on screen. The recorder probes the
+  // caret just before it types (scripts/lib/recorder.ts), after the press and
+  // the select-all, so the press itself is ~150-300ms early.
+  if (kind === "typing") return (beat.caret?.[0]?.tMs ?? beat.tMs) + TYPING_SHOWN_MS;
   return beat.tMs;
 }
 
@@ -545,9 +616,12 @@ export function buildAudioMux(
   // at 4x oversampling and hands back 192 kHz, which the encoder then kept as
   // 96 kHz AAC — measured on four of the five reels with sound. Every piece is
   // already 48 kHz going in (unitChain), so this only undoes loudnorm's change.
+  // The aformat pins the layout for apad: ffmpeg 5.1 (the Agenta sandbox's,
+  // Debian bookworm) cannot negotiate one between them and fails the whole mux
+  // ("Cannot select channel layout"); 8.x infers it. Stereo either way.
   const norm =
     opts.loudnessLUFS != null
-      ? `loudnorm=I=${n(opts.loudnessLUFS)}:TP=-1.5:LRA=11,aresample=${SAMPLE_RATE},`
+      ? `loudnorm=I=${n(opts.loudnessLUFS)}:TP=-1.5:LRA=11,aresample=${SAMPLE_RATE},aformat=sample_fmts=fltp:channel_layouts=stereo,`
       : "";
 
   const beds = streams.filter((s) => s.role === "bed");

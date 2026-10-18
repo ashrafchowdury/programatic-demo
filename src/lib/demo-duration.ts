@@ -47,6 +47,7 @@ export function demoGeometry(
   return {
     fit: WINDOW_FIT,
     chromeFrac: chrome ? chromeH / (height + chromeH) : 0,
+    focus: false,
   };
 }
 
