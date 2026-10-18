@@ -1,0 +1,346 @@
+<!doctype html>
+<!--
+  A Slack-style channel for the Slack launch reel (flows/slack-launch.ts): a
+  person mentions @agenta, the agent reacts, replies in the thread, asks for
+  approval before a sensitive action, and finishes once approved.
+
+  Not a real workspace: every name is invented. Scripted, not live: the agent's
+  replies run on timers when the composer is sent and when Approve is pressed.
+  `?k=<slowmo>` stretches every timer by the shoot's DEMO_SLOWMO, so the reply
+  lands at the same place in the compressed footage as it would in real time.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>launch-room · Northwind</title>
+<style>
+  :root {
+    --aubergine: #3f0e40;
+    --aubergine-dark: #350d36;
+    --rail: #2c0a2d;
+    --side-text: #cfc3cf;
+    --active: #1164a3;
+    --ink: #1d1c1d;
+    --muted: #616061;
+    --line: #dddddd;
+    --hover: #f8f8f8;
+    --mention-bg: #e8f5fa;
+    --mention-ink: #1264a3;
+    --green: #007a5a;
+    --icetrine: #f2f25c;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  body {
+    font-family: "Lato", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 15px;
+    color: var(--ink);
+    background: var(--aubergine-dark);
+    display: grid;
+    grid-template-rows: 44px 1fr;
+  }
+  .top {
+    display: flex; align-items: center; justify-content: center;
+    background: var(--aubergine-dark); color: #fff;
+  }
+  .search {
+    width: 680px; height: 28px; border-radius: 6px;
+    background: rgba(255,255,255,0.18); color: rgba(255,255,255,0.8);
+    display: flex; align-items: center; padding: 0 12px; font-size: 13px; gap: 8px;
+  }
+  .shell { display: grid; grid-template-columns: 70px 260px 1fr auto; min-height: 0; }
+  .rail { background: var(--rail); display: flex; flex-direction: column; align-items: center; padding-top: 12px; gap: 14px; }
+  .ws {
+    width: 36px; height: 36px; border-radius: 9px; background: #fff; color: var(--aubergine);
+    font-weight: 900; font-size: 18px; display: grid; place-items: center;
+  }
+  .rail .ico { width: 36px; height: 36px; border-radius: 9px; display: grid; place-items: center; color: #e8dfe8; font-size: 11px; font-weight: 700; }
+  .rail .ico.on { background: rgba(255,255,255,0.22); }
+  .side {
+    background: var(--aubergine); color: var(--side-text); padding: 10px 0;
+    border-top-left-radius: 10px; overflow: hidden;
+  }
+  .side h1 { margin: 0 16px 14px; color: #fff; font-size: 18px; font-weight: 900; }
+  .side .sec { margin: 14px 16px 4px; font-size: 14px; }
+  .side .item { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 16px; margin: 0 8px; border-radius: 6px; font-size: 15px; }
+  .side .item.on { background: var(--active); color: #fff; font-weight: 700; }
+  .side .hash { width: 16px; text-align: center; opacity: 0.8; }
+  .side .dot { width: 18px; height: 18px; border-radius: 5px; display: grid; place-items: center; font-size: 10px; font-weight: 800; color: #fff; }
+  .main { background: #fff; display: grid; grid-template-rows: 49px 1fr auto; min-height: 0; border-top-left-radius: 0; }
+  .head { display: flex; align-items: center; justify-content: space-between; padding: 0 20px; border-bottom: 1px solid var(--line); }
+  .head .name { font-weight: 900; font-size: 18px; }
+  .head .meta { color: var(--muted); font-size: 13px; display: flex; gap: 10px; align-items: center; }
+  .faces { display: flex; }
+  .faces span { width: 24px; height: 24px; border-radius: 6px; border: 2px solid #fff; margin-left: -6px; display: grid; place-items: center; color: #fff; font-size: 10px; font-weight: 800; }
+  .msgs { overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; padding-bottom: 8px; }
+  .day { text-align: center; margin: 8px 0 4px; }
+  .day span { border: 1px solid var(--line); border-radius: 12px; padding: 3px 14px; font-size: 13px; font-weight: 700; }
+  .msg { display: grid; grid-template-columns: 36px 1fr; gap: 10px; padding: 8px 20px; }
+  .msg.fresh { animation: rise 260ms ease-out; }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } }
+  .av { width: 36px; height: 36px; border-radius: 8px; display: grid; place-items: center; color: #fff; font-weight: 800; font-size: 14px; }
+  .av.bot { background: var(--icetrine); }
+  .av.bot img { width: 22px; height: 22px; }
+  .who { display: flex; align-items: baseline; gap: 8px; }
+  .who b { font-weight: 900; }
+  .who .app { font-size: 10px; font-weight: 700; color: var(--muted); background: #e8e8e8; border-radius: 3px; padding: 1px 4px; letter-spacing: 0.02em; }
+  .who time { color: var(--muted); font-size: 12px; }
+  .text { line-height: 1.46; margin-top: 2px; }
+  .mention { background: var(--mention-bg); color: var(--mention-ink); border-radius: 3px; padding: 0 2px; }
+  .reacts { display: flex; gap: 6px; margin-top: 6px; }
+  .react {
+    display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 8px;
+    border-radius: 12px; background: #eef4f9; border: 1px solid #1d9bd1; font-size: 12px; color: var(--mention-ink); font-weight: 700;
+    animation: pop 300ms cubic-bezier(.2,1.6,.4,1);
+  }
+  .react .e { font-size: 14px; }
+  @keyframes pop { from { transform: scale(0.4); opacity: 0; } }
+  .replies {
+    display: inline-flex; align-items: center; gap: 8px; margin-top: 6px; padding: 4px 8px 4px 4px;
+    border-radius: 6px; border: 1px solid transparent; background: none; cursor: pointer; font: inherit;
+    animation: rise 260ms ease-out;
+  }
+  .replies:hover { border-color: var(--line); background: #fff; }
+  .replies .mini { width: 24px; height: 24px; border-radius: 6px; background: var(--icetrine); display: grid; place-items: center; }
+  .replies .mini img { width: 15px; height: 15px; }
+  .replies b { color: var(--mention-ink); font-size: 13px; }
+  .replies span { color: var(--muted); font-size: 13px; }
+  .compose { padding: 0 20px 20px; position: relative; }
+  /* Invisible: what the camera frames while the mention is typed and sent:
+     the whole composer, its Send button included, and the messages above. */
+  #type-focus { position: absolute; left: 20px; right: 20px; bottom: 20px; height: 300px; pointer-events: none; }
+  .box { border: 1px solid #bbbbbb; border-radius: 8px; overflow: hidden; }
+  .tools { height: 34px; background: #f8f8f8; display: flex; align-items: center; gap: 16px; padding: 0 12px; color: #868686; font-weight: 700; font-size: 13px; }
+  textarea {
+    display: block; width: 100%; height: 44px; border: 0; resize: none; outline: none;
+    font: inherit; font-size: 15px; padding: 11px 12px 0; color: var(--ink);
+  }
+  textarea::placeholder { color: #868686; }
+  .send-row { display: flex; justify-content: flex-end; padding: 0 8px 8px; }
+  #send {
+    width: 34px; height: 28px; border-radius: 5px; border: 0; background: #e8e8e8; color: #9a9a9a;
+    display: grid; place-items: center; cursor: pointer;
+  }
+  #send.ready { background: var(--green); color: #fff; }
+  /* The right panel: the agenta app's profile until the thread opens in it.
+     Always open, so the channel (and its composer) is narrow enough to frame
+     whole at a real zoom. */
+  .thread {
+    width: 600px; overflow: hidden; background: #fff; border-left: 1px solid var(--line);
+    display: grid; grid-template-rows: 49px 1fr auto;
+  }
+  .profile { padding: 28px 24px; animation: none; }
+  .profile .big { width: 88px; height: 88px; border-radius: 16px; background: var(--icetrine); display: grid; place-items: center; }
+  .profile .big img { width: 52px; height: 52px; }
+  .profile h2 { margin: 16px 0 2px; font-size: 22px; font-weight: 900; display: flex; align-items: center; gap: 8px; }
+  .profile h2 .app { font-size: 11px; font-weight: 700; color: var(--muted); background: #e8e8e8; border-radius: 3px; padding: 1px 5px; }
+  .profile .sub { color: var(--muted); }
+  .profile .rows { margin-top: 22px; border-top: 1px solid var(--line); }
+  .profile .row { display: grid; grid-template-columns: 28px 1fr; gap: 10px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+  .profile .row .i { width: 28px; height: 28px; border-radius: 6px; background: #f4f4f4; display: grid; place-items: center; font-weight: 800; color: var(--muted); }
+  .profile .row b { display: block; }
+  .profile .row span { color: var(--muted); font-size: 14px; }
+  .list.swap { animation: rise 260ms ease-out; }
+  .thread .inner { width: 600px; display: contents; }
+  .thread .head { width: 600px; }
+  .thread .list { width: 600px; overflow: hidden; padding-top: 6px; }
+  .thread .rule { display: flex; align-items: center; gap: 12px; margin: 4px 20px; color: var(--muted); font-size: 13px; }
+  .thread .rule::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+  .thread .compose { width: 600px; }
+  .prs { margin: 6px 0 2px; padding: 0; list-style: none; }
+  .prs li { padding: 3px 0; }
+  .prs a { color: var(--mention-ink); font-weight: 700; text-decoration: none; }
+  .prs small { color: var(--muted); }
+  .ask {
+    margin-top: 10px; border: 1px solid var(--line); border-left: 4px solid var(--icetrine);
+    border-radius: 6px; padding: 12px 14px;
+  }
+  .ask .q { font-weight: 700; margin-bottom: 10px; }
+  .ask .btns { display: flex; gap: 8px; }
+  .ask button {
+    height: 32px; padding: 0 14px; border-radius: 5px; font: inherit; font-weight: 700; font-size: 14px; cursor: pointer;
+    border: 1px solid #bbbbbb; background: #fff; color: var(--ink);
+  }
+  .ask button.go { background: var(--green); border-color: var(--green); color: #fff; }
+  .ask .done { color: var(--muted); font-size: 14px; animation: rise 260ms ease-out; }
+  .typing { color: var(--muted); font-size: 12px; padding: 0 20px 6px; height: 20px; }
+</style>
+</head>
+<body>
+  <div class="top"><div class="search">Search Northwind</div></div>
+  <div class="shell">
+    <nav class="rail">
+      <div class="ws">N</div>
+      <div class="ico on">Home</div>
+      <div class="ico">DMs</div>
+      <div class="ico">Activity</div>
+    </nav>
+    <aside class="side">
+      <h1>Northwind</h1>
+      <div class="item"><span class="hash">≡</span>Threads</div>
+      <div class="item"><span class="hash">@</span>Mentions</div>
+      <div class="sec">Channels</div>
+      <div class="item"><span class="hash">#</span>general</div>
+      <div class="item on"><span class="hash">#</span>launch-room</div>
+      <div class="item"><span class="hash">#</span>design</div>
+      <div class="item"><span class="hash">#</span>support</div>
+      <div class="sec">Direct messages</div>
+      <div class="item"><span class="dot" style="background:#2b7a78">L</span>Leo Park</div>
+      <div class="item"><span class="dot" style="background:#9c4f96">P</span>Priya Nair</div>
+      <div class="sec">Apps</div>
+      <div class="item"><span class="dot" style="background:var(--icetrine)"><img src="../brands/agenta/logos/mark-dark.svg" alt="" width="12" height="12"></span>agenta</div>
+    </aside>
+    <main class="main">
+      <header class="head">
+        <div class="name"># launch-room</div>
+        <div class="meta">
+          <div class="faces"><span style="background:#2b7a78">L</span><span style="background:#9c4f96">P</span><span style="background:#e06b2d">M</span></div>
+          12
+        </div>
+      </header>
+      <section class="msgs" id="msgs">
+        <div class="day"><span>Yesterday</span></div>
+        <div class="msg">
+          <div class="av" style="background:#9c4f96">P</div>
+          <div><div class="who"><b>Priya Nair</b><time>4:41 PM</time></div>
+            <div class="text">Code freeze for v2.4 is Thursday at noon.</div></div>
+        </div>
+        <div class="msg">
+          <div class="av" style="background:#e06b2d">M</div>
+          <div><div class="who"><b>Maya Chen</b><time>4:52 PM</time></div>
+            <div class="text">Design QA is done. Two copy fixes are in the doc.</div></div>
+        </div>
+        <div class="msg">
+          <div class="av" style="background:#2b7a78">L</div>
+          <div><div class="who"><b>Leo Park</b><time>5:10 PM</time></div>
+            <div class="text">Staging is green. I'll cut the release branch in the morning.</div>
+            <div class="reacts"><span class="react" style="animation:none"><span class="e">🚀</span>3</span></div></div>
+        </div>
+        <div class="day"><span>Today</span></div>
+        <div class="msg">
+          <div class="av" style="background:#2b7a78">L</div>
+          <div><div class="who"><b>Leo Park</b><time>10:02 AM</time></div>
+            <div class="text">v2.4 release notes are ready for review.</div></div>
+        </div>
+        <div class="msg">
+          <div class="av" style="background:#9c4f96">P</div>
+          <div><div class="who"><b>Priya Nair</b><time>10:05 AM</time></div>
+            <div class="text">Thanks! I'll clear out the open PRs before the freeze.</div></div>
+        </div>
+      </section>
+      <div class="compose">
+        <div class="box">
+          <div class="tools">B&nbsp;&nbsp;I&nbsp;&nbsp;S&nbsp;&nbsp;🔗&nbsp;&nbsp;≔</div>
+          <textarea id="composer" aria-label="Message #launch-room" placeholder="Message #launch-room"></textarea>
+          <div class="send-row"><button id="send" aria-label="Send now" type="button">➤</button></div>
+        </div>
+        <div id="type-focus" aria-hidden="true"></div>
+      </div>
+    </main>
+    <aside class="thread" id="thread" aria-label="Thread">
+      <header class="head"><div class="name" id="thead">About this app</div><div class="meta">✕</div></header>
+      <section class="list" id="tlist">
+        <div class="profile">
+          <div class="big"><img src="../brands/agenta/logos/mark-dark.svg" alt=""></div>
+          <h2>agenta <span class="app">APP</span></h2>
+          <div class="sub">Connected to demo-agent</div>
+          <div class="rows">
+            <div class="row"><div class="i">@</div><div><b>Mention @agenta</b><span>In any channel it's in, or a DM.</span></div></div>
+            <div class="row"><div class="i">↳</div><div><b>Replies in the thread</b><span>Reads, reacts, and answers where you asked.</span></div></div>
+            <div class="row"><div class="i">✓</div><div><b>Asks before sensitive actions</b><span>You approve before it changes anything.</span></div></div>
+          </div>
+        </div>
+      </section>
+      <div class="typing" id="typing"></div>
+    </aside>
+  </div>
+<script>
+  const K = Math.max(1, Number(new URLSearchParams(location.search).get("k")) || 1);
+  const later = (ms, fn) => setTimeout(fn, ms * K);
+  const MARK = "../brands/agenta/logos/mark-dark.svg";
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+  const withMentions = (s) => esc(s).replace(/@agenta\b/g, '<span class="mention">@agenta</span>');
+
+  const composer = $("composer");
+  const send = $("send");
+  composer.addEventListener("input", () => send.classList.toggle("ready", composer.value.trim() !== ""));
+
+  const bot = (html, time = "10:07 AM") => `
+    <div class="av bot"><img src="${MARK}" alt=""></div>
+    <div><div class="who"><b>agenta</b><span class="app">APP</span><time>${time}</time></div>
+      <div class="text">${html}</div></div>`;
+  const node = (cls, html) => { const d = document.createElement("div"); d.className = cls; d.innerHTML = html; return d; };
+
+  let root = null;
+  let rootText = "";
+  const react = (where, emoji) => {
+    let row = where.querySelector(".reacts");
+    if (!row) { row = node("reacts", ""); where.querySelector(".text").after(row); }
+    row.appendChild(node("react", `<span class="e">${emoji}</span>1`));
+  };
+
+  send.addEventListener("click", () => {
+    rootText = composer.value.trim();
+    if (!rootText || root) return;
+    composer.value = "";
+    send.classList.remove("ready");
+    root = node("msg fresh", `
+      <div class="av" style="background:#e06b2d">M</div>
+      <div><div class="who"><b>Maya Chen</b><time>10:07 AM</time></div>
+        <div class="text">${withMentions(rootText)}</div></div>`);
+    $("msgs").appendChild(root);
+    // The agent reads it: eyes on the message.
+    later(700, () => react(root, "👀"));
+    // Then answers in the thread.
+    later(1900, () => {
+      const r = document.createElement("button");
+      r.className = "replies"; r.id = "replies"; r.type = "button";
+      r.setAttribute("aria-label", "1 reply");
+      r.innerHTML = `<span class="mini"><img src="${MARK}" alt=""></span><b>1 reply</b><span>Last reply just now</span>`;
+      root.querySelector(".text").parentElement.appendChild(r);
+      r.addEventListener("click", openThread);
+    });
+  });
+
+  function openThread() {
+    const list = $("tlist");
+    list.innerHTML = "";
+    list.classList.add("swap");
+    $("thead").innerHTML = 'Thread <span style="font-weight:400;color:var(--muted);font-size:14px"># launch-room</span>';
+    list.appendChild(node("msg", `
+      <div class="av" style="background:#e06b2d">M</div>
+      <div><div class="who"><b>Maya Chen</b><time>10:07 AM</time></div>
+        <div class="text">${withMentions(rootText)}</div></div>`));
+    list.appendChild(node("rule", "1 reply"));
+    list.appendChild(node("msg", bot(`
+      Found 3 stale PRs from last sprint:
+      <ul class="prs">
+        <li><a>#412</a> Retry queue cleanup <small>· idle 21 days</small></li>
+        <li><a>#418</a> Legacy billing flags <small>· idle 18 days</small></li>
+        <li><a>#431</a> Draft: onboarding copy <small>· idle 16 days</small></li>
+      </ul>
+      <div class="ask" id="ask">
+        <div class="q">Close these 3 pull requests?</div>
+        <div class="btns"><button class="go" id="approve" type="button">Approve</button><button id="deny" type="button">Deny</button></div>
+      </div>`)));
+    $("approve").addEventListener("click", approve);
+  }
+
+  function approve() {
+    $("ask").querySelector(".btns").replaceWith(node("done", "✅ Approved by Maya Chen"));
+    $("typing").textContent = "agenta is working…";
+    later(1300, () => {
+      $("typing").textContent = "";
+      $("tlist").querySelector(".rule").textContent = "2 replies";
+      const done = node("msg fresh", bot("Done. Closed #412, #418 and #431, with a note on each.", "10:08 AM"));
+      done.id = "result";
+      $("tlist").appendChild(done);
+      react(root, "✅");
+      const r = $("replies");
+      if (r) r.querySelector("b").textContent = "2 replies";
+    });
+  }
+</script>
+</body>
+</html>

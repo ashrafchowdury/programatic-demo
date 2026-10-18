@@ -131,6 +131,12 @@ const FRAME_FRAC = 0.55;
  */
 const FOCUS_TYPE_FRAC = 0.9;
 /**
+ * The farthest ahead, in screen seconds, focus framing leaves early for (see
+ * FrameGeometry.focus). The skills take's beats sit 0.5-1.5s apart; a cut to
+ * another app is several seconds.
+ */
+const EAGER_REACH_S = 2;
+/**
  * How far inside the frame edge a click is kept, as a fraction of the frame.
  *
  * A subject keeps its screen position through a punch (see frameFor), which is
@@ -923,9 +929,14 @@ export function buildCameraTrack(
   };
 
   // Focus framing leaves as soon as the last beat has been watched (see
-  // FrameGeometry.focus); otherwise when the cursor does.
+  // FrameGeometry.focus); otherwise when the cursor does. Only for a beat close
+  // behind: across a longer gap (a page load, a cut to another app) the camera
+  // rests at base and punches in as the cursor leaves, so a scene after a cut
+  // opens wide instead of already framed on its first control.
   const eager = (want: number, after: ClickEvent | null): number =>
-    geom.focus && after ? Math.min(want, watchUntil(after)) : want;
+    geom.focus && after && want - watchUntil(after) <= EAGER_REACH_S * speed
+      ? Math.min(want, watchUntil(after))
+      : want;
 
   for (let i = 0; i < meta.length; i++) {
     const { group, poses, tIn } = meta[i];

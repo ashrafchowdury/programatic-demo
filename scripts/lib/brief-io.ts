@@ -11,6 +11,7 @@ import { briefProblems, chipText, type Brief, type Problem } from "../../src/lib
 import type { ClickLog } from "../../src/lib/click-log";
 import { compileBrief, type Compiled } from "../../src/lib/compile-brief";
 import { resolveHouse, type House } from "../../src/lib/house";
+import type { ReelClickLog } from "../../src/lib/reel";
 import { loadRegistry, type Registry } from "./action";
 
 export const ROOT = path.resolve(import.meta.dirname, "..", "..");
@@ -29,6 +30,20 @@ export const clickLogFile = (demo: string) => path.join(ROOT, "public", `${demo}
 export function readClickLog(demo: string): ClickLog | undefined {
   const file = clickLogFile(demo);
   return fs.existsSync(file) ? (JSON.parse(fs.readFileSync(file, "utf8")) as ClickLog) : undefined;
+}
+
+/**
+ * `log` carrying the click logs of the recordings a brief's cuts resume in
+ * (BriefCut.demo), as `scenes`. Unrecorded ones read as null, which the brief
+ * check names.
+ */
+export function withScenes(log: ClickLog, cuts: unknown): ReelClickLog {
+  const names = Array.isArray(cuts)
+    ? cuts.flatMap((c) => (typeof c === "object" && c !== null && typeof (c as { demo?: unknown }).demo === "string" ? [(c as { demo: string }).demo] : []))
+    : [];
+  if (!names.length) return log;
+  const logs = new Map(names.map((n) => [n, readClickLog(n) ?? null]));
+  return Object.assign(log, { scenes: (d: string) => logs.get(d) ?? null });
 }
 
 export type BriefRun = {
@@ -63,6 +78,7 @@ export async function checkBrief(arg: string, opts: { log?: ClickLog } = {}): Pr
   const fields = (typeof raw === "object" && raw !== null ? raw : {}) as Partial<Brief>;
   const demo = typeof fields.demo === "string" ? fields.demo : typeof fields.name === "string" ? fields.name : undefined;
   run.log = opts.log ?? (demo ? readClickLog(demo) : undefined);
+  if (run.log) run.log = withScenes(run.log, fields.cuts);
   run.problems.push(
     ...briefProblems(raw, {
       catalog: registry,

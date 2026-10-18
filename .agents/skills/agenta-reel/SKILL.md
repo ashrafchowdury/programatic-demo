@@ -79,6 +79,16 @@ launches: you choose the footage and three or four lines of copy.
 - `outro`: 1-3 lines, 1-8 words each, one card per line, then the logo card.
   One line is the default; add a second only when the post makes a second
   claim the take shows.
+- `cuts` (optional): labels the take hard-cuts after, e.g. `["Slack"]`. The
+  take ends that action's beat and resumes on the next action, opening wide on
+  its scene. `pnpm brief` refuses a cut with nothing between it and the next
+  action. A cut can be an object, `{ "after", "demo", "line" }`: `demo`
+  resumes in another recording, which keeps a scene that changes often (a
+  mocked Slack thread) in its own shoot, so re-shooting it re-renders only its
+  clip; `line` puts a message card at the cut (1-8 words); `tailS` (0-3s) sets
+  how long the clip runs past `after`, small to cut on the click before what
+  it opens. The Slack launch:
+  `[{ "after": "Slack", "demo": "slack-thread", "line": "Then mention @agenta in a channel." }]`.
 - No `beats`, `payoff` or `signoff`: `pnpm brief` refuses them under a one-take
   house (`agenta@2` to `agenta@7`). To cut beats instead, pin `"house": "agenta@1"` and write the beats
   brief from `intro-reel`.
@@ -146,3 +156,23 @@ is the only kind you hand over:
    (`out/reel/<name>.poster.jpg`), the copy, and the gate
    summary, brand audit included. On a failure, read
    `out/launch/<name>/status.json`; a copy fix resumes `--from compile`.
+
+### Shoot so fixes stay cheap
+
+Renders are cached per segment and per 2s chunk of a clip, keyed on what draws
+them; a re-run renders only what changed. Plan for that:
+
+- **One recording per scene.** A story that moves between screens or apps
+  (Agenta, then Slack) is shot as one flow per scene and joined with
+  `cuts: [{ "after": "<label>", "demo": "<scene>", "line": "…" }]`. Re-shooting
+  a scene then re-renders only its clip: a re-recording always re-renders its
+  whole clip, and every other scene and card stays cached.
+- **Copy fixes** (title, `line`, outro): `pnpm launch <name> --from compile`
+  re-renders only the changed cards.
+- **A camera, timing or style fix at one moment**:
+  `pnpm launch <name> --from render-reel --patch=<from>-<to>` (reel seconds)
+  re-renders only the chunks in that window and reuses the rest of the last
+  cut. Read the seam report for any patched edge that jumps.
+- **Before handing over a patched reel**, cut it once more without `--patch`, so
+  no chunk outside the window still carries the old render.
+- **Gate or audit fixes**: `--from gate` renders nothing.

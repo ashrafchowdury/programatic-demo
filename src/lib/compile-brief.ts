@@ -34,6 +34,7 @@ import {
   segmentJoins,
   type ClipAnchors,
   type Reel,
+  type ReelClickLog,
   type ReelSegment,
   type ReelSegmentInput,
   type ReelSfx,
@@ -94,10 +95,50 @@ export function compileBrief(
 
   if (isOneTake(house)) {
     if (!labels.length) return { problems: [{ path: brief.footage ? "footage" : "demo", message: "the click log has no labelled actions, so there is no take to show" }] };
-    const first = beatAt(anchorFor(0, labels), "footage");
-    const last = beatAt(anchorFor(labels.length - 1, labels), "footage");
-    if (problems.length || !first || !last) return { problems };
-    return oneTake(brief, log, house, first, last);
+    // The take's runs: from the first action, ending after each cut and
+    // resuming on the action after it, or on the first action of the
+    // recording the cut switches to (BriefCut.demo).
+    const runs: Run[] = [];
+    let rec: Recording = { log, labels, labelled };
+    let from = 0;
+    const cut = (brief.cuts ?? []).map((c) => (typeof c === "string" ? { after: c } : c));
+    for (let i = 0; i <= cut.length; i++) {
+      let end = rec.labels.length - 1;
+      if (i < cut.length) {
+        const hit = resolveLabel(cut[i].after, rec.labels);
+        if ("problem" in hit) {
+          problems.push({ path: `cuts[${i}]`, message: hit.problem });
+          break;
+        }
+        end = hit.index;
+      }
+      const at = (k: number): Beat => ({ event: rec.labelled[k], anchor: anchorFor(k, rec.labels), label: rec.labels[k].label });
+      runs.push({
+        first: at(from),
+        last: at(end),
+        ...(rec.demo ? { demo: rec.demo, log: rec.log } : {}),
+        ...(i > 0 && cut[i - 1].line ? { line: cut[i - 1].line } : {}),
+        ...(i < cut.length && cut[i].tailS !== undefined ? { tailS: cut[i].tailS } : {}),
+      });
+      if (i === cut.length) break;
+      const next = cut[i].demo;
+      if (next !== undefined) {
+        const own = (log as ReelClickLog).scenes?.(next);
+        if (!own) {
+          problems.push({ path: `cuts[${i}].demo`, message: `"${next}" has no click log: record and convert it first` });
+          break;
+        }
+        const ownLabels = briefLabels({ log: own }, { surfaces: new Map(), actions: new Map() }, speed);
+        rec = { log: own, labels: ownLabels, labelled: own.clicks.filter((c) => c.label), demo: next };
+        from = 0;
+      } else from = end + 1;
+      if (from >= rec.labels.length) {
+        problems.push({ path: `cuts[${i}]`, message: `leaves nothing to resume to` });
+        break;
+      }
+    }
+    if (problems.length || !runs.length) return { problems };
+    return oneTake(brief, log, house, runs);
   }
 
   type Plan = { path: string; from: Beat; last: Beat; payoff: boolean; label: string };
@@ -216,38 +257,105 @@ export function compileBrief(
  */
 const WIDE_FROM_S = 0.05;
 
+/** One uncut stretch of a one-take: its first and last labelled actions. */
+type Run = {
+  first: Beat;
+  last: Beat;
+  /** Cut from this recording (ClipFields.demo) rather than the brief's, with its log. */
+  demo?: string;
+  log?: ClickLog;
+  /** A message card before this run (BriefCut.line). */
+  line?: string;
+  /** Seconds past its last action before the cut (BriefCut.tailS). */
+  tailS?: number;
+};
+
+/** A recording a one-take's runs read: its log and labelled actions. */
+type Recording = {
+  log: ClickLog;
+  labels: BriefLabel[];
+  labelled: ClickLog["clicks"];
+  demo?: string;
+};
+
+/**
+ * How long before the cursor leaves for a resumed run's first action its clip
+ * starts, in demo seconds: the new scene, settled and wide, before the camera
+ * moves into it.
+ */
+const RESUME_BEFORE_DEPART_S = 0.8;
+/** The least a resumed run may open before its first press, in demo seconds. */
+const MIN_RESUME_LEAD_S = 0.3;
+
 function oneTake(
   brief: Brief,
   log: ClickLog,
   house: House,
-  first: Beat,
-  last: Beat,
+  runs: Run[],
 ): Compiled | { problems: Problem[] } {
   const { cut } = house;
   const { tone, wordmark } = house.brand;
+  const speed = house.shoot.speed;
   const demo = brief.demo ?? brief.name;
   const card = (c: Omit<IntroStoryboard, "name">): ReelSegmentInput => ({ card: { name: demo, ...c } });
-  const types = last.event.typeEndMs !== undefined;
-  const clip: ClipAnchors = {
-    fromBeat: first.anchor,
-    // Wide: back to the start of the footage, wherever the first press is.
-    leadS:
-      house.opening === "wide"
-        ? WIDE_FROM_S - beatDemoS(first.event, log, house.shoot.speed)
-        : cut.leadS,
-    toBeat: last.anchor,
-    ...(types ? { toEdge: "typeEnd" as const } : {}),
-    tailS: cut.payoffTailS,
-    ...(cut.drift !== null ? { drift: cut.drift } : {}),
-  };
+  const problems: Problem[] = [];
+  let prevEndS = -Infinity;
+  let prevDemo: string | undefined;
+  const clips: ReelSegmentInput[] = [];
+  const sources: string[] = ["title"];
+  runs.forEach(({ first, last, demo: runDemo, log: runLog = log, line, tailS: cutTailS }, i) => {
+    if (line !== undefined) {
+      clips.push(card({ headline: line, background: tone.card }));
+      sources.push(`cuts[${i - 1}].line`);
+    }
+    const types = last.event.typeEndMs !== undefined;
+    const press = beatDemoS(first.event, runLog, speed);
+    const departS = first.event.tDepartMs !== undefined ? beatDemoS({ tMs: first.event.tDepartMs }, runLog, speed) : null;
+    // The first run opens wide (back to the footage's start) or on the house's
+    // lead; a run after a cut opens on its scene just before the cursor moves,
+    // and, in the same recording, never before the previous run has ended.
+    let leadS =
+      i > 0
+        ? departS !== null
+          ? departS - RESUME_BEFORE_DEPART_S - press
+          : cut.leadS - RESUME_BEFORE_DEPART_S
+        : house.opening === "wide"
+          ? WIDE_FROM_S - press
+          : cut.leadS;
+    if (i > 0 && runDemo === prevDemo) {
+      leadS = Math.max(leadS, prevEndS + cut.gapS - press);
+      if (leadS > -MIN_RESUME_LEAD_S)
+        problems.push({
+          path: `cuts[${i - 1}]`,
+          message: `"${first.label}" follows "${runs[i - 1].last.label}" too closely to cut between them: nothing lies between to skip. Cut after a later action, or leave the take uncut`,
+        });
+    }
+    // Never before its own recording starts.
+    leadS = Math.max(leadS, WIDE_FROM_S - press);
+    const final = i === runs.length - 1;
+    const tailS = cutTailS ?? (final ? cut.payoffTailS : types ? cut.typingTailS : cut.tailS);
+    prevEndS = (types ? logMsToDemoS(last.event.typeEndMs!, runLog, speed) : beatDemoS(last.event, runLog, speed)) + tailS;
+    prevDemo = runDemo;
+    const clip: ClipAnchors = {
+      fromBeat: first.anchor,
+      leadS,
+      toBeat: last.anchor,
+      ...(types ? { toEdge: "typeEnd" as const } : {}),
+      tailS,
+      ...(cut.drift !== null ? { drift: cut.drift } : {}),
+    };
+    clips.push({ clip: { ...clip, ...(runDemo ? { demo: runDemo } : {}), label: `${first.label} → ${last.label}` } });
+    sources.push(runs.length > 1 ? `footage[${i}]` : "footage");
+  });
+  if (problems.length) return { problems };
   const segments: ReelSegmentInput[] = [
     card({ headline: brief.title, wordmark, background: tone.card, ...(house.poster ? { poster: true } : {}) }),
-    { clip: { ...clip, label: `${first.label} → ${last.label}` } },
+    ...clips,
     ...brief.outro!.map((line) => card({ headline: line, background: tone.card })),
     card({ headline: wordmark, logo: true, background: tone.signoff }),
   ];
-  const sources = ["title", "footage", ...brief.outro!.map((_, i) => `outro[${i}]`), "logo"];
-  return finish(brief, log, house, segments, sources, [], last.label);
+  sources.push(...brief.outro!.map((_, i) => `outro[${i}]`), "logo");
+  return finish(brief, log, house, segments, sources, [], runs[runs.length - 1].last.label);
 }
 
 /** Audio, length and the reel check: the same for every shape. */
@@ -325,7 +433,12 @@ function finish(
   };
 
   const total = demoDurationInFrames(log, speed, demoGeometry(log), FPS);
-  const bad = reelProblem(resolveReelOrThrow(reel, log, speed), total);
+  const scenes = (log as ReelClickLog).scenes;
+  const totalOf = (demo: string): number | undefined => {
+    const own = demo === (brief.demo ?? brief.name) ? log : scenes?.(demo);
+    return own ? demoDurationInFrames(own, speed, demoGeometry(own), FPS) : undefined;
+  };
+  const bad = reelProblem(resolveReelOrThrow(reel, log, speed), scenes ? totalOf : total);
   if (bad) return { problems: [mapProblem(bad, sources)] };
   // The brand audit's static half, before anything renders: a colour, face or
   // logo outside the pack is named against the brief field that produced it.

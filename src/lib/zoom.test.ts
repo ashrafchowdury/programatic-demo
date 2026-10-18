@@ -150,7 +150,7 @@ describe("focus framing", () => {
       durationMs: 12000,
       clicks: [
         { tMs: 1000, tDepartMs: 600, x: 600, y: 600, rect: { x: 540, y: 570, w: 120, h: 60 } },
-        { tMs: 6000, tDepartMs: 5000, x: 3300, y: 1700, rect: { x: 3240, y: 1670, w: 120, h: 60 } },
+        { tMs: 4200, tDepartMs: 3600, x: 3300, y: 1700, rect: { x: 3240, y: 1670, w: 120, h: 60 } },
       ],
     };
     const plain = buildCameraTrack(log, 1, { fit: 1 });
@@ -160,9 +160,26 @@ describe("focus framing", () => {
       return keys[i - 1].t;
     };
     // The watch ends ~0.5s after the 1.0s press; the plain camera waits for the
-    // cursor (departing 5.0s), trailing out only as late as it can.
+    // cursor (departing 3.6s).
     assert.ok(leave(focus) < leave(plain) - 0.4, `focus leaves ${leave(focus)}, plain ${leave(plain)}`);
-    assert.ok(leave(focus) < 2, `focus leaves ${leave(focus)}`);
+    assert.ok(leave(focus) < 1.8, `focus leaves ${leave(focus)}`);
+  });
+
+  it("rests at base across a long gap, so the scene after a cut opens wide", () => {
+    const log: ClickLog = {
+      name: "focus-gap",
+      viewport: VP4,
+      durationMs: 14000,
+      clicks: [
+        { tMs: 1000, tDepartMs: 600, x: 600, y: 600, rect: { x: 540, y: 570, w: 120, h: 60 } },
+        { tMs: 9000, tDepartMs: 8000, x: 3300, y: 1700, rect: { x: 3240, y: 1670, w: 120, h: 60 } },
+      ],
+    };
+    const keys = buildCameraTrack(log, 1, { fit: 1, focus: true });
+    // Some key sits at base between the two beats, held for at least a second.
+    const base = keys.filter((k) => k.pose.scale === 1 && k.t > 2 && k.t < 8);
+    assert.ok(base.length >= 1, JSON.stringify(keys.map((k) => [k.t, k.pose.scale])));
+    assert.ok(base[base.length - 1].t - base[0].t >= 1 || base.length === 1);
   });
 });
 

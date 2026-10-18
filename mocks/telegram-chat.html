@@ -1,0 +1,158 @@
+<!doctype html>
+<!--
+  A Telegram-style chat on a phone, for the Telegram launch reel
+  (flows/telegram-chat.ts): a task sent to the agent's bot, its answer, a
+  follow-up in the same chat, and the answer to that.
+
+  Not a real chat: every name and ticket is invented. Scripted, not live: the
+  bot's replies run on timers when a message is sent. `?k=<slowmo>` stretches
+  every timer by the shoot's DEMO_SLOWMO, so a reply lands at the same place in
+  the compressed footage as it would in real time.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agenta · Telegram</title>
+<style>
+  :root {
+    --page: #f6f5f3;
+    --tg-blue: #3390ec;
+    --out: #e3fec6;
+    --out-meta: #4fae4e;
+    --in: #ffffff;
+    --ink: #000000;
+    --muted: #8e8e93;
+    --icetrine: #f2f25c;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  body {
+    background: radial-gradient(1200px 800px at 50% 40%, #ffffff 0%, var(--page) 70%);
+    font-family: -apple-system, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    display: grid; place-items: center;
+  }
+  .phone {
+    position: relative; width: 480px; height: 990px; border-radius: 68px; padding: 14px;
+    background: #111; box-shadow: 0 40px 90px rgba(30,20,10,0.22), 0 0 0 2px #2a2a2a inset;
+  }
+  .screen {
+    position: relative; width: 100%; height: 100%; border-radius: 56px; overflow: hidden;
+    display: grid; grid-template-rows: 54px 64px 1fr auto;
+    background: #fff;
+  }
+  .island { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); width: 120px; height: 34px; border-radius: 20px; background: #000; z-index: 3; }
+  .status { display: flex; justify-content: space-between; align-items: center; padding: 14px 34px 0; font-weight: 600; font-size: 16px; background: #f7f7f7; }
+  .status .r { display: flex; gap: 6px; font-size: 12px; }
+  .head {
+    display: grid; grid-template-columns: 90px 1fr 90px; align-items: center; padding: 0 10px;
+    background: #f7f7f7; border-bottom: 1px solid #dcdcdc;
+  }
+  .back { color: var(--tg-blue); font-size: 17px; }
+  .title { text-align: center; }
+  .title b { display: block; font-size: 17px; font-weight: 600; }
+  .title span { font-size: 13px; color: var(--muted); }
+  .title span.live { color: var(--tg-blue); }
+  .ava { justify-self: end; width: 40px; height: 40px; border-radius: 50%; background: var(--icetrine); display: grid; place-items: center; }
+  .ava img { width: 22px; height: 22px; }
+  .chat {
+    overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; gap: 6px;
+    padding: 12px 10px 10px;
+    background:
+      radial-gradient(circle at 20% 15%, rgba(255,255,255,0.35) 0 2px, transparent 3px) 0 0 / 46px 46px,
+      linear-gradient(160deg, #c8dcb1 0%, #a9c99c 45%, #8fbb98 100%);
+  }
+  .day { align-self: center; background: rgba(0,0,0,0.18); color: #fff; font-size: 13px; font-weight: 600; padding: 3px 10px; border-radius: 12px; margin-bottom: 4px; }
+  .b {
+    max-width: 82%; padding: 7px 10px 6px; border-radius: 16px; font-size: 16px; line-height: 1.32;
+    box-shadow: 0 1px 1px rgba(0,0,0,0.12); position: relative;
+  }
+  .b.in { align-self: flex-start; background: var(--in); border-bottom-left-radius: 5px; }
+  .b.out { align-self: flex-end; background: var(--out); border-bottom-right-radius: 5px; }
+  .b .meta { float: right; margin: 6px 0 -4px 10px; font-size: 11px; color: var(--muted); }
+  .b.out .meta { color: var(--out-meta); }
+  .b.fresh { animation: rise 240ms ease-out; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px) scale(0.98); } }
+  .b ul { margin: 4px 0 0; padding-left: 18px; }
+  .b q { font-style: italic; }
+  .bar { display: grid; grid-template-columns: 34px 1fr 40px; align-items: center; gap: 8px; padding: 8px 12px 30px; background: #f7f7f7; border-top: 1px solid #dcdcdc; }
+  .clip { color: var(--muted); font-size: 22px; text-align: center; }
+  textarea {
+    height: 38px; border: 1px solid #d9d9d9; border-radius: 19px; resize: none; outline: none;
+    font: inherit; font-size: 16px; padding: 8px 14px; background: #fff; color: var(--ink);
+  }
+  textarea::placeholder { color: #a3a3a3; }
+  #send { width: 38px; height: 38px; border-radius: 50%; border: 0; background: transparent; color: var(--muted); font-size: 20px; display: grid; place-items: center; cursor: pointer; }
+  #send.ready { background: var(--tg-blue); color: #fff; }
+  /* Invisible: what the camera frames while a message is typed and sent: the
+     input bar and the latest bubbles above it. */
+  #type-focus { position: absolute; left: 0; right: 0; bottom: 0; height: 470px; pointer-events: none; }
+</style>
+</head>
+<body>
+  <div class="phone">
+    <div class="screen">
+      <div class="island"></div>
+      <div class="status"><span>9:41</span><span class="r">▮▮▮ 5G ▭</span></div>
+      <div class="head">
+        <div class="back">‹ Chats</div>
+        <div class="title"><b>Agenta</b><span id="sub">bot</span></div>
+        <div class="ava"><img src="../brands/agenta/logos/mark-dark.svg" alt=""></div>
+      </div>
+      <div class="chat" id="chat">
+        <div class="day">Today</div>
+        <div class="b in">Connected to demo-agent. Send me a task anytime.<span class="meta">9:38</span></div>
+      </div>
+      <div class="bar">
+        <div class="clip">⊕</div>
+        <textarea id="composer" aria-label="Message" placeholder="Message"></textarea>
+        <button id="send" type="button" aria-label="Send">➤</button>
+      </div>
+      <div id="type-focus" aria-hidden="true"></div>
+    </div>
+  </div>
+<script>
+  const K = Math.max(1, Number(new URLSearchParams(location.search).get("k")) || 1);
+  const later = (ms, fn) => setTimeout(fn, ms * K);
+  const $ = (id) => document.getElementById(id);
+  const composer = $("composer");
+  const send = $("send");
+  composer.addEventListener("input", () => send.classList.toggle("ready", composer.value.trim() !== ""));
+
+  const bubble = (cls, html, time, id) => {
+    const d = document.createElement("div");
+    d.className = `b ${cls} fresh`;
+    if (id) d.id = id;
+    d.innerHTML = `${html}<span class="meta">${time}</span>`;
+    $("chat").appendChild(d);
+  };
+  const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+
+  // The bot's answers, in order: one per message sent.
+  const REPLIES = [
+    {
+      html: `12 tickets yesterday: 5 billing, 4 login, 3 feature requests.<br>Two need you today:<ul><li><b>#881</b> refund stuck</li><li><b>#884</b> SSO login loop</li></ul>`,
+      id: "answer",
+    },
+    {
+      html: `Here's a reply for <b>#884</b>:<br><q>Thanks for flagging the SSO loop. We reproduced it, and a fix ships today.</q>`,
+      id: "result",
+    },
+  ];
+  let sent = 0;
+  send.addEventListener("click", () => {
+    const text = composer.value.trim();
+    if (!text) return;
+    composer.value = "";
+    send.classList.remove("ready");
+    bubble("out", esc(text), "9:4" + (1 + sent) + " ✓✓");
+    const reply = REPLIES[sent++];
+    if (!reply) return;
+    later(500, () => { $("sub").textContent = "typing…"; $("sub").classList.add("live"); });
+    later(1700, () => {
+      $("sub").textContent = "bot"; $("sub").classList.remove("live");
+      bubble("in", reply.html, "9:4" + sent, reply.id);
+    });
+  });
+</script>
+</body>
+</html>

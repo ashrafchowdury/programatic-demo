@@ -12,6 +12,7 @@
  */
 import { logMsToDemoS, type ClickEvent, type ClickLog } from "./click-log";
 import {
+  clipLog,
   coldOpenIndex,
   isClip,
   type ReelAnchor,
@@ -236,13 +237,14 @@ export function cueHits(
     if (!isClip(seg)) continue;
     if (seg.clip.freeze) continue;
     const { fromS, toS } = seg.clip;
-    for (const beat of log.clicks) {
+    const own = clipLog(log, seg.clip);
+    for (const beat of own.clicks) {
       if (!beatMatches(beat, kind, labels)) continue;
-      const demoS = logMsToDemoS(beatTimeMs(beat, kind, labels), log, speed);
+      const demoS = logMsToDemoS(beatTimeMs(beat, kind, labels), own, speed);
       if (!(demoS >= fromS && demoS < toS)) continue;
       const hit: CueHit = { segment: i, demoS, intoS: demoS - fromS, label: beat.label };
       if (kind === "typing" && !labels?.length && beat.typeEndMs != null) {
-        const endS = Math.min(toS, logMsToDemoS(beat.typeEndMs + TYPING_SHOWN_MS, log, speed));
+        const endS = Math.min(toS, logMsToDemoS(beat.typeEndMs + TYPING_SHOWN_MS, own, speed));
         if (endS > demoS) hit.durS = endS - demoS;
       }
       hits.push(hit);
@@ -419,8 +421,9 @@ export function clipLabelWarnings(
   segments.forEach((seg, i) => {
     if (!isClip(seg) || seg.clip.freeze || !seg.clip.label) return;
     const { fromS, toS, label } = seg.clip;
-    const inRange = log.clicks.filter((b) => {
-      const t = logMsToDemoS(b.tDownMs ?? b.tMs, log, speed);
+    const own = clipLog(log, seg.clip);
+    const inRange = own.clicks.filter((b) => {
+      const t = logMsToDemoS(b.tDownMs ?? b.tMs, own, speed);
       return b.label && t >= fromS && t < toS;
     });
     const want = words(label);

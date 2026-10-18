@@ -398,6 +398,47 @@ const LOG = {
   ],
 } as unknown as ClickLog;
 
+describe("clips from their own recording", () => {
+  const SCENE = {
+    name: "scene",
+    viewport: { width: 1920, height: 1080 },
+    durationMs: 8000,
+    clicks: [{ label: "Send", tMs: 2000, tDownMs: 1900 }],
+  } as unknown as ClickLog;
+  const reel: Reel = {
+    name: "two",
+    demo: "demo",
+    segments: [
+      { clip: { fromBeat: "Add provider", leadS: -0.2, toBeat: "Save", tailS: 0.5 } },
+      { clip: { demo: "scene", fromBeat: "Send", leadS: -0.5, tailS: 1 } },
+    ],
+  };
+  const withScene = Object.assign({ ...LOG }, { scenes: (d: string) => (d === "scene" ? SCENE : null) });
+
+  it("resolves each clip's anchors against its own recording's log", () => {
+    const r = resolveReel(reel, withScene, 1);
+    assert.ok(!("problem" in r));
+    const clip = (r as { reel: { segments: { clip: { fromS: number; toS: number; demo?: string } }[] } }).reel.segments[1].clip;
+    assert.equal(clip.demo, "scene");
+    assert.ok(Math.abs(clip.fromS - 1.4) < 1e-9, String(clip.fromS));
+  });
+
+  it("names a recording whose log is missing", () => {
+    const r = resolveReel(reel, LOG, 1);
+    assert.ok("problem" in r);
+    assert.match(r.problem, /cuts from "scene", which has no click log/);
+  });
+
+  it("checks order and length within each recording, not across them", () => {
+    const r = resolveReel(reel, withScene, 1);
+    assert.ok(!("problem" in r));
+    // The scene's clip starts earlier on ITS clock than the first clip ended on
+    // the demo's: not out of order. Its length bounds it, not the demo's.
+    assert.equal(reelProblem(r.reel, (d) => (d === "scene" ? 1000 : 1000)), null);
+    assert.match(reelProblem(r.reel, (d) => (d === "scene" ? 50 : 1000)) ?? "", /\(clip\) ends at frame \d+, but the demo has 50 frames/);
+  });
+});
+
 describe("beat anchors (R7)", () => {
   it("places a beat on its press, on the DEMO clock (speed and offset applied)", () => {
     // (2575 + 200) ms on the shoot clock at 1.25x is 2.22 s of demo — the

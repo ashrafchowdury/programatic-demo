@@ -37,7 +37,7 @@ import {
 } from "./style";
 import type { PushSpec } from "./push";
 import type { CropSpec } from "./crop";
-import { isAspect, ASPECTS, type Aspect } from "./aspect";
+import { isAspect, isNativeAspect, ASPECTS, type Aspect } from "./aspect";
 import { beatPoint, beatRect, openProblem, type ClipOpen, type ResolvedOpen } from "./open";
 
 /** Re-exported so `look` can be authored and validated from one import. */
@@ -88,6 +88,12 @@ export type ClipEdge = (typeof CLIP_EDGES)[number];
 
 /** Everything on a clip except where it starts and ends. */
 export type ClipFields = {
+  /**
+   * Cut from this recording instead of the reel's `demo`: a scene shot on its
+   * own (another app, another page), so changing it re-renders only its clips.
+   * Its anchors read its own click log. Native aspect only.
+   */
+  demo?: string;
   label?: string;
   /**
    * Slow push inside long holds, 0..1. Off by default.
@@ -443,7 +449,8 @@ export function coldOpenIndex(segments: ReelSegment[]): number {
  */
 export function reelProblem(
   value: unknown,
-  totalFrames?: number,
+  /** The demo's frames; or, per recording, a lookup by demo name (see ClipFields.demo). */
+  totalFrames?: number | ((demo: string) => number | undefined),
   fps = FPS,
   opts: { framing?: boolean } = {},
 ): string | null {
@@ -478,6 +485,7 @@ export function reelProblem(
   const shot = STYLE_PRESETS[style].shot;
   const cold = coldOpenIndex(reel.segments as ReelSegment[]);
   let previousLast = -1;
+  let orderDemo: string | undefined;
   for (let i = 0; i < reel.segments.length; i++) {
     const segment = reel.segments[i] as ReelSegment;
     const at = `segment ${i + 1}`;
@@ -502,6 +510,10 @@ export function reelProblem(
       if (typeof segment.clip.open.at === "string")
         return `${at} (clip) \`open.at\` "${segment.clip.open.at}" was not resolved to a point — run resolveReel first`;
     }
+    if (segment.clip.demo !== undefined && (typeof segment.clip.demo !== "string" || segment.clip.demo === ""))
+      return `${at} (clip) \`demo\` must be a recording's name`;
+    if (segment.clip.demo !== undefined && reel.aspect !== undefined && !isNativeAspect(reel.aspect))
+      return `${at} (clip) \`demo\` is for the native aspect only; ${reel.aspect} crops from one recording`;
     if (opts.framing !== false) {
       const ignored = ignoredClipFields(segment.clip, shot);
       if (ignored.length) return `${at} (clip) ${framingMessage(ignored, style, shot)}`;
@@ -509,11 +521,19 @@ export function reelProblem(
     if (!(toS > fromS)) return `${at} (clip) ends at or before it starts`;
     if (fromS < 0) return `${at} (clip) starts before the demo does`;
     const { first, last } = clipFrames(segment.clip, fps);
-    if (totalFrames != null && last >= totalFrames)
+    const demo = segment.clip.demo ?? reelDemo(reel as Pick<Reel, "name" | "demo">);
+    const total =
+      typeof totalFrames === "function" ? totalFrames(demo) : segment.clip.demo ? undefined : totalFrames;
+    if (total != null && last >= total)
       return (
-        `${at} (clip) ends at frame ${last}, but the demo has ${totalFrames} ` +
-        `frames (0-${totalFrames - 1})`
+        `${at} (clip) ends at frame ${last}, but the demo has ${total} ` +
+        `frames (0-${total - 1})`
       );
+    // Each recording keeps its own clock: order is checked within one.
+    if (demo !== orderDemo) {
+      orderDemo = demo;
+      previousLast = -1;
+    }
     // Out-of-order ranges are almost always a typo, and they play as a jump cut
     // backwards in time. Deliberate reordering is rare enough to be worth
     // failing on until someone actually wants it — with one exception, the cold
@@ -865,10 +885,30 @@ export function resolveClipRange(
  * fails — before anything renders. Plain-second clips pass through untouched,
  * so a reel with no anchors resolves to itself.
  */
+/** A recording's click log by demo name, or null when it has none. */
+export type ReelLogs = (demo: string) => ClickLog | null;
+
+/**
+ * The reel's own click log carrying its scenes' logs (ClipFields.demo), so
+ * everything that reads clips against a log (anchors, SFX, label checks) can
+ * find each clip's without a second parameter threaded through it.
+ */
+export type ReelClickLog = ClickLog & { scenes?: ReelLogs };
+
+/** The log a clip is read against: its own recording's, or the reel's. */
+export function clipLog(log: ReelClickLog, clip: { demo?: string }): ClickLog {
+  if (clip.demo === undefined) return log;
+  const own = log.scenes?.(clip.demo);
+  if (!own) throw new Error(`a clip cuts from "${clip.demo}", but its click log was not loaded`);
+  return own;
+}
+
 export function resolveReel(
   reel: Reel,
-  log: ClickLog,
+  log: ReelClickLog,
   speed: number,
+  /** For clips cut from their own recording (ClipFields.demo). Default: log.scenes. */
+  logs: ReelLogs | undefined = log.scenes,
 ): { reel: ResolvedReel } | { problem: string } {
   if (!Array.isArray(reel.segments)) return { problem: "has no `segments`" };
   const segments: ReelSegment[] = [];
@@ -880,7 +920,10 @@ export function resolveReel(
     }
     if (typeof seg.clip !== "object" || seg.clip === null)
       return { problem: `segment ${i + 1} (clip) is not an object` };
-    const r = resolveClipRange(seg.clip, log, speed);
+    const own = seg.clip.demo !== undefined ? (logs?.(seg.clip.demo) ?? null) : log;
+    if (!own)
+      return { problem: `segment ${i + 1} (clip) cuts from "${seg.clip.demo}", which has no click log: record and convert it first` };
+    const r = resolveClipRange(seg.clip, own, speed);
     if ("problem" in r) return { problem: `segment ${i + 1} (clip) ${r.problem}` };
     // The anchors are spent: downstream reads seconds only, and the cache key
     // hashes the resolved range, so a re-shoot that moves a beat re-renders.
@@ -896,11 +939,11 @@ export function resolveReel(
       let at = { x: 0.5, y: 0.5 };
       let rect: ResolvedOpen["rect"];
       if (typeof open.at === "string") {
-        const hit = findBeatEvent(open.at, log, speed);
+        const hit = findBeatEvent(open.at, own, speed);
         if ("problem" in hit) return { problem: `segment ${i + 1} (clip) open.at: ${hit.problem}` };
-        at = beatPoint(hit.beat, log.viewport);
+        at = beatPoint(hit.beat, own.viewport);
         // The control's box too, so the opening can keep all of it in shot.
-        rect = beatRect(hit.beat, log.viewport);
+        rect = beatRect(hit.beat, own.viewport);
       } else if (open.at) {
         at = open.at;
       }

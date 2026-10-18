@@ -90,6 +90,8 @@ import {
   SFX_KINDS,
   type JoinBlend,
   type Reel,
+  type ReelClickLog,
+  type ReelClip,
   type ReelSegment,
   type ResolvedReel,
 } from "../../src/lib/reel";
@@ -222,6 +224,31 @@ export function restyle(authored: Reel, style: ReelStyle): Reel {
   };
 }
 
+/** A cached card with `file`'s key at another index, or undefined. */
+function sameCardElsewhere(workDir: string, file: string): string | undefined {
+  const key = path.basename(file).replace(/^\d+-card-/, "");
+  return fs
+    .readdirSync(workDir)
+    .filter((f) => f !== path.basename(file) && /^\d+-card-/.test(f) && f.replace(/^\d+-card-/, "") === key)
+    .map((f) => path.join(workDir, f))[0];
+}
+
+/**
+ * The click logs of every recording a clip cuts from besides the reel's own
+ * (ClipFields.demo), by name. Each must be recorded and converted.
+ */
+function loadSceneLogs(reel: Reel, demo: string): Map<string, ClickLog> {
+  const out = new Map<string, ClickLog>();
+  for (const seg of reel.segments)
+    if (isClip(seg) && seg.clip.demo !== undefined && seg.clip.demo !== demo && !out.has(seg.clip.demo)) {
+      const file = path.join(ROOT, "public", `${seg.clip.demo}.clicks.json`);
+      if (!fs.existsSync(file) || !fs.existsSync(path.join(ROOT, "public", `${seg.clip.demo}.mp4`)))
+        throw new Error(`A clip cuts from "${seg.clip.demo}": record + convert it first (public/${seg.clip.demo}.mp4 and .clicks.json).`);
+      out.set(seg.clip.demo, JSON.parse(fs.readFileSync(file, "utf8")) as ClickLog);
+    }
+  return out;
+}
+
 /** Everything that can be known before a frame renders — and every check. */
 function prepare(authored: Reel, opts: CutOptions): Prepared {
   const src = opts.source;
@@ -235,12 +262,17 @@ function prepare(authored: Reel, opts: CutOptions): Prepared {
       `Missing public/${demo}.clicks.json — every segment takes its size from ` +
         `the recording, so record + convert ${demo} first.`,
     );
-  const log = JSON.parse(fs.readFileSync(logPath, "utf8")) as ClickLog;
+  const log: ReelClickLog = JSON.parse(fs.readFileSync(logPath, "utf8")) as ClickLog;
+  // Clips cut from their own recording (ClipFields.demo) read their own logs.
+  const scenes = loadSceneLogs(base, demo);
+  if (scenes.size) log.scenes = (d: string) => scenes.get(d) ?? null;
   const speed = resolvePlaybackRate(process.env.DEMO_SPEED);
   // Every clip re-renders the demo at `speed`, so a log paced for another rate
   // plays its glides and camera room at the wrong length here too.
-  const paced = speedMismatch(log, speed);
-  if (paced) console.warn(`  ⚠️  ${src}: ${paced}`);
+  for (const [name, l] of [[demo, log] as const, ...scenes]) {
+    const paced = speedMismatch(l, speed);
+    if (paced) console.warn(`  ⚠️  ${src} (${name}): ${paced}`);
+  }
 
   const resolved = resolveReel(base, log, speed);
   if ("problem" in resolved) throw new Error(`${src}: ${resolved.problem}`);
@@ -286,7 +318,10 @@ function prepare(authored: Reel, opts: CutOptions): Prepared {
     }
   }
 
-  const problem = reelProblem(resolved.reel, total, FPS, { framing: !opts.style });
+  // Each scene's clips are bounded by its own recording's length.
+  const sceneTotal = (d: string): number | undefined =>
+    d === demo ? total : scenes.has(d) ? demoDurationInFrames(scenes.get(d)!, speed, demoGeometry(scenes.get(d)!), FPS) : undefined;
+  const problem = reelProblem(resolved.reel, scenes.size ? sceneTotal : total, FPS, { framing: !opts.style });
   if (problem) throw new Error(`${src}: ${problem}`);
 
   const style = resolveStyle(resolved.reel);
@@ -855,7 +890,7 @@ export function clipProps(p: Prepared, i: number): Record<string, unknown> {
   // still wins, and a cards-layer style contributes nothing here.
   const shotPush = clipShotPush(push, preset);
   const common = {
-    name: p.demo,
+    name: p.reel.segments[i] && isClip(p.reel.segments[i]) ? ((p.reel.segments[i] as ReelClip).clip.demo ?? p.demo) : p.demo,
     speed: p.speed,
     // Only off the default, so a 30fps clip's props, and its cache key, are unchanged.
     ...(FPS !== 30 ? { fps: FPS } : {}),
@@ -912,7 +947,9 @@ function renderSegments(
   patch: PatchWindow[] | null,
 ): { files: string[]; stale: number } {
   const { reel, preset, log } = p;
-  const footage = reel.segments.some(isClip) ? footageDigest(p.demo) : null;
+  // Per recording: a scene cut from its own (ClipFields.demo) keys on that one,
+  // so re-shooting it leaves every other clip's cache alone.
+  const footageOf = (seg: ReelSegment) => footageDigest((isClip(seg) && seg.clip.demo) || p.demo);
   const size = aspectSize(compositionSize(log), p.aspect);
   // Output size as a share of the composition's, for every segment alike so the
   // concat agrees. Keyed only off the default, so a full-size cache stays valid.
@@ -941,7 +978,13 @@ function renderSegments(
       let file = path.join(workDir, `${name}-${digest({ props, size, ...sized, src: segmentSourceDigest("card") })}.mp4`);
       const prior = manifest[name]?.guard === guard ? manifest[name].chunks[0]?.file : undefined;
       const outside = patch != null && !patch.some((w) => w.fromS <= endS && w.toS >= startS);
-      if (fs.existsSync(file)) console.log(`\n=== ${index} card (cached) ===`);
+      // The same card at another position (a segment inserted before it) is the
+      // same render: its key is everything but the index.
+      const moved = fs.existsSync(file) ? undefined : sameCardElsewhere(workDir, file);
+      if (moved) {
+        fs.copyFileSync(moved, file);
+        console.log(`\n=== ${index} card (cached, from ${path.basename(moved)}) ===`);
+      } else if (fs.existsSync(file)) console.log(`\n=== ${index} card (cached) ===`);
       else if (outside && prior && fs.existsSync(prior)) {
         console.log(`\n=== ${index} card (kept from the last cut: outside the patch) ===`);
         file = prior;
@@ -981,8 +1024,8 @@ function renderSegments(
       scale,
       dir: workDir,
       name,
-      key: digest({ props, footage, ...sized, src: segmentSourceDigest("clip") }),
-      guard: digest({ footage, ...sized, aspect: p.aspect ?? null, fps: FPS }),
+      key: digest({ props, footage: footageOf(seg), ...sized, src: segmentSourceDigest("clip") }),
+      guard: digest({ footage: footageOf(seg), ...sized, aspect: p.aspect ?? null, fps: FPS }),
       fps: FPS,
       patch: patch
         ? patch.map((w) => windowFrames(w, startS, range, FPS)).filter((r): r is Range => r != null)

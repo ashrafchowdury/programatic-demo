@@ -606,6 +606,30 @@ describe("one-take briefs", () => {
   it("refuses an outro under a beats house", () => {
     assert.match(one(briefProblems(brief({ outro: ["Done."] }), CTX), "outro"), /is for a one-take house/);
   });
+
+  it("takes cuts on the take's labels, in order, never after its last action", () => {
+    assert.deepEqual(briefProblems({ ...ONE, cuts: ["describe the skill"] }, CTX), []);
+    assert.match(one(briefProblems({ ...ONE, cuts: ["Publish"] }, CTX), "cuts[0]"), /Publish/);
+    assert.match(
+      one(briefProblems({ ...ONE, cuts: ["describe the skill", "Add skill"] }, CTX), "cuts[1]"),
+      /comes before the cut ahead of it/,
+    );
+    assert.match(one(briefProblems({ ...ONE, cuts: [] }, CTX), "cuts"), /must list the labels/);
+    assert.match(one(briefProblems(brief({ cuts: ["Add skill"] }), CTX), "cuts"), /is for a one-take house/);
+  });
+
+  it("checks a cut's recording and reads its line as a closing line", () => {
+    assert.match(
+      one(briefProblems({ ...ONE, cuts: [{ after: "Add skill", demo: "nowhere" }] }, CTX), "cuts[0].demo"),
+      /has no click log at public\/nowhere\.clicks\.json/,
+    );
+    assert.match(
+      one(briefProblems({ ...ONE, cuts: [{ after: "Add skill", line: "A seamless handoff." }] }, CTX), "cuts[0].line"),
+      /banned word "seamless"/,
+    );
+    assert.match(one(briefProblems({ ...ONE, cuts: [{ after: "Add skill", at: 1 }] }, CTX), "cuts[0].at"), /./);
+    assert.match(one(briefProblems({ ...ONE, cuts: [{ after: "Add skill", tailS: 9 }] }, CTX), "cuts[0].tailS"), /0-3/);
+  });
 });
 
 describe("accent words", () => {

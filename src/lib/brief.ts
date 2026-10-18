@@ -56,6 +56,32 @@ type BriefCommon = {
   signoff?: string;
   /** A one-take house's closing lines, one card each, before the logo. */
   outro?: string[];
+  /**
+   * A one-take house's hard cuts: labels the take cuts after. The take ends that
+   * action's beat and resumes on the next labelled action, skipping whatever
+   * lies between (a page load, a switch to another app). Absent: one uncut take.
+   * A cut may be an object to resume in another recording or to put a message
+   * card at the cut; see BriefCut.
+   */
+  cuts?: (string | BriefCut)[];
+};
+
+/** One hard cut in a one-take: after which action, and what comes next. */
+export type BriefCut = {
+  /** The label the take cuts after, in the recording playing at the cut. */
+  after: string;
+  /**
+   * Resume in this recording instead, from its first labelled action: a scene
+   * shot on its own (another app), so re-shooting it re-renders only its clip.
+   */
+  demo?: string;
+  /** A message card at the cut, read as a closing line is (1-8 words). */
+  line?: string;
+  /**
+   * Seconds the clip runs past the `after` action before the cut, 0-3. Absent:
+   * the house's tail. Small to cut on the click itself, before what it opens.
+   */
+  tailS?: number;
 };
 
 export type Brief = BriefCommon &
@@ -97,8 +123,8 @@ export type Catalog = {
 
 export type BriefContext = {
   catalog: Catalog;
-  /** The demo's click log, for a `demo` brief. */
-  log?: ClickLog;
+  /** The demo's click log, for a `demo` brief, with the logs of the recordings its cuts name (`scenes`). */
+  log?: ClickLog & { scenes?: (demo: string) => ClickLog | null };
   /** The source post's text, or null when the file does not exist. */
   readSource: (path: string) => string | null;
   /** The name the brief's file says it has. */
@@ -118,7 +144,8 @@ export type BriefLabel = {
 };
 
 const FIELDS = {
-  brief: ["version", "name", "house", "source", "footage", "demo", "title", "beats", "payoff", "signoff", "outro"],
+  brief: ["version", "name", "house", "source", "footage", "demo", "title", "beats", "payoff", "signoff", "outro", "cuts"],
+  cut: ["after", "demo", "line", "tailS"],
   footage: ["surface", "actions"],
   action: ["use", "with"],
   beat: ["card", "show"],
@@ -415,11 +442,13 @@ export function briefProblems(value: unknown, ctx: BriefContext): Problem[] {
   if (str(value.title, "title", out)) out.push(...copyProblems(value.title, "title", "title", house));
 
   if (isOneTake(house)) {
-    oneTakeProblems(value, house, labels, out);
+    oneTakeProblems(value, house, labels, out, ctx);
     return out;
   }
   if (value.outro !== undefined)
     out.push({ path: "outro", message: `is for a one-take house; ${house.id} cuts beats and closes on \`signoff\`` });
+  if (value.cuts !== undefined)
+    out.push({ path: "cuts", message: `is for a one-take house; ${house.id} cuts between its beats already` });
   if (str(value.signoff, "signoff", out)) out.push(...copyProblems(value.signoff, "signoff", "signoff", house));
 
   // Beats, in label order.
@@ -503,7 +532,7 @@ export function briefProblems(value: unknown, ctx: BriefContext): Problem[] {
  * lines. No beats, payoff or sign-off: the reel is the whole take, so there is
  * nothing to choose about where it cuts.
  */
-function oneTakeProblems(value: Record<string, unknown>, house: House, labels: BriefLabel[] | null, out: Problem[]) {
+function oneTakeProblems(value: Record<string, unknown>, house: House, labels: BriefLabel[] | null, out: Problem[], ctx: BriefContext) {
   for (const key of ["beats", "payoff", "signoff"] as const)
     if (value[key] !== undefined)
       out.push({
@@ -522,6 +551,55 @@ function oneTakeProblems(value: Record<string, unknown>, house: House, labels: B
   }
   if (labels && labels.length === 0)
     out.push({ path: value.footage !== undefined ? "footage" : "demo", message: "has no labelled actions, so there is no take to show" });
+  if (value.cuts !== undefined) cutProblems(value.cuts, labels, out, house, ctx);
+}
+
+/**
+ * `cuts`: labels of the take, in order, never its last action unless the cut
+ * resumes in another recording; a cut's `demo` must be recorded and its
+ * `line` reads as a closing line.
+ */
+function cutProblems(cuts: unknown, labels: BriefLabel[] | null, out: Problem[], house: House, ctx: BriefContext) {
+  if (!Array.isArray(cuts) || cuts.length === 0) {
+    out.push({ path: "cuts", message: "must list the labels the take cuts after, e.g. [\"Slack\"]" });
+    return;
+  }
+  let current = labels;
+  let prev = -1;
+  cuts.forEach((entry: unknown, i: number) => {
+    const at = `cuts[${i}]`;
+    let ref: unknown = entry;
+    let demo: string | undefined;
+    if (isRecord(entry)) {
+      closed(entry, FIELDS.cut, at, out);
+      ref = entry.after;
+      if (entry.demo !== undefined && str(entry.demo, `${at}.demo`, out)) demo = entry.demo as string;
+      if (entry.line !== undefined && str(entry.line, `${at}.line`, out))
+        out.push(...copyProblems(entry.line as string, "signoff", `${at}.line`, house));
+      if (entry.tailS !== undefined && !(typeof entry.tailS === "number" && entry.tailS >= 0 && entry.tailS <= 3))
+        out.push({ path: `${at}.tailS`, message: "must be a number of seconds, 0-3" });
+    }
+    const afterAt = isRecord(entry) ? `${at}.after` : at;
+    if (!str(ref, afterAt, out) || !current?.length) return;
+    const hit = resolveLabel(ref as string, current);
+    if ("problem" in hit) return void out.push({ path: afterAt, message: hit.problem });
+    if (hit.index === current.length - 1 && demo === undefined)
+      out.push({ path: afterAt, message: `is the take's last action; there is nothing after it to cut to` });
+    else if (hit.index <= prev)
+      out.push({ path: afterAt, message: `comes before the cut ahead of it; list cuts in the order they happen` });
+    prev = hit.index;
+    if (demo !== undefined) {
+      const own = ctx.log?.scenes?.(demo) ?? null;
+      if (!own) {
+        out.push({ path: `${at}.demo`, message: `has no click log at public/${demo}.clicks.json. Record and convert "${demo}" first` });
+        current = null;
+        return;
+      }
+      current = briefLabels({ log: own }, ctx.catalog, house.shoot.speed);
+      prev = -1;
+      if (!current.length) out.push({ path: `${at}.demo`, message: `"${demo}" has no labelled actions to resume on` });
+    }
+  });
 }
 
 /** The labels footage declares, after checking its shape and the catalog. */

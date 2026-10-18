@@ -406,6 +406,52 @@ describe("one-take compilation", () => {
     assert.deepEqual(take(), take());
   });
 
+  it("cuts the take after a label, resuming on the next action", () => {
+    const r = compileBrief({ ...ONE, cuts: ["Add skill"] }, BASIC, ONE_TAKE);
+    assert.ok(!("problems" in r), JSON.stringify("problems" in r && r.problems));
+    const clips = r.reel.segments.filter(isClip) as ReelClip[];
+    assert.equal(clips.length, 2);
+    assert.deepEqual(r.sources, ["title", "footage[0]", "footage[1]", "outro[0]", "logo"]);
+    const resolved = resolveReel(r.reel, BASIC, ONE_TAKE.shoot.speed);
+    assert.ok(!("problem" in resolved));
+    const [a, b] = (resolved as { reel: { segments: ReelClip[] } }).reel.segments.filter(isClip).map((s) => s.clip);
+    assert.ok(a.toS < b.fromS, `${a.toS} then ${b.fromS}`);
+    assert.match(String((clips[1].clip as { label?: string }).label), /^name the skill/);
+  });
+
+  it("cuts to another recording, with a message card at the cut", () => {
+    const log = Object.assign({ ...BASIC }, { scenes: (d: string) => (d === "scene" ? RESHOOT : null) });
+    const cuts = [{ after: "Add skill", demo: "scene", line: "Then it does this." }];
+    const r = compileBrief({ ...ONE, cuts }, log, ONE_TAKE);
+    assert.ok(!("problems" in r), JSON.stringify("problems" in r && r.problems));
+    assert.deepEqual(r.sources, ["title", "footage[0]", "cuts[0].line", "footage[1]", "outro[0]", "logo"]);
+    const [first, line, second] = r.reel.segments.slice(1, 4) as { clip?: { demo?: string; fromBeat?: string }; card?: { headline: string } }[];
+    assert.equal(first.clip?.demo, undefined);
+    assert.equal(line.card?.headline, "Then it does this.");
+    assert.equal(second.clip?.demo, "scene");
+    assert.equal(second.clip?.fromBeat, "Add skill");
+  });
+
+  it("ends a run on its cut's own tail, to cut on the click", () => {
+    const r = compileBrief({ ...ONE, cuts: [{ after: "Add skill", tailS: 0.2 }] }, BASIC, ONE_TAKE);
+    assert.ok(!("problems" in r), JSON.stringify("problems" in r && r.problems));
+    const [first] = r.reel.segments.filter(isClip) as ReelClip[];
+    assert.equal((first.clip as { tailS?: number }).tailS, 0.2);
+  });
+
+  it("names a cut's recording that has no click log", () => {
+    const r = compileBrief({ ...ONE, cuts: [{ after: "Add skill", demo: "nowhere" }] }, BASIC, ONE_TAKE);
+    assert.ok("problems" in r);
+    assert.deepEqual(r.problems[0], { path: "cuts[0].demo", message: '"nowhere" has no click log: record and convert it first' });
+  });
+
+  it("refuses a cut with nothing to skip before the next action", () => {
+    const r = compileBrief({ ...ONE, cuts: ["name the skill"] }, BASIC, ONE_TAKE);
+    assert.ok("problems" in r);
+    assert.equal(r.problems[0].path, "cuts[0]");
+    assert.match(r.problems[0].message, /too closely to cut between them/);
+  });
+
   it("carries agenta@7's render profile onto the reel, and only there", () => {
     const r = compileBrief({ ...ONE, house: "agenta@7" }, BASIC, HOUSES["agenta@7"]);
     assert.ok(!("problems" in r), JSON.stringify("problems" in r && r.problems));

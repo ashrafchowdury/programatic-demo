@@ -33,7 +33,7 @@ import { chipText, type Problem } from "../src/lib/brief";
 import { compileBrief, type Compiled } from "../src/lib/compile-brief";
 import { STYLE_PRESETS } from "../src/lib/style";
 import { composeFlow } from "./lib/action";
-import { checkBrief, clickLogFile, problemLines, readClickLog, ROOT, type BriefRun } from "./lib/brief-io";
+import { checkBrief, clickLogFile, problemLines, readClickLog, ROOT, withScenes, type BriefRun } from "./lib/brief-io";
 import type { Flow } from "./lib/flow";
 import { gateChecks, gateLine, type GateCheck, type ReelSummary } from "./lib/gate";
 import { auditCardFrames, cardSpans } from "./lib/brand-frames";
@@ -203,7 +203,7 @@ const STAGE_RUN: Record<StageName, (c: Ctx, dir: string) => Promise<Outcome>> = 
   },
 
   compile: async (c, dir) => {
-    const log = readClickLog(c.demo)!;
+    const log = withScenes(readClickLog(c.demo)!, c.run.brief!.cuts);
     const r = compileBrief(c.run.brief!, log, c.run.house!, chipText(c.run.brief!, c.run.registry!));
     if ("problems" in r) return { problems: r.problems };
     c.compiled = r;
@@ -274,7 +274,7 @@ const STAGE_RUN: Record<StageName, (c: Ctx, dir: string) => Promise<Outcome>> = 
       const reel = c.compiled!.reel;
       const statics = brandProblems(reel, pack);
       problems.push(...statics.map((p) => ({ path: `gate.brand.${p.path}`, message: p.message })));
-      const spans = cardSpans(reel, readClickLog(c.demo)!, house.shoot.speed);
+      const spans = cardSpans(reel, withScenes(readClickLog(c.demo)!, c.run.brief!.cuts), house.shoot.speed);
       const frames: Record<string, number> = {};
       const tol = house.gate.brand ?? { tolerance: 12, maxOffShare: 0.005 };
       for (const { aspect, file } of reelFiles(c)) {
