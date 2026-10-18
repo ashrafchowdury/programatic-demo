@@ -3,6 +3,10 @@
  *
  *   pnpm launch <name>                 every stage, in order
  *   pnpm launch <name> --from <stage>  resume, reusing what earlier stages wrote
+ *   pnpm launch <name> --from render-reel --patch=12.4-15
+ *                                      re-render only that window of the reel
+ *                                      (reel seconds), keeping the last cut's
+ *                                      chunks elsewhere — scripts/lib/chunks.ts
  *
  * Stages: validate → compose → check → record → convert → render-demo →
  * compile → render-reel → gate. A `demo` brief skips compose through
@@ -37,6 +41,7 @@ import { brandProblems } from "../src/lib/brand-audit";
 import { resolveBrand } from "../src/lib/brand";
 import { outPathOf } from "./lib/out";
 import { recordFlow } from "./lib/record";
+import { patchFlag, type PatchWindow } from "./lib/chunks";
 import { cutReel } from "./lib/reel-cut";
 
 const STAGES = [
@@ -72,6 +77,8 @@ type Status = {
 
 type Ctx = {
   name: string;
+  /** --patch windows for render-reel, in reel seconds. */
+  patch: PatchWindow[] | null;
   run: BriefRun;
   /** The demo the reels cut from: the brief's `demo`, else its own name. */
   demo: string;
@@ -220,6 +227,7 @@ const STAGE_RUN: Record<StageName, (c: Ctx, dir: string) => Promise<Outcome>> = 
         cutReel(c.compiled!.reel, {
           source: rel(c.run.file),
           outBase: path.basename(file, ".mp4"),
+          patch: c.patch,
           ...(aspect === c.run.house!.aspects[0] ? {} : { aspect }),
           ...(c.run.house!.render?.standaloneDemo === false ? { standaloneDemo: false } : {}),
         });
@@ -309,7 +317,7 @@ function missingInput(c: Ctx, from: StageName): Problem | null {
   return null;
 }
 
-async function launch(name: string, from: StageName = "validate"): Promise<boolean> {
+async function launch(name: string, from: StageName = "validate", patch: PatchWindow[] | null = null): Promise<boolean> {
   const dir = path.join(ROOT, "out", "launch", name);
   fs.mkdirSync(dir, { recursive: true });
   const prior: Status | null = fs.existsSync(path.join(dir, "status.json"))
@@ -320,6 +328,7 @@ async function launch(name: string, from: StageName = "validate"): Promise<boole
   const raw = run.brief;
   const ctx: Ctx = {
     name,
+    patch,
     run,
     demo: raw?.demo ?? name,
     shoots: Boolean(raw?.footage),
@@ -419,7 +428,13 @@ async function main() {
   if (!name) throw new Error(`Usage: pnpm launch <name> [--from <stage>]   stages: ${STAGES.join(", ")}`);
   if (fromArg !== undefined && !(STAGES as readonly string[]).includes(fromArg))
     throw new Error(`Unknown stage "${fromArg}". Stages: ${STAGES.join(", ")}`);
-  const ok = await launch(name, (fromArg as StageName | undefined) ?? "validate");
+  const patch = patchFlag(args);
+  // A patch is a window of the REEL. Stages before compile re-shoot or
+  // re-render the demo, which a reel-time window cannot address, and new
+  // footage voids every chunk a patch would keep anyway.
+  if (patch && (fromArg == null || STAGES.indexOf(fromArg as StageName) < STAGES.indexOf("compile")))
+    throw new Error("--patch applies to the reel: resume with --from render-reel (or compile) --patch=<from>-<to>");
+  const ok = await launch(name, (fromArg as StageName | undefined) ?? "validate", patch);
   if (!ok) process.exitCode = 1;
 }
 

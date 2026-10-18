@@ -5,7 +5,13 @@
  * The composition reads public/<name>.clicks.json (via calculateMetadata) for its
  * size, duration, and zoom keyframes, so we only pass the name.
  *
+ * Rendered in chunks under .diag/demo/<name>/ (scripts/lib/chunks.ts), so a
+ * re-render reuses every chunk whose inputs did not change.
+ *
  * Usage: pnpm render <flow-name>   (default: smoke)
+ *        pnpm render <flow-name> --patch=12.4-15
+ *          re-render only that window (demo seconds; comma-separate several),
+ *          keeping the last render's chunks everywhere else
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -17,14 +23,21 @@ import {
 } from "../src/lib/click-log";
 import { DEMO_LOOK, isLook, LOOKS } from "../src/lib/look";
 import { isStyle, resolveStylePreset, STYLES } from "../src/lib/style";
-import { demoGeometry } from "../src/lib/demo-duration";
+import { demoDurationInFrames, demoGeometry } from "../src/lib/demo-duration";
 import { buildCameraTrack } from "../src/lib/zoom";
-import { outPath, outRel } from "./lib/out";
 import {
-  renderComposition,
-  resolveConcurrency,
-  resolveGl,
-} from "./lib/remotion";
+  patchFlag,
+  readManifest,
+  renderChunked,
+  seamReport,
+  windowFrames,
+  writeManifest,
+  type Manifest,
+  type Range,
+} from "./lib/chunks";
+import { outPath, outRel } from "./lib/out";
+import { digest, footageDigest, segmentSourceDigest } from "./lib/reel-cache";
+import { resolveConcurrency, resolveGl } from "./lib/remotion";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 // Renderer flags (GPU rasteriser, worker count, CRF, --muted) and the
@@ -109,7 +122,7 @@ function main() {
           `      downstream will fail. Pass --look=framed if that is not what you meant.\n`,
       );
   }
-  renderComposition("DemoClip", out, {
+  const props = {
     name,
     speed,
     // DEMO_FPS=60: the bundle cannot read it, so the rate rides in the props.
@@ -117,11 +130,45 @@ function main() {
     ...(backdrop ? { backdrop } : {}),
     ...(look ? { look } : {}),
     ...(style ? { style } : {}),
+  };
+  // The same length Root.tsx's calculateMetadata gives the composition.
+  const range = { first: 0, last: demoDurationInFrames(log, speed, demoGeometry(log), FPS) - 1 };
+  const patch = patchFlag(process.argv.slice(2));
+  if (patch)
+    console.log(`patch      -> ${patch.map((w) => `${w.fromS.toFixed(2)}-${w.toS.toFixed(2)}s`).join(", ")}`);
+  const dir = path.join(ROOT, ".diag", "demo", name);
+  fs.mkdirSync(dir, { recursive: true });
+  const keep = new Set<string>();
+  const manifest = readManifest(dir);
+  const next: Manifest = {};
+  const footage = footageDigest(name);
+  const res = renderChunked({
+    id: "DemoClip",
+    props,
+    range,
+    dir,
+    name: "demo",
+    key: digest({ props, footage, src: segmentSourceDigest("clip") }),
+    guard: digest({ footage, fps: FPS }),
+    fps: FPS,
+    patch: patch ? patch.map((w) => windowFrames(w, 0, range, FPS)).filter((r): r is Range => r != null) : null,
+    manifest,
+    nextManifest: next,
+    keep,
   });
+  seamReport(res.file, res.patchedEdges, 0, (f) => f / FPS);
+  writeManifest(dir, next, keep);
+  fs.mkdirSync(path.dirname(out), { recursive: true });
+  fs.copyFileSync(res.file, out);
+  // Earlier renders of this demo only; the output is one file per name.
+  for (const stale of fs.readdirSync(dir)) if (!keep.has(stale)) fs.rmSync(path.join(dir, stale));
+  const kept = res.plans.filter((p) => p.action === "stale").length;
   if (speed !== 1) console.log(`speed      -> ${speed}×`);
   if (concurrency != null) console.log(`workers    -> ${concurrency}`);
   console.log(`gl         -> ${gl}`);
   console.log(`mp4        -> ${outRel(out)}`);
+  if (kept)
+    console.log(`patched    -> ${kept} chunk(s) kept from an earlier render; render again without --patch for a clean one`);
 }
 
 main();

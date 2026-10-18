@@ -100,6 +100,17 @@ pnpm lint            # eslint + tsc --noEmit over src/ scripts/ flows/ shots/
 ```
 
 Demo: `pnpm record:live <name>` → `pnpm convert <name>` → `pnpm render <name>`.
+**Fix one moment without a full re-render.** Every DemoClip render (the demo,
+and each reel clip) is cached in 2s chunks (`DEMO_CHUNK_S`) under `.diag/`, so a
+re-render renders only chunks whose inputs changed. A code or brief fix changes
+every chunk's key; to re-render just the moment you fixed, pass
+`--patch=<from>-<to>` in the output's own seconds (comma-separate several):
+`pnpm render <name> --patch=4-6`, `pnpm reel <name> --patch=12.4-15`, or
+`pnpm launch <name> --from render-reel --patch=12.4-15`. Chunks and cards
+outside the window are kept from the last cut, and each patched edge is
+checked for a visible jump (widen the window if one is reported). Cut once
+more without `--patch` before shipping; it re-renders only the stale chunks.
+A re-shoot (new footage) is never patched over. See `scripts/lib/chunks.ts`.
 Reel: author `reels/<name>.ts` (a `style`, cards + clip ranges), then
 `pnpm reel <name>` (cards render, clip ranges re-render from the demo footage,
 all concatenated). Anchor ranges to beats (`fromBeat`/`toBeat` + signed

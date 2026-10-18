@@ -34,10 +34,18 @@ Config.setColorSpace("bt709");
 // on the zscale (in == out, so no conversion — tags only) fixes that for every
 // codec, ProRes overlays included. Anything else passes through untouched.
 const ZSCALE_709 = "zscale=matrix=709:matrixin=709:range=limited";
-Config.overrideFfmpegCommand(({ args }) =>
-  args.map((a) =>
+// A chunked render (scripts/lib/chunks.ts) sets DEMO_KEYFRAME_EVERY so an IDR
+// lands on every chunk boundary, counted from the render's first frame; the
+// chunks are then cut out of it by stream copy. `-g` cannot promise that: x264
+// restarts its GOP at every scene-cut keyframe, so the grid would drift.
+const KEYFRAME_EVERY = Number(process.env.DEMO_KEYFRAME_EVERY ?? "");
+Config.overrideFfmpegCommand(({ args }) => {
+  const out = args.map((a) =>
     a === ZSCALE_709
       ? `${a}:primaries=709:primariesin=709:transfer=709:transferin=709`
       : a,
-  ),
-);
+  );
+  if (KEYFRAME_EVERY >= 1 && out.includes("libx264"))
+    out.splice(out.length - 1, 0, "-force_key_frames", `expr:eq(mod(n,${KEYFRAME_EVERY}),0)`);
+  return out;
+});

@@ -17,11 +17,16 @@
  *                                    length, first-frame scale, the cut rate
  *                                    against the style's targets and the SFX
  *                                    hits; render nothing
+ *   pnpm reel <name> --patch=12.4-15 re-render only that window (reel seconds,
+ *                                    comma-separate several); every clip chunk
+ *                                    and card outside it is kept from the last
+ *                                    cut. For a fix you have already looked at;
+ *                                    seams it jumps at are reported.
  *
  * The work is in scripts/lib/reel-cut.ts; this file only reads the command
  * line and loads the storyboard.
  *
- * Usage: pnpm reel <name> [--style=<style>] [--aspect=<16:9|1:1|9:16>] [--check]
+ * Usage: pnpm reel <name> [--style=<style>] [--aspect=<16:9|1:1|9:16>] [--check] [--patch=<from>-<to>]
  *        (default: agent-skill)
  *
  * With no reels/<name>.ts, a brief at reels/<name>.brief.json is validated,
@@ -41,6 +46,7 @@ import type { Reel } from "../src/lib/reel";
 import { ASPECTS, aspectSlug, isAspect, isNativeAspect, type Aspect } from "../src/lib/aspect";
 import { briefExists, checkBrief, problemLines } from "./lib/brief-io";
 import { isStyle, STYLES } from "../src/lib/style";
+import { patchFlag } from "./lib/chunks";
 import { cutReel } from "./lib/reel-cut";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
@@ -77,9 +83,11 @@ async function main() {
       a.startsWith("--") &&
       a !== "--check" &&
       !a.startsWith("--style=") &&
-      !a.startsWith("--aspect="),
+      !a.startsWith("--aspect=") &&
+      !a.startsWith("--patch="),
   );
   if (unknown.length) throw new Error(`Unknown flag(s): ${unknown.join(" ")}`);
+  const patch = patchFlag(args);
 
   const { reel, source, aspects } = await loadReel(name);
   // The reel file names itself: out/reel/<name>.mp4 and the cache dir are built
@@ -107,6 +115,7 @@ async function main() {
       style: rawStyle,
       aspect: asked,
       check: args.includes("--check"),
+      patch,
     });
   }
 }

@@ -116,6 +116,12 @@ export type RenderOptions = {
   codec?: "h264" | "prores4444";
   /** Remotion's `--scale`: output size as a share of the composition's. */
   scale?: number;
+  /**
+   * Force an IDR every N frames, counted from the render's first frame, so the
+   * file can be cut into chunks by stream copy (scripts/lib/chunks.ts). Rides
+   * to remotion.config.ts as DEMO_KEYFRAME_EVERY: the CLI has no flag for it.
+   */
+  keyframeEvery?: number;
 };
 
 /** The CLI flags `renderComposition` passes. Pure, so it can be tested. */
@@ -162,5 +168,8 @@ export function renderComposition(
   props: unknown,
   opts: RenderOptions = {},
 ): void {
-  execFileSync(REMOTION_BIN, renderArgs(id, out, props, opts), { stdio: "inherit" });
+  const env = opts.keyframeEvery
+    ? { ...process.env, DEMO_KEYFRAME_EVERY: String(opts.keyframeEvery) }
+    : process.env;
+  execFileSync(REMOTION_BIN, renderArgs(id, out, props, opts), { stdio: "inherit", env });
 }

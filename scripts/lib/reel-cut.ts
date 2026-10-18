@@ -7,7 +7,8 @@
  *
  *   prepare   resolve beat anchors, validate, predict every segment's length.
  *             Needs only the click log, so `--check` stops here in seconds.
- *   segments  render each card and clip range, cached per segment.
+ *   segments  render each card and clip range: a card cached whole, a clip
+ *             cached per chunk (chunks.ts), so `--patch` re-renders a window.
  *   finish    join + composite overlays in ONE ffmpeg pass (xfade.ts), or a
  *             -c copy concat when there is nothing to blend or composite.
  *   deliver   mux audio (video stream-copied), assert the file is deliverable.
@@ -19,7 +20,9 @@
  * Cutting would have been faster per iteration, which is why the segment cache
  * exists instead: every segment is cached under .diag/reel/<out>/ keyed by a
  * hash of exactly what it renders (see reel-cache.ts), so editing one card's
- * copy re-renders that card and nothing else.
+ * copy re-renders that card and nothing else. A clip is cached in chunks of a
+ * couple of seconds, and `--patch=<from>-<to>` (reel seconds) re-renders only
+ * the chunks a fix touches, keeping the last cut's everywhere else.
  */
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
@@ -123,6 +126,16 @@ import {
 import { outPath, outPathOf } from "./out";
 import { chipsLayer, chipsProblem, hudLayer } from "./overlays";
 import { missingAudio, muxAudio, reelHasAudio, reportLoudness } from "./reel-audio-mux";
+import {
+  readManifest,
+  renderChunked,
+  seamReport,
+  windowFrames,
+  writeManifest,
+  type Manifest,
+  type PatchWindow,
+  type Range,
+} from "./chunks";
 import { digest, footageDigest, segmentSourceDigest } from "./reel-cache";
 import { REMOTION_BIN, renderComposition } from "./remotion";
 import { buildFinishArgs, dissolvedFrameCount, groundLuma } from "./xfade";
@@ -152,6 +165,12 @@ export type CutOptions = {
    * so the clip ranges are checked against the length it would have.
    */
   standaloneDemo?: boolean;
+  /**
+   * Re-render only these windows of the reel (its own seconds): every clip
+   * chunk and card outside them is kept from the last cut, though what draws
+   * it changed. See scripts/lib/chunks.ts.
+   */
+  patch?: PatchWindow[] | null;
 };
 
 export type Prepared = {
@@ -882,8 +901,16 @@ export function clipProps(p: Prepared, i: number): Record<string, unknown> {
   };
 }
 
-/** Render (or reuse) every segment; returns their files in order. */
-function renderSegments(p: Prepared, workDir: string, keep: Set<string>): string[] {
+/**
+ * Render (or reuse) every segment; returns their files in order, and how many
+ * chunks or cards a patch kept from an earlier cut.
+ */
+function renderSegments(
+  p: Prepared,
+  workDir: string,
+  keep: Set<string>,
+  patch: PatchWindow[] | null,
+): { files: string[]; stale: number } {
   const { reel, preset, log } = p;
   const footage = reel.segments.some(isClip) ? footageDigest(p.demo) : null;
   const size = aspectSize(compositionSize(log), p.aspect);
@@ -891,40 +918,49 @@ function renderSegments(p: Prepared, workDir: string, keep: Set<string>): string
   // concat agrees. Keyed only off the default, so a full-size cache stays valid.
   const scale = reel.render?.scale ?? 1;
   const sized = scale !== 1 ? { scale } : {};
+  const bounds = segmentBoundsSeconds(p.counts, FPS, p.joins);
+  const manifest = readManifest(workDir);
+  const next: Manifest = {};
+  let stale = 0;
 
-  return reel.segments.map((seg, i) => {
+  const files = reel.segments.map((seg, i) => {
     const index = String(i + 1).padStart(2, "0");
-    const kind = isCard(seg) ? "card" : "clip";
-    // Keyed on exactly what the render receives. A card keys on its size too:
-    // it is read from the demo's click log, and the concat needs it to match.
-    const job = isCard(seg)
-      ? {
-          id: "Intro",
-          props: {
-            intro: reelCard(reel, seg.card),
-            ...(p.aspect ? { aspect: p.aspect } : {}),
-            ...(FPS !== 30 ? { fps: FPS } : {}),
-          },
-          frames: undefined,
-          key: { size, ...sized },
-        }
-      : {
-          id: "DemoClip",
-          props: clipProps(p, i),
-          frames: clipFrames(seg.clip, FPS),
-          key: { footage, ...sized },
-        };
-    const file = path.join(
-      workDir,
-      `${index}-${kind}-${digest({ props: job.props, frames: job.frames, ...job.key, src: segmentSourceDigest(kind) })}.mp4`,
-    );
-    keep.add(path.basename(file));
-    if (fs.existsSync(file)) {
-      console.log(`\n=== ${index} ${kind} (cached) ===`);
+    const name = `${index}-${isCard(seg) ? "card" : "clip"}`;
+    const startS = bounds.startS[i];
+    const endS = startS + bounds.durS[i];
+
+    if (isCard(seg)) {
+      // Keyed on exactly what the render receives. A card keys on its size too:
+      // it is read from the demo's click log, and the concat needs it to match.
+      const props = {
+        intro: reelCard(reel, seg.card),
+        ...(p.aspect ? { aspect: p.aspect } : {}),
+        ...(FPS !== 30 ? { fps: FPS } : {}),
+      };
+      const guard = digest({ size, ...sized, fps: FPS });
+      let file = path.join(workDir, `${name}-${digest({ props, size, ...sized, src: segmentSourceDigest("card") })}.mp4`);
+      const prior = manifest[name]?.guard === guard ? manifest[name].chunks[0]?.file : undefined;
+      const outside = patch != null && !patch.some((w) => w.fromS <= endS && w.toS >= startS);
+      if (fs.existsSync(file)) console.log(`\n=== ${index} card (cached) ===`);
+      else if (outside && prior && fs.existsSync(prior)) {
+        console.log(`\n=== ${index} card (kept from the last cut: outside the patch) ===`);
+        file = prior;
+        stale++;
+      } else {
+        console.log(`\n=== ${index} card ===`);
+        // Rendered beside its final name and moved into place, so a render killed
+        // half-way cannot leave a truncated segment the cache would then serve.
+        const tmp = file.replace(/\.mp4$/, ".partial.mp4");
+        renderComposition("Intro", tmp, props, sized);
+        fs.renameSync(tmp, file);
+      }
+      keep.add(path.basename(file));
+      next[name] = { guard, chunks: [{ first: 0, last: p.counts[i] - 1, file }] };
       return file;
     }
-    console.log(`\n=== ${index} ${kind} ===`);
-    if (isClip(seg) && (p.aspect || (preset.shot.framing !== "window" && seg.clip.crop))) {
+
+    console.log(`\n=== ${index} clip ===`);
+    if (p.aspect || (preset.shot.framing !== "window" && seg.clip.crop)) {
       // Report the framing's cost in source pixels before spending minutes on
       // it. A `rect` framing derives its magnification from the component, so
       // it can silently ask for more resolution than the shoot has, and so
@@ -936,13 +972,31 @@ function renderSegments(p: Prepared, workDir: string, keep: Set<string>): string
         `    framing  -> ${up.toFixed(2)}x source->output (${how}, ceiling ${SHARPNESS_CEILING})`,
       );
     }
-    // Rendered beside its final name and moved into place, so a render killed
-    // half-way cannot leave a truncated segment the cache would then serve.
-    const tmp = file.replace(/\.mp4$/, ".partial.mp4");
-    renderComposition(job.id, tmp, job.props, { ...(job.frames ? { frames: job.frames } : {}), ...sized });
-    fs.renameSync(tmp, file);
-    return file;
+    const range = clipFrames(seg.clip, FPS);
+    const props = clipProps(p, i);
+    const res = renderChunked({
+      id: "DemoClip",
+      props,
+      range,
+      scale,
+      dir: workDir,
+      name,
+      key: digest({ props, footage, ...sized, src: segmentSourceDigest("clip") }),
+      guard: digest({ footage, ...sized, aspect: p.aspect ?? null, fps: FPS }),
+      fps: FPS,
+      patch: patch
+        ? patch.map((w) => windowFrames(w, startS, range, FPS)).filter((r): r is Range => r != null)
+        : null,
+      manifest,
+      nextManifest: next,
+      keep,
+    });
+    stale += res.plans.filter((pl) => pl.action === "stale").length;
+    seamReport(res.file, res.patchedEdges, range.first, (f) => startS + (f - range.first) / FPS);
+    return res.file;
   });
+  writeManifest(workDir, next, keep);
+  return { files, stale };
 }
 
 /** Cut `authored` to out/reel/<opts.outBase>.mp4 — or, with `check`, report it. */
@@ -960,7 +1014,9 @@ export function cutReel(authored: Reel, opts: CutOptions): string | null {
   fs.mkdirSync(workDir, { recursive: true });
   const keep = new Set<string>();
 
-  const parts = renderSegments(p, workDir, keep);
+  if (opts.patch)
+    console.log(`patch      -> ${opts.patch.map((w) => `${w.fromS.toFixed(2)}-${w.toS.toFixed(2)}s`).join(", ")}`);
+  const { files: parts, stale } = renderSegments(p, workDir, keep, opts.patch ?? null);
 
   // -c copy needs every part to agree, and so does the concat filter.
   const probes = parts.map(probe);
@@ -1075,5 +1131,9 @@ export function cutReel(authored: Reel, opts: CutOptions): string | null {
   console.log(`frames     -> ${joined ?? expectedF}`);
   console.log(`runtime    -> ${runtimeS.toFixed(2)}s`);
   console.log(`reel       -> ${path.relative(ROOT, out)}`);
+  if (stale)
+    console.log(
+      `patched    -> ${stale} chunk(s)/card(s) kept from an earlier cut; cut again without --patch for a clean render`,
+    );
   return out;
 }
