@@ -7,6 +7,13 @@ on review notes.
 
 ## Rejected
 
+- **2026-10-19 · Composed UI.** Agents built their own chats, cards,
+  waveforms and agent grids for every post, usually under a centred title, so
+  every series looked like one template. "Why it creates custom components
+  like this? It should not." The picture comes from the template's own
+  elements or a real capture; the audit fails markup a template does not
+  have. Channel posts show the channel's mark, not a fake conversation.
+
 - **2026-10-19 · Every post a centred title over a small card, all yellow.**
   An agent's ten-post draft, made without `render.mts`. The audit now fails
   the layout (subject under 55 %W on bare ground), and from four posts on, a
@@ -62,8 +69,11 @@ on review notes.
 
 - **2026-10-16 · Figure and field-report,** dropped in the third gallery review.
 - **2026-10-16 · Uneven title-to-card spacing.** Both crowded ("very close") and
-  drifting ("very big") gaps were flagged on eight posts. Title and subject go in
-  one `.stack` with a fixed gap; the audit fails outside 4.5–9 %H.
+  drifting ("very big") gaps were flagged on eight posts. Where a template sets
+  the title above its subject (tiles, prompt, spotlight), they go in one
+  `.stack` with a fixed gap; the audit fails outside 4.5–9 %H. This is not a
+  rule for every format: read as one, it turned every post into a title over
+  a card (2026-10-19).
 - **2026-10-16 · Off-centre groups.** Title and subject must centre as one block
   (sunrise post 04).
 - **2026-10-16 · A left-aligned statement with an empty right half.** The

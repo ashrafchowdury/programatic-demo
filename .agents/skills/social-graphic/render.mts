@@ -437,6 +437,38 @@ async function pixels(page: Page, png: Buffer, W: number, H: number) {
   );
 }
 
+// A post is a template with its content replaced, never a layout of its own. Compare the post's elements (tag + classes, SVG
+// icons counted as one) with its format's template: a class the template lacks (a .chat, a .stack, a hand-built card) or more
+// than a few added elements is composed UI, which turned every series into the same title over a mock-up (2026-10-19).
+const SWAP_CLASSES = new Set(["dark", "outline", "primary", "plate"]);
+function signature(html: string) {
+  let h = html.match(/<main\b[\s\S]*?<\/main>/)?.[0] ?? html;
+  h = h.replace(/<(style|script)\b[\s\S]*?<\/\1>/g, "").replace(/<svg\b[\s\S]*?<\/svg>/g, "<svg>").replace(/<!--[\s\S]*?-->/g, "");
+  const count = new Map<string, number>(), classes = new Set<string>();
+  for (const [, tag, attrs] of h.matchAll(/<([a-zA-Z][\w-]*)([^>]*)>/g)) {
+    if (tag === "br" || tag === "main") continue;
+    const cls = (attrs.match(/class="([^"]*)"/)?.[1] ?? "").split(/\s+/).filter(Boolean);
+    cls.forEach((c) => classes.add(c));
+    const key = `${tag}.${[...cls].sort().join(".")}`;
+    count.set(key, (count.get(key) ?? 0) + 1);
+  }
+  return { count, classes };
+}
+function composedUi(src: string): string | null {
+  const arch = src.match(/data-archetype="([^"]+)"/)?.[1];
+  const tpl = arch && path.join(KIT, "templates", `${arch}.html`);
+  if (!tpl || !fs.existsSync(tpl)) return null;
+  const t = signature(fs.readFileSync(tpl, "utf8")), c = signature(src);
+  const added = [...c.classes].filter((k) => !t.classes.has(k) && !SWAP_CLASSES.has(k));
+  let extra = 0, size = 0;
+  for (const [k, n] of c.count) extra += Math.max(0, n - (t.count.get(k) ?? 0));
+  for (const n of t.count.values()) size += n;
+  const limit = Math.max(6, Math.round(size * 0.25));
+  if (added.length) return `composed UI: classes the ${arch} template does not have (${added.slice(0, 6).join(", ")}); replace the template's text and icons, never build a chat, card or list of your own`;
+  if (extra > limit) return `composed UI: ${extra} elements more than the ${arch} template (at most ${limit}); replace the template's text and icons, never build a chat, card or list of your own`;
+  return null;
+}
+
 const browser = await chromium.launch();
 let failed = 0;
 const series: { variant: string; suffix: string; archetype: string; ground: string; lit: boolean; accentFace: boolean; centredStack: boolean; feed: string }[] = [];
@@ -463,6 +495,7 @@ for (const file of files) {
     const loaded = await page.evaluate(() => Array.from(document.fonts).filter((f) => f.status === "error").map((f) => f.family));
     const broken = await page.evaluate(() => Array.from(document.images).filter((i) => !i.complete || i.naturalWidth === 0).map((i) => i.getAttribute("src")));
     const report = await audit(page, W, H);
+    if (!selfTest) { const ui = composedUi(fs.readFileSync(path.join(srcDir, file), "utf8")); if (ui) report.errors.push(ui); }
     // A face missing a glyph falls back to a system font for that glyph alone (the trial GT Alpina Light has no curly
     // apostrophe). Only the browser's font engine knows, so ask it for every element that holds text.
     {

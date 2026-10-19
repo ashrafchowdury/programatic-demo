@@ -73,12 +73,12 @@ and that is how off-brand, all-yellow, title-over-a-card series reach the user.
 
      | The message is about… | Best fit |
      | --- | --- |
-     | a person and an agent talking, or an approval in a channel | context (the kit's `.chat` among faded cards) |
+     | an agent working in a channel, or an approval there | lockup or pair (the channel joining), sankey (messages through the agent), tiles (the channel among the others); window only with a real capture |
      | a partner, channel or model joining | lockup, pair, spotlight |
      | everything an agent works with, many tools or integrations | hub |
      | how messages flow through an agent to tools | sankey |
      | several product capabilities at once | bento, bento-split, modules |
-     | one feature with a hero card | prompt, window |
+     | one feature with a hero card | prompt (its own composer, text swapped), window (real capture only) |
      | a feature with a real screen | window (real capture) |
      | a real number | milestone |
      | a new option among existing ones | tiles |
@@ -91,6 +91,11 @@ and that is how off-brand, all-yellow, title-over-a-card series reach the user.
      formats fit, vary the one that fits instead: its ground, its subject
      (a different card, a different moment of the same flow) or its
      composition. Never pad with a format that does not fit.
+   - **At most one of the three candidates** sets a centred title over its
+     subject (tiles, prompt, spotlight, hub, sankey). The other two put the
+     title where their template does: inside a block (bento, plate), beside
+     the subject (bento-split, monogram), alone amid faded
+     cards (context), or above a screen that bleeds (window).
    - Repeating a format is fine, but not for most of a series. The audit
      fails a series of four or more posts when:
      - one format is used by more than a third of the posts (at least 2 are
@@ -120,7 +125,7 @@ and that is how off-brand, all-yellow, title-over-a-card series reach the user.
    - **The bitmap word (PP Mondwest chip) is rare:** only when one word is the
      point, at most one post in four. On every title it means nothing, and
      the series check fails it.
-   - **Big subject:** the card, chat or screen takes at least 42 % of the
+   - **Big subject:** the subject takes at least 42 % of the
      width or height. A small card on an empty canvas fails.
    - **Crop screenshots** to the part that proves the claim. A whole app
      shrunk to fit turns to mush, and the audit fails any capture whose UI
@@ -129,21 +134,29 @@ and that is how off-brand, all-yellow, title-over-a-card series reach the user.
      Inter and GT Alpina lack them, and the audit fails any glyph that falls
      back to a system font. GT Alpina Light is a trial cut; brand.css fills
      its missing punctuation from the full Regular.
-   - Channel posts use the kit's `.chat` component as it is; don't rebuild
-     bubbles by hand. Every box stays inside its parent box; mark a
-     deliberate overlap (a badge on a corner) `data-overhang`.
+   - **No composed UI.** Never build a chat, a card, a list, a waveform, a
+     grid of agents or any other product mock-up. The picture comes from
+     the template's own elements, or from a real capture. A channel post
+     shows the channel's mark (lockup, pair, tiles, sankey), not a fake
+     conversation. Every box stays inside its parent box; mark a deliberate
+     overlap (a badge on a corner) `data-overhang`.
 
    Write them in `social/<name>/_candidates/`, named
    `<nn>-<date>-<slug>--a.html`, `--b.html` and `--c.html`. Copy each
    template from `.agents/skills/social-graphic/kit/templates/` and replace
-   the sample content with the post's own: its title, its channel, its UI.
-   - Put the title and its subject (the card, chat, tiles or object) in one
-     `.stack`, with the subject marked `data-subject`. They centre as one
-     group with a fixed gap, and the audit fails a gap outside 4.5–9 %H.
-   - A product post shows the real product screen of whoever the post is for
-     (`pnpm still <shot>`), not a composed mock. Where no screen exists,
-     compose UI from the brand's components and record it as illustrative in
-     plan.md.
+   the template's text and icons with the post's own. Add no element the
+   template doesn't have: the audit fails markup that is not in the
+   template (a `.chat`, a `.stack`, a hand-built card or grid).
+   - **Keep the template's composition.** Replace its content, not its
+     layout. Only tiles, prompt and spotlight set the title in a `.stack`
+     above their subject; there the audit holds the gap to 4.5–9 %H. Never
+     wrap another format in a `.stack`, and never add a card or chat under a
+     title its template sets alone: that turns every format into the same
+     title-over-card poster.
+   - A screen-based post (window) shows the real product screen of whoever
+     the post is for (`pnpm still <shot>`) as one image in the template's
+     frame. Where no capture exists, never mock one: take a format whose
+     picture is the idea.
 5. **Render the candidates.**
 
    ```bash
@@ -279,10 +292,10 @@ sunrise, haze, aurora, studio and depth are deleted from the kit; the rest stay 
 - **Words on the image.** At most one title. No taglines, subcopy, CTAs, URLs,
   dates or prices; the post text carries them (the user's decision,
   2026-10-16).
-- **Illustrative UI.** Composed screens may hold plausible names, times and
-  small counts, and nothing that reads as a claim: no currency, no
-  percentages, no totals. Milestone takes only real numbers. Record every
-  composed screen as illustrative in plan.md and RELEASE.md.
+- **Template text.** The text inside a template's own elements (prompt's
+  composer, context's faded cards, bento blocks) may hold plausible names,
+  times and small counts, and nothing that reads as a claim: no currency, no
+  percentages, no totals. Milestone takes only real numbers.
 - **Type.**
   - Titles are GT Alpina Light 300. Text inside product cards and UI (chat
     bubbles, labels, buttons) is Inter 400, per the README's type roles (the

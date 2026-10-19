@@ -136,7 +136,10 @@ skipped the audit is not a draft; it is a defect nobody has caught yet.
    `{{brand}}` resolves to the brand pack, `{{kit}}` to `kit/`, and
    `{{inline:assets/x.svg}}` to a data URL, which a format that draws an
    image with a script needs. Other relative paths resolve against the post's folder. Make
-   three variants unless the brief says one.
+   three variants unless the brief says one. Replace the template's text
+   and icons; never add a chat, card, list or other UI of your own. The
+   audit fails a post with classes its template lacks or more than a few
+   added elements (composed UI).
 4. **Add assets.** Put partner logos in `social/<name>/assets/` as official
    files only, and keep `data-third-party` on them. For proof, capture the real
    screen first.
@@ -173,6 +176,7 @@ skipped the audit is not a draft; it is a defect nobody has caught yet.
    - a blur over the brand's limit
    - light or grain in a brand that forbids them
    - a format or ground the brand doesn't allow
+   - composed UI: markup the format's template does not have
    - a font or image that failed to load
    - text or a card crowding the logo (2 %H clear space)
    - UI text or a button spilling out of its card, or cut off inside its box
@@ -230,7 +234,11 @@ Make every post three ways, test them internally and deliver only the winner.
 3. Score them: `python3 .agents/skills/social-graphic/review/ab.py <name>`.
    - A candidate with an audit error is out. The rest lose points for
      warnings, a crowded or empty canvas, off-centre weight, and a title gap
-     away from 6.5 %H.
+     away from 6.5 %H, each measured against the format's own template, so
+     an airy or asymmetric format is never marked down for its design. The
+     baselines live in the brand pack's `baselines.json`; after changing a
+     template, run `review/catalog.py`, render `_catalog`, then
+     `ab.py --baselines`.
    - Each post gets a side-by-side sheet at feed size,
      `out/social/<name>/_candidates/<post>.ab.png`.
 4. Judge every sheet yourself, in this order: the message (the subject shows

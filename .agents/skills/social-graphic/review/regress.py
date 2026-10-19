@@ -1,5 +1,5 @@
 """Regression test for the audit: posters rebuilt from real broken series (2026-10-16, and the all-yellow title-over-a-card
-series of 2026-10-19). Each must fail with its defect, and the series must fail its variety checks.
+series and the composed-UI series of 2026-10-19). Each must fail with its defect, and the series must fail its variety checks.
 
     python3 .agents/skills/social-graphic/review/regress.py [--brand <pack dir>]
 
@@ -27,6 +27,7 @@ expect = {
     "07-generic-schedule": ["generic layout"],
     "08-generic-reply": ["generic layout"],
     "09-generic-support": ["generic layout"],
+    "10-composed-chat": ["composed UI"],
     "series": ["use the accent face", "posts use context", "Alternate the grounds", "centred title over a card"],
 }
 blocks, cur = {}, None
