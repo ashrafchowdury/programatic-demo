@@ -275,7 +275,9 @@ Copy `brands/example/` and replace:
   - Type: `--font-display --font-accent --display-weight --read-weight
     --cap-display --cap-accent`, and optionally `--font-ui --cap-ui` for card
     and UI text (`.read`, `[data-texture]`, `.btn`); without them UI text
-    uses the display face.
+    uses the display face. `--font-app --font-mono --cap-app` set the faces
+    inside product UI (the kit's `.app` components); without them it uses
+    `--font-ui`.
   - Chips, radii and shadows.
   - Any `@font-face`. Font URLs resolve relative to the pack.
 - **`brand.json`:**

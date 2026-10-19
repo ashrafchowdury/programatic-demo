@@ -11,6 +11,7 @@
  *   type      --font-display --font-accent --display-weight --read-weight
  *             --cap-display --cap-accent        (cap height / em, measured per face)
  *             optional --font-ui --cap-ui        (UI and card text; falls back to the display face)
+ *             optional --font-app --font-mono --cap-app  (text inside product UI, .app; falls back to --font-ui)
  *   chips     --chip-top --chip-bottom --chip-dark
  *   geometry  --r-sm --r-md --r-lg --r-xl --shadow-ring --shadow-frame --shadow-float
  *
@@ -167,3 +168,51 @@ svg, img { display: block; }
 .ui-row { display: flex; align-items: center; }
 .ui-col { display: flex; flex-direction: column; }
 .btn.sm { height: calc(var(--u) * 5.2); font-size: var(--fs-texture); padding: 0 calc(var(--u) * 2); border-radius: 14px; }
+
+/* ── app: product UI at post scale ──
+   The pieces a real product screen is made of, sized for a 2839 px post: an .app surface (white, a hairline ring, a soft lift),
+   an .app-head row and .app-row list rows split by hairlines, quiet .app-s metadata, .app-mono for tool names and ids, one
+   .app-read line that must be read in the feed, an uppercase .eyebrow pill, status .dot, initials .av and line .ic icons.
+   Hierarchy is the point: one readable line per surface, everything else texture (mark it data-texture). A brand sets
+   --font-app / --font-mono and their --cap-app; without them the UI face is used. */
+.post {
+  --fs-app-s: calc(var(--u) * 1.75 / var(--cap-app, var(--cap-ui, var(--cap-display))));
+  --fs-app: calc(var(--u) * 2.1 / var(--cap-app, var(--cap-ui, var(--cap-display))));
+  --fs-app-read: calc(var(--u) * 3.05 / var(--cap-app, var(--cap-ui, var(--cap-display))));
+  --app-ring: 0 0 0 2px rgba(72, 70, 68, 0.08), 0 2px 6px rgba(72, 70, 68, 0.06);
+}
+.app { position: relative; display: flex; flex-direction: column; background: var(--panel); border-radius: var(--r-lg); overflow: hidden;
+  box-shadow: var(--app-ring), 0 24px 56px rgba(72, 70, 68, 0.08); font-family: var(--font-app, var(--font-ui, var(--font-display))); color: var(--ink); }
+.app.flat { box-shadow: var(--app-ring); }
+.app-head { display: flex; align-items: center; gap: 20px; padding: 28px 36px; border-bottom: 2px solid var(--line); }
+.app-body { display: flex; flex-direction: column; gap: 22px; padding: 32px 36px; }
+.app-row { display: flex; align-items: center; gap: 20px; padding: 22px 0; border-top: 2px solid var(--line); }
+.app-row:first-child { border-top: 0; }
+.app-t, .app-s, .app-mono, .app-read { white-space: nowrap; }
+.app .app-t, .app-t { font-family: var(--font-app, var(--font-ui, var(--font-display))); font-size: var(--fs-app); font-weight: 500; line-height: 1.2; letter-spacing: -0.015em; color: var(--ink); }
+.app .app-s, .app-s { font-family: var(--font-app, var(--font-ui, var(--font-display))); font-size: var(--fs-app-s); font-weight: 400; line-height: 1.2; letter-spacing: -0.005em; color: var(--ink-3); }
+.app .app-mono, .app-mono { font-family: var(--font-mono, var(--font-app, var(--font-ui, var(--font-display)))); font-size: var(--fs-app-s); font-weight: 400; line-height: 1.2; letter-spacing: -0.02em; color: var(--ink-2); }
+.app .app-read, .app-read { font-family: var(--font-app, var(--font-ui, var(--font-display))); font-size: var(--fs-app-read); font-weight: 500; line-height: 1.12; letter-spacing: -0.025em; color: var(--ink); }
+.app-sp { margin-left: auto; }
+.eyebrow { display: inline-flex; align-items: center; gap: 14px; align-self: flex-start; padding: 8px 24px; border-radius: 999px; box-shadow: inset 0 0 0 2px var(--line);
+  font-family: var(--font-ui, var(--font-display)); font-size: var(--fs-app-s); font-weight: 400; line-height: 1.3; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-2); white-space: nowrap; }
+.dot { flex: none; width: 16px; height: 16px; border-radius: 50%; background: var(--ok); }
+.dot.wait { background: var(--wait); }
+.dot.off { background: var(--ink-3); }
+.av { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 80px; height: 80px; border-radius: 50%; background: var(--tint); box-shadow: inset 0 0 0 2px var(--line);
+  font-family: var(--font-app, var(--font-ui, var(--font-display))); font-size: var(--fs-app-s); font-weight: 500; color: var(--ink-2); }
+.av img { width: 50%; height: auto; }
+.ic { flex: none; width: 44px; height: 44px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; color: var(--ink-2); }
+/* a trace: tool calls as a waterfall, the slow or decisive one in ink */
+.trace { display: flex; flex-direction: column; gap: 6px; }
+.trace-row { display: grid; grid-template-columns: var(--trace-label, 34%) 1fr; align-items: center; gap: 28px; height: 58px; }
+.trace-bar { position: relative; height: 100%; }
+.trace-bar::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 2px; background: var(--line); }
+.trace-bar > i { position: absolute; top: calc(50% - 11px); height: 22px; border-radius: 999px; background: var(--data-muted); }
+.trace-bar > i.on { background: var(--ink); }
+/* a placeholder line of text inside UI that is only texture */
+.app-line { height: 18px; border-radius: 999px; background: var(--tint); }
+.post.yellow .app { box-shadow: 0 0 0 2px rgba(36, 36, 36, 0.06), 0 24px 56px rgba(36, 36, 36, 0.12); }
+/* an icon key: the approved pair tile's look (a soft top-to-bottom shade, a top light, a real drop shadow) for any icon tile */
+.key { background: linear-gradient(180deg, var(--panel) 0%, var(--tint) 100%); box-shadow: inset 0 2px 0 #ffffff, 0 0 0 2px var(--line), 0 18px 44px rgba(36, 36, 36, 0.10); }
+.key .ic, .key > svg { color: var(--ink); }

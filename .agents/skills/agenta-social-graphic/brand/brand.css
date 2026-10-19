@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500&family=Geist:wght@400;500&family=Geist+Mono:wght@400;500&display=swap");
 /*
  * Agenta brand pack for the social-graphic kit.
  *
@@ -87,6 +87,9 @@
   --font-accent: "PP Mondwest", monospace;
   --font-ui: "Inter", sans-serif;        /* card and UI text, per the README's type roles */
   --cap-ui: 0.7275;                       /* measured */
+  --font-app: "Geist", "Inter", sans-serif;       /* inside product UI, per the README's Product UI roles */
+  --font-mono: "Geist Mono", monospace;           /* tool names, ids, trace data */
+  --cap-app: 0.71;                                /* measured, Geist and Geist Mono alike */
   --display-weight: 300;
   --read-weight: 400;
   --cap-display: 0.68;

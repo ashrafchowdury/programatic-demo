@@ -1,0 +1,107 @@
+{
+ "bento": {
+  "bare": 0.411,
+  "weight": 0.506,
+  "warnings": []
+ },
+ "bento-split": {
+  "bare": 0.776,
+  "weight": 0.573,
+  "warnings": []
+ },
+ "context": {
+  "bare": 0.753,
+  "weight": 0.559,
+  "warnings": []
+ },
+ "hub": {
+  "bare": 0.927,
+  "weight": 0.482,
+  "warnings": [
+   "reads empty"
+  ]
+ },
+ "lockup": {
+  "bare": 0.983,
+  "weight": 0.463,
+  "warnings": [
+   "reads empty"
+  ]
+ },
+ "milestone": {
+  "bare": 0.928,
+  "weight": 0.502,
+  "warnings": [
+   "reads empty"
+  ]
+ },
+ "modules": {
+  "bare": 0.904,
+  "weight": 0.526,
+  "warnings": [
+   "reads empty"
+  ]
+ },
+ "monogram": {
+  "bare": 0.884,
+  "weight": 0.621,
+  "warnings": [
+   "reads empty"
+  ]
+ },
+ "pair": {
+  "bare": 0.914,
+  "weight": 0.384,
+  "warnings": [
+   "reads empty"
+  ]
+ },
+ "plate": {
+  "bare": 0.601,
+  "weight": 0.45,
+  "warnings": [
+   "lopsided"
+  ]
+ },
+ "prompt": {
+  "bare": 0.943,
+  "weight": 0.458,
+  "warnings": [
+   "reads empty"
+  ]
+ },
+ "quiet": {
+  "bare": 0.958,
+  "weight": 0.499,
+  "warnings": []
+ },
+ "sankey": {
+  "bare": 0.693,
+  "weight": 0.471,
+  "warnings": []
+ },
+ "spotlight": {
+  "bare": 0.799,
+  "weight": 0.495,
+  "warnings": []
+ },
+ "statement": {
+  "bare": 0.855,
+  "weight": 0.595,
+  "warnings": []
+ },
+ "tiles": {
+  "bare": 0.952,
+  "weight": 0.477,
+  "warnings": [
+   "reads empty"
+  ]
+ },
+ "window": {
+  "bare": 0.914,
+  "weight": 0.463,
+  "warnings": [
+   "reads empty"
+  ]
+ }
+}

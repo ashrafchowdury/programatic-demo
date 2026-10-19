@@ -4,27 +4,39 @@
 <main class="post paper" data-archetype="window">
   <div class="lockup" data-logo="brand"><img src="{{brand}}/logos/logo-light.svg" alt="Logo"></div>
   <h1 class="title" style="left:50%;top:17%;transform:translateX(-50%);text-align:center;white-space:nowrap">Every agent, one workspace.</h1>
-  <div class="frame" style="left:7%;right:7%;top:35%;height:80%;display:grid;grid-template-columns:20% 1fr 26%;box-shadow:0 0 0 2px rgba(36,36,36,0.06), 0 40px 96px rgba(36,36,36,0.16)">
-    <div style="background:var(--panel-2);border-right:2px solid var(--line);padding:calc(var(--u) * 2.4);display:flex;flex-direction:column;gap:calc(var(--u) * 1.6)">
-      <div style="display:flex;align-items:center;gap:calc(var(--u) * 1.2)"><img src="{{brand}}/logos/mark-light.svg" alt="" style="height:calc(var(--u) * 2.6);width:auto"><span data-texture style="font-weight:500">Workspace</span></div>
-      <span data-texture style="color:var(--ink-3);margin-top:calc(var(--u) * 1)">Agents</span>
-      <span data-texture class="nav on">Support agent</span><span data-texture class="nav">Release notes</span><span data-texture class="nav">Ops bot</span><span data-texture class="nav">Sales assistant</span>
-      <span data-texture style="color:var(--ink-3);margin-top:calc(var(--u) * 1)">Sessions</span>
-      <span data-texture class="nav">Refund #4821</span><span data-texture class="nav">Weekly update</span>
+  <div class="frame" style="left:7%;right:7%;top:35%;height:80%;display:grid;grid-template-columns:19% 1fr 25%;box-shadow:0 0 0 2px rgba(36,36,36,0.06), 0 40px 96px rgba(36,36,36,0.16);font-family:var(--font-app, var(--font-ui))">
+    <div style="background:var(--panel-2);border-right:2px solid var(--line);padding:36px 24px;display:flex;flex-direction:column;gap:6px">
+      <div class="ui-row" style="gap:16px;padding:0 16px 28px"><img src="{{brand}}/logos/mark-light.svg" alt="" style="height:36px;width:auto"><span class="app-t" data-texture>Workspace</span></div>
+      <span class="app-s" data-texture style="padding:14px 16px 8px;letter-spacing:0.06em;text-transform:uppercase;font-family:var(--font-ui)">Agents</span>
+      <span class="nav on"><span class="dot"></span><span class="app-s" data-texture style="color:var(--ink)">Support agent</span></span>
+      <span class="nav"><span class="dot"></span><span class="app-s" data-texture>Release notes</span></span>
+      <span class="nav"><span class="dot off"></span><span class="app-s" data-texture>Ops agent</span></span>
+      <span class="nav"><span class="dot"></span><span class="app-s" data-texture>Sales follow-up</span></span>
+      <span class="app-s" data-texture style="padding:30px 16px 8px;letter-spacing:0.06em;text-transform:uppercase;font-family:var(--font-ui)">Sessions</span>
+      <span class="nav"><span class="app-s" data-texture>Refund #4821</span></span>
+      <span class="nav"><span class="app-s" data-texture>Weekly update</span></span>
     </div>
-    <div style="padding:calc(var(--u) * 3);display:flex;flex-direction:column;gap:calc(var(--u) * 2)">
-      <div class="read" style="font-weight:500">Support agent</div>
-      <div class="read" style="align-self:flex-start;max-width:70%;background:var(--tint);border-radius:var(--r-lg);padding:calc(var(--u) * 1.5) calc(var(--u) * 2)">Where is order #4821?</div>
-      <div style="align-self:flex-end;max-width:76%;box-shadow:0 0 0 2px var(--line);border-radius:var(--r-lg);padding:calc(var(--u) * 1.5) calc(var(--u) * 2)"><div class="read">It shipped late. Refund the $8 fee?</div><div style="display:flex;gap:calc(var(--u) * 1.2);margin-top:calc(var(--u) * 1.4)"><span class="btn primary">Approve</span><span class="btn outline">Deny</span></div></div>
+    <div style="display:flex;flex-direction:column">
+      <div class="app-head" style="padding:30px 44px"><span class="av" data-texture><img src="{{brand}}/logos/mark-light.svg" alt=""></span><span class="app-t" data-texture>Support agent</span><span class="app-s" data-texture>Refund #4821</span><span class="eyebrow app-sp" data-texture style="align-self:center">Live</span></div>
+      <div style="padding:44px;display:flex;flex-direction:column;gap:30px">
+        <div class="ui-row" style="gap:18px;align-items:flex-end"><span class="av" data-texture>MK</span><div class="read" style="font-family:var(--font-app, var(--font-ui));background:var(--tint);border-radius:28px 28px 28px 8px;padding:24px 34px">Where is order #4821?</div></div>
+        <div style="align-self:flex-end;max-width:84%;border-radius:28px 28px 8px 28px;box-shadow:inset 0 0 0 2px var(--line);padding:28px 34px;display:flex;flex-direction:column;gap:22px">
+          <div class="read" style="font-family:var(--font-app, var(--font-ui))">It shipped late. Refund the fee?</div>
+          <div class="ui-row" style="gap:16px;padding-top:22px;border-top:2px solid var(--line)"><span class="app-s" data-texture>Needs your approval</span><span class="btn primary sm app-sp" data-texture>Approve</span><span class="btn outline sm" data-texture>Deny</span></div>
+        </div>
+      </div>
     </div>
-    <div style="border-left:2px solid var(--line);padding:calc(var(--u) * 2.4);display:flex;flex-direction:column;gap:calc(var(--u) * 1.4)">
-      <span data-texture style="color:var(--ink-3)">Activity</span>
-      <span data-texture class="act">search_orders · 0.4 s</span><span data-texture class="act">lookup_shipping · 0.9 s</span><span data-texture class="act">draft_reply · 1.2 s</span>
+    <div style="border-left:2px solid var(--line);display:flex;flex-direction:column">
+      <div class="app-head" style="padding:36px 36px 30px"><span class="app-t" data-texture>Activity</span><span class="app-s app-sp" data-texture>3 tools</span></div>
+      <div style="padding:14px 36px;display:flex;flex-direction:column">
+        <div class="app-row"><span class="dot"></span><span class="app-mono" data-texture>search_orders</span><span class="app-s app-sp" data-texture>0.4 s</span></div>
+        <div class="app-row"><span class="dot"></span><span class="app-mono" data-texture>lookup_shipping</span><span class="app-s app-sp" data-texture>0.9 s</span></div>
+        <div class="app-row"><span class="dot wait"></span><span class="app-mono" data-texture style="color:var(--ink)">ask_approval</span><span class="app-s app-sp" data-texture>now</span></div>
+      </div>
     </div>
   </div>
   <style>
-    .post[data-archetype="window"] .nav { padding:calc(var(--u) * 0.6) calc(var(--u) * 1); border-radius:var(--r-sm); color:var(--ink-2); }
-    .post[data-archetype="window"] .nav.on { background:var(--tint); color:var(--ink); }
-    .post[data-archetype="window"] .act { padding-left:calc(var(--u) * 1.4); box-shadow:inset 3px 0 0 var(--line); color:var(--ink-2); }
+    .post[data-archetype="window"] .nav { display:flex; align-items:center; gap:16px; padding:14px 16px; border-radius:var(--r-sm); }
+    .post[data-archetype="window"] .nav.on { background:var(--tint); }
   </style>
 </main>

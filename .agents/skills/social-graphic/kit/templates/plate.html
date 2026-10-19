@@ -7,14 +7,18 @@
   <div style="left:44%;top:0;bottom:0;width:2px;background:var(--line)"></div>
   <div class="lockup" data-logo="brand"><img src="{{brand}}/logos/logo-light.svg" alt="Logo"></div>
   <h1 class="title" style="left:var(--mx);top:var(--my);margin-top:calc(var(--u) * 12);max-width:calc(var(--W) * 0.34)">Customer stories, told by agents.</h1>
-  <div class="card" style="left:52%;top:24%;width:calc(var(--W) * 0.38);height:calc(var(--H) * 0.9);padding:calc(var(--u) * 3.6);box-shadow:0 0 0 2px rgba(36,36,36,0.05), 0 40px 96px rgba(36,36,36,0.18);display:flex;flex-direction:column;gap:calc(var(--u) * 2.2)">
-    <div style="display:flex;align-items:center;gap:calc(var(--u) * 1.6)"><img src="{{brand}}/logos/mark-light.svg" alt="" style="height:calc(var(--u) * 3.4);width:auto"><span class="read" style="font-weight:500">Support agent</span><span data-texture style="margin-left:auto;color:var(--ink-3)">This week</span></div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:calc(var(--u) * 1.6)">
-      <div style="background:var(--tint);border-radius:var(--r-md);padding:calc(var(--u) * 2)"><div data-texture style="color:var(--ink-3)">Tickets closed</div><div class="read" style="font-size:calc(var(--fs-read) * 1.6)">412</div></div>
-      <div style="background:var(--tint);border-radius:var(--r-md);padding:calc(var(--u) * 2)"><div data-texture style="color:var(--ink-3)">Asked first</div><div class="read" style="font-size:calc(var(--fs-read) * 1.6)">37</div></div>
+  <div class="app" style="left:52%;top:24%;width:calc(var(--W) * 0.38);height:calc(var(--H) * 0.9);border-radius:var(--r-xl);box-shadow:0 0 0 2px rgba(36,36,36,0.05), 0 40px 96px rgba(36,36,36,0.18)">
+    <div class="app-head" style="padding:34px 44px"><span class="av" data-texture><img src="{{brand}}/logos/mark-light.svg" alt=""></span><span class="read" style="font-family:var(--font-app, var(--font-ui));font-weight:500">Support agent</span><span class="app-s app-sp" data-texture>This week</span></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;border-bottom:2px solid var(--line)">
+      <div style="padding:36px 44px;border-right:2px solid var(--line)"><div class="app-s" data-texture>Tickets closed</div><div style="font-family:var(--font-display);font-weight:300;font-size:150px;line-height:1;letter-spacing:-0.04em;margin-top:14px">412</div></div>
+      <div style="padding:36px 44px"><div class="app-s" data-texture>Asked first</div><div style="font-family:var(--font-display);font-weight:300;font-size:150px;line-height:1;letter-spacing:-0.04em;margin-top:14px">37</div></div>
     </div>
-    <div style="height:2px;background:var(--line)"></div>
-    <div data-texture style="color:var(--ink-3)">Refunded order #4821 and emailed the customer.</div>
-    <div data-texture style="color:var(--ink-3)">Escalated a billing dispute to finance.</div>
+    <div class="app-body" style="padding:12px 44px;gap:0">
+      <div class="app-row"><span class="dot"></span><span class="app-s" data-texture style="color:var(--ink)">Refunded order #4821</span><span class="app-mono app-sp" data-texture>09:41</span></div>
+      <div class="app-row"><span class="dot wait"></span><span class="app-s" data-texture style="color:var(--ink)">Billing dispute to finance</span><span class="app-mono app-sp" data-texture>11:02</span></div>
+      <div class="app-row"><span class="dot"></span><span class="app-s" data-texture style="color:var(--ink)">Address changed</span><span class="app-mono app-sp" data-texture>14:18</span></div>
+      <div class="app-row"><span class="dot"></span><span class="app-s" data-texture style="color:var(--ink)">Order #4790 tracked</span><span class="app-mono app-sp" data-texture>15:36</span></div>
+      <div class="app-row"><span class="dot off"></span><span class="app-s" data-texture>Plan upgrade, waiting</span><span class="app-mono app-sp" data-texture>16:05</span></div>
+    </div>
   </div>
 </main>

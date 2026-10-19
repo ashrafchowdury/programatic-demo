@@ -1,15 +1,19 @@
 <!-- prompt: a model or feature name above a large prompt box. Flat. Model availability, new capabilities in the composer.
-     From Bolt 6 (title over a prompt box). -->
+     From Bolt 6 (title over a prompt box). The composer is a real one: the prompt in ink, a toolbar under a hairline with the
+     model chip, an attach key and the one Run key. -->
 <main class="post paper" data-archetype="prompt">
   <div class="lockup" data-logo="brand"><img src="{{brand}}/logos/logo-light.svg" alt="Logo"></div>
   <div class="stack">
   <h1 class="title">A new model, now in Agenta.</h1>
-  <div class="card" data-subject style="position:relative;width:calc(var(--W) * 0.64);padding:calc(var(--u) * 4) calc(var(--u) * 4) calc(var(--u) * 3);display:flex;flex-direction:column;gap:calc(var(--u) * 4);box-shadow:0 0 0 2px rgba(36,36,36,0.05), 0 40px 96px rgba(36,36,36,0.16)">
-    <div class="read" style="color:var(--ink-2);font-size:calc(var(--fs-read) * 1.2)">Draft this week's release notes from the merged PRs</div>
-    <div style="display:flex;align-items:center;gap:calc(var(--u) * 1.4)">
-      <span style="display:inline-flex;align-items:center;gap:calc(var(--u) * 1);padding:calc(var(--u) * 0.9) calc(var(--u) * 1.6);border-radius:999px;background:var(--tint)"><img src="{{brand}}/logos/mark-light.svg" alt="" style="height:calc(var(--u) * 2);width:auto"><span data-texture style="font-weight:500">New model</span></span>
-      <span data-texture style="color:var(--ink-3)">Skills · 3</span>
-      <span class="btn primary" style="margin-left:auto">Run</span>
+  <div class="app" data-subject style="width:calc(var(--W) * 0.62);border-radius:var(--r-xl);box-shadow:var(--app-ring), 0 40px 96px rgba(36,36,36,0.14)">
+    <div class="app-body" style="padding:56px 60px 48px">
+      <div class="read" style="font-family:var(--font-app, var(--font-ui));color:var(--ink);font-size:calc(var(--fs-read) * 1.1);line-height:1.25;letter-spacing:-0.02em;text-wrap:balance">Draft this week's release notes from the merged PRs</div>
+    </div>
+    <div class="app-head" style="border-bottom:0;border-top:2px solid var(--line);padding:24px 28px 24px 40px;gap:18px">
+      <span class="ui-row" style="gap:14px;padding:12px 24px 12px 18px;border-radius:999px;background:var(--tint)"><img src="{{brand}}/logos/mark-light.svg" alt="" style="height:30px;width:auto"><span class="app-t" data-texture>New model</span></span>
+      <svg class="ic" viewBox="0 0 24 24" style="width:48px;height:48px"><path d="M21 12l-8.5 8.5a5 5 0 0 1-7-7L14 5a3.3 3.3 0 0 1 4.7 4.7L10.2 18.2a1.7 1.7 0 0 1-2.4-2.4L15.5 8"/></svg>
+      <span class="app-s" data-texture>3 skills</span>
+      <span class="btn primary sm app-sp" data-texture style="height:84px;padding:0 40px;font-size:var(--fs-app)">Run</span>
     </div>
   </div>
   </div>

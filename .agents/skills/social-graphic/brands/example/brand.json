@@ -9,7 +9,7 @@
   "accentClasses": [".btn.primary", ".post.carbon .hchip"],
   "accentMax": 1,
   "logoNeverOnAccent": true,
-  "gradientClasses": [".hchip", ".post[data-archetype=\"pair\"] .tile"],
+  "gradientClasses": [".hchip", ".key", ".post[data-archetype=\"pair\"] .tile"],
   "allowLight": true,
   "maxShadowBlur": 96,
   "minReadCapPct": 2.9,

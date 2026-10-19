@@ -1,27 +1,48 @@
-<!-- bento: a bento of product blocks; the title lives in the largest block, one accent block. Flat. -->
+<!-- bento: a bento of product blocks; the title lives in the largest block, one accent block. Flat.
+     Each block is a tinted stage with an eyebrow and one real piece of product UI on it (.app), never a bare label on a tint. -->
 <main class="post paper" data-archetype="bento">
 <style>
-  .post[data-archetype="bento"] { --g1: var(--tint); --g2: none; --g3: none; --g4: var(--accent); }
-  .post.yellow[data-archetype="bento"] { --g1: var(--panel); --g2: 0 0 0 2px rgba(36,36,36,0.06); --g3: 0 0 0 2px var(--line); --g4: var(--panel); }
+  .post[data-archetype="bento"] { --g1: var(--tint); --g2: none; --g4: var(--accent); }
+  .post.yellow[data-archetype="bento"] { --g1: var(--panel); --g2: 0 0 0 2px rgba(36,36,36,0.06); --g4: var(--panel); }
+  .post[data-archetype="bento"] .blk { position: absolute; display: flex; flex-direction: column; gap: 28px; border-radius: 40px; background: var(--g1); box-shadow: var(--g2); padding: 44px; }
+  .post[data-archetype="bento"] .avs { display: flex; gap: 12px; }
+  .post[data-archetype="bento"] .avs .av { width: 84px; height: 84px; background: var(--panel); }
 </style>
 <div data-subject style="left:180px;top:262px;width:2479px;height:1184px">
-  <div class="ui-col" style="position:absolute;left:0;top:0;width:1226px;height:1184px;border-radius:40px;background:var(--g1);box-shadow:var(--g2);padding:72px;justify-content:space-between">
-    <div class="ui-row" style="gap:18px"><span class="ui-row ui-t" data-texture style="gap:14px;padding:14px 26px;border-radius:999px;background:var(--panel);box-shadow:var(--g3);color:var(--ink)"><span style="width:16px;height:16px;border-radius:50%;background:var(--ok)"></span>Support</span><span class="ui-row ui-t" data-texture style="gap:14px;padding:14px 26px;border-radius:999px;background:var(--panel);box-shadow:var(--g3);color:var(--ink)"><span style="width:16px;height:16px;border-radius:50%;background:var(--ok)"></span>Sales</span><span class="ui-row ui-t" data-texture style="gap:14px;padding:14px 26px;border-radius:999px;background:var(--panel);box-shadow:var(--g3);color:var(--ink)"><span style="width:16px;height:16px;border-radius:50%;background:var(--ok)"></span>Ops</span></div>
+  <div class="blk" style="left:0;top:0;width:1226px;height:1184px;padding:72px;justify-content:space-between">
+    <div class="ui-row" style="gap:24px">
+      <div class="avs"><span class="av" data-texture><img src="{{brand}}/logos/mark-light.svg" alt=""></span><span class="av" data-texture>SA</span><span class="av" data-texture>RN</span></div>
+      <span class="app-s" data-texture style="color:var(--ink-2)">Support, Sales and Ops agents</span>
+    </div>
     <h1 class="title" style="position:relative;font-size:calc(var(--fs-title) * 1.08)">One workspace for every agent.</h1>
   </div>
-  <div class="ui-col" style="position:absolute;left:1254px;top:0;width:598px;height:578px;border-radius:40px;background:var(--g1);box-shadow:var(--g2);padding:56px;justify-content:space-between">
-    <div class="ui-row" style="gap:18px"><img src="{{brand}}/logos/mark-light.svg" alt="" style="height:44px;width:auto"><span class="ui-t" data-texture style="color:var(--ink);font-weight:500">Support agent</span></div>
-    <div class="ui-r">Refund $48?</div>
-    <div class="ui-row" style="gap:16px"><span class="btn dark sm" data-texture>Approve</span><span class="btn outline sm" data-texture>Deny</span></div>
+  <div class="blk" style="left:1254px;top:0;width:598px;height:578px">
+    <span class="eyebrow" data-texture>Approval</span>
+    <div class="app flat" style="flex:1">
+      <div class="app-head" style="padding:24px 30px"><span class="av" data-texture style="width:56px;height:56px"><img src="{{brand}}/logos/mark-light.svg" alt=""></span><span class="app-t" data-texture>Support agent</span></div>
+      <div class="app-body" style="padding:28px 30px;gap:18px">
+        <span class="app-t" data-texture>Refund order #4821</span>
+        <span class="app-s" data-texture>Shipped two days late</span>
+        <div class="ui-row" style="gap:14px;margin-top:6px"><span class="btn dark sm" data-texture>Approve</span><span class="btn outline sm" data-texture>Deny</span></div>
+      </div>
+    </div>
   </div>
-  <div class="ui-col" style="position:absolute;left:1880px;top:0;width:599px;height:578px;border-radius:40px;background:var(--g4);box-shadow:var(--g2);padding:56px;justify-content:space-between">
-    <svg viewBox="0 0 24 24" style="width:72px;height:72px;flex:none;color:var(--ink)" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+  <div class="blk" style="left:1880px;top:0;width:599px;height:578px;background:var(--g4);padding:56px;justify-content:space-between">
+    <svg class="ic" viewBox="0 0 24 24" style="width:72px;height:72px;color:var(--ink)"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
     <div><div style="font-family:var(--font-display);font-weight:300;font-size:250px;line-height:0.9;letter-spacing:-0.04em">24/7</div>
-    <div class="ui-t" data-texture style="color:var(--ink);margin-top:20px">Always on</div></div>
+    <div class="app-s" data-texture style="color:var(--ink);margin-top:24px;letter-spacing:0.06em;text-transform:uppercase;font-family:var(--font-ui)">Always on</div></div>
   </div>
-  <div class="ui-col" style="position:absolute;left:1254px;top:606px;width:1225px;height:578px;border-radius:40px;background:var(--g1);box-shadow:var(--g2);padding:56px;gap:6px">
-    <div class="ui-row" style="justify-content:space-between;margin-bottom:18px"><span class="ui-t" data-texture style="color:var(--ink);font-weight:500">Run · refund_4821</span><span class="ui-t" data-texture>4.2 s</span></div>
-    <div class="ui-row" style="gap:28px;height:64px"><span class="ui-t" data-texture style="width:330px">search_orders</span><div style="position:relative;flex:1;height:64px"><div style="position:absolute;left:0;right:0;top:31px;height:2px;background:var(--ink);opacity:0.08"></div><div style="position:absolute;left:0%;width:14%;top:14px;height:36px;border-radius:10px;background:var(--c-ink-300)"></div></div></div><div class="ui-row" style="gap:28px;height:64px"><span class="ui-t" data-texture style="width:330px">lookup_shipping</span><div style="position:relative;flex:1;height:64px"><div style="position:absolute;left:0;right:0;top:31px;height:2px;background:var(--ink);opacity:0.08"></div><div style="position:absolute;left:14%;width:22%;top:14px;height:36px;border-radius:10px;background:var(--c-ink-300)"></div></div></div><div class="ui-row" style="gap:28px;height:64px"><span class="ui-t" data-texture style="width:330px">draft_reply</span><div style="position:relative;flex:1;height:64px"><div style="position:absolute;left:0;right:0;top:31px;height:2px;background:var(--ink);opacity:0.08"></div><div style="position:absolute;left:36%;width:30%;top:14px;height:36px;border-radius:10px;background:var(--ink)"></div></div></div><div class="ui-row" style="gap:28px;height:64px"><span class="ui-t" data-texture style="width:330px">ask_approval</span><div style="position:relative;flex:1;height:64px"><div style="position:absolute;left:0;right:0;top:31px;height:2px;background:var(--ink);opacity:0.08"></div><div style="position:absolute;left:66%;width:20%;top:14px;height:36px;border-radius:10px;background:var(--c-ink-300)"></div></div></div><div class="ui-row" style="gap:28px;height:64px"><span class="ui-t" data-texture style="width:330px">send_email</span><div style="position:relative;flex:1;height:64px"><div style="position:absolute;left:0;right:0;top:31px;height:2px;background:var(--ink);opacity:0.08"></div><div style="position:absolute;left:86%;width:14%;top:14px;height:36px;border-radius:10px;background:var(--c-ink-300)"></div></div></div>
+  <div class="blk" style="left:1254px;top:606px;width:1225px;height:578px">
+    <span class="eyebrow" data-texture>Trace</span>
+    <div class="app flat" style="flex:1">
+      <div class="app-head" style="padding:24px 34px"><span class="dot"></span><span class="app-t" data-texture>Run</span><span class="app-mono" data-texture>refund_4821</span><span class="app-s app-sp" data-texture>5 tools · 4.2 s</span></div>
+      <div class="app-body trace" style="padding:22px 34px;gap:0;--trace-label:36%">
+        <div class="trace-row"><span class="app-mono" data-texture>search_orders</span><div class="trace-bar"><i style="left:0;width:14%"></i></div></div>
+        <div class="trace-row"><span class="app-mono" data-texture>lookup_shipping</span><div class="trace-bar"><i style="left:14%;width:22%"></i></div></div>
+        <div class="trace-row"><span class="app-mono" data-texture style="color:var(--ink)">draft_reply</span><div class="trace-bar"><i class="on" style="left:36%;width:30%"></i></div></div>
+        <div class="trace-row"><span class="app-mono" data-texture>ask_approval</span><div class="trace-bar"><i style="left:66%;width:20%"></i></div></div>
+      </div>
+    </div>
   </div>
 </div>
 <div class="lockup" data-logo="brand"><img src="{{brand}}/logos/logo-light.svg" alt="Logo"></div>

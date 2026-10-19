@@ -297,13 +297,14 @@ sunrise, haze, aurora, studio and depth are deleted from the kit; the rest stay 
   times and small counts, and nothing that reads as a claim: no currency, no
   percentages, no totals. Milestone takes only real numbers.
 - **Type.**
-  - Titles are GT Alpina Light 300. Text inside product cards and UI (chat
-    bubbles, labels, buttons) is Inter 400, per the README's type roles (the
-    user's decision, 2026-10-16). `.read`, `[data-texture]` and `.btn` pick it
-    up through `--font-ui`.
+  - Titles are GT Alpina Light 300. Card text, eyebrows and buttons are
+    Inter, per the README's type roles (the user's decision, 2026-10-16).
+    Text inside product UI (the kit's `.app` pieces: rows, names, traces) is
+    Geist, and ids and tool names Geist Mono, per the README's Product UI
+    roles (2026-10-19).
   - PP Mondwest sets exactly one word.
   - Cap heights, measured: GT Alpina 0.680 em, Mondwest 0.640 em, Inter
-    0.7275 em. The chip scales Mondwest to match GT Alpina.
+    0.7275 em, Geist and Geist Mono 0.71 em. The chip scales Mondwest to match GT Alpina.
 - **Colour.**
   - Every value comes from `tokens.json`. Carbon is `#1e1d1c` or `#1e1c1d`;
     `#181010` is not a token.

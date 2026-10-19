@@ -5,14 +5,16 @@
     "GT Alpina": { "cap": 0.68 },
     "GT Alpina Fill": { "cap": 0.68 },
     "PP Mondwest": { "cap": 0.64, "maxWords": 1 },
-    "Inter": { "cap": 0.7275 }
+    "Inter": { "cap": 0.7275 },
+    "Geist": { "cap": 0.71 },
+    "Geist Mono": { "cap": 0.71 }
   },
   "requiredFiles": ["fonts/GT-Alpina-Light.woff2", "fonts/GT-Alpina-Regular.woff2", "fonts/PPMondwest-Regular.otf"],
   "accent": ["#f2f25c", "#e7e712"],
   "accentClasses": [".btn.primary", ".ag-btn.primary", ".post.carbon .hchip"],
   "accentMax": 1,
   "logoNeverOnAccent": false,
-  "gradientClasses": [".btn", ".ag-btn", ".hchip", ".post[data-archetype=\"pair\"] .tile"],
+  "gradientClasses": [".btn", ".ag-btn", ".hchip", ".key", ".post[data-archetype=\"pair\"] .tile"],
   "allowLight": false,
   "maxShadowBlur": 96,
   "minReadCapPct": 2.9,
