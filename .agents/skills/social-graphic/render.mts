@@ -55,6 +55,14 @@ type Brand = {
   properNouns?: string[];
   /** the share of a series that may use the accent face (the bitmap word); it is emphasis, not decoration */
   accentFaceShare?: number;
+  /** a series of 4+ posts: the most posts one format may take (share of the series; 2 are always allowed) */
+  seriesFormatShare?: number;
+  /** a series of 4+ posts: the most posts one ground may take */
+  seriesGroundShare?: number;
+  /** a series of 4+ posts: the most posts that may set a centred title over their subject */
+  seriesStackShare?: number;
+  /** a centred title over a subject narrower than this share of the width, on bare ground, is the generic layout */
+  genericMinSubjectW?: number;
 };
 const ROOT = path.resolve(SKILL, "..", "..", "..");
 // banner is a newsletter or blog header (2.26:1); "all" leaves it out, since a post template is not laid out for it
@@ -369,7 +377,10 @@ async function audit(page: Page, W: number, H: number) {
         }
       }
       const ground = ["paper", "yellow", "carbon"].find((g) => root.classList.contains(g)) ?? "?";
-      return { errors, warnings, stats: { titleWords, readWords, yellow, archetype: arch, ground, lit: !!root.querySelector("[data-light], .grain"), gap: gapPct, subjectW, subjectH, accentFace } };
+      // a centred title set above its subject: the layout an unguided model falls back to, judged with the pixels below
+      const tb = ttl ? ttl.getBoundingClientRect() : null;
+      const centredStack = stacked && !!tb && Math.abs((tb.left + tb.right) / 2 - (r.left + W / 2)) < W * 0.03;
+      return { errors, warnings, stats: { titleWords, readWords, yellow, archetype: arch, ground, lit: !!root.querySelector("[data-light], .grain"), gap: gapPct, subjectW, subjectH, accentFace, centredStack } };
     },
     { W, H, B: brand },
   );
@@ -428,7 +439,7 @@ async function pixels(page: Page, png: Buffer, W: number, H: number) {
 
 const browser = await chromium.launch();
 let failed = 0;
-const series: { variant: string; suffix: string; archetype: string; ground: string; lit: boolean; accentFace: boolean; feed: string }[] = [];
+const series: { variant: string; suffix: string; archetype: string; ground: string; lit: boolean; accentFace: boolean; centredStack: boolean; feed: string }[] = [];
 // one row per poster, for the A/B picker (review/ab.py) and anyone reading a run later
 const reportRows: Record<string, unknown>[] = [];
 for (const file of files) {
@@ -483,9 +494,12 @@ for (const file of files) {
     const sw = report.stats.subjectW, sh = report.stats.subjectH;
     if (sw !== null && sh !== null && sw < 0.42 && sh < 0.42 && px.bare > 0.75)
       report.errors.push(`the subject is too small for the canvas (${Math.round(sw * 100)} %W × ${Math.round(sh * 100)} %H on ${Math.round(px.bare * 100)} % bare ground); give it at least 42 % of the width or the height`);
+    const genericW = brand.genericMinSubjectW ?? 0.55;
+    if (report.stats.centredStack && sw !== null && sh !== null && sw < genericW && sh < 0.45 && px.bare > 0.7)
+      report.errors.push(`generic layout: a centred title over a ${Math.round(sw * 100)} %W subject on ${Math.round(px.bare * 100)} % bare ground; set the subject at ${Math.round(genericW * 100)} %W or more, or use a format whose picture is the idea`);
     if (px.cx < 0.34 || px.cx > 0.66) report.warnings.push(`lopsided: the visual weight sits at ${px.cx.toFixed(2)} W; balance it toward the centre (references 0.47-0.51)`);
     reportRows.push({ variant: variant + suffix, archetype: report.stats.archetype, ground: report.stats.ground, lit: report.stats.lit, errors: report.errors, warnings: report.warnings, bare: px.bare, weight: px.cx, gap: report.stats.gap, titleWords: report.stats.titleWords, png: path.join(outDir, `${variant}${suffix}.png`), feed: path.join(outDir, `${variant}${suffix}.feed.png`) });
-    series.push({ variant, suffix, archetype: report.stats.archetype, ground: report.stats.ground, lit: report.stats.lit, accentFace: report.stats.accentFace, feed: path.join(outDir, `${variant}${suffix}.feed.png`) });
+    series.push({ variant, suffix, archetype: report.stats.archetype, ground: report.stats.ground, lit: report.stats.lit, accentFace: report.stats.accentFace, centredStack: !!report.stats.centredStack, feed: path.join(outDir, `${variant}${suffix}.feed.png`) });
     await page.close();
     const status = report.errors.length ? "FAIL" : "ok";
     if (report.errors.length) failed++;
@@ -496,7 +510,8 @@ for (const file of files) {
 }
 
 // A numbered folder (01-…, 02-…) is a series posted one a day: print each day's format and ground so the plan reads at a
-// glance. Repeats are fine; the format is chosen for the message, not for variety.
+// glance. The format is chosen for the message, so repeats are fine, but not for most of a series: from four posts on, the
+// audit caps one format, one ground and the centred title-over-subject layout.
 const days = series.filter((s) => /^\d+[-_]/.test(s.variant) && !s.suffix);
 // several files under one number are variants of one day (01-…-a, 01-…-b), not a series
 const isSeries = new Set(days.map((s) => s.variant.match(/^\d+/)![0])).size === days.length;
@@ -508,6 +523,16 @@ if (days.length > 1 && isSeries) {
   const used = days.filter((d) => d.accentFace).length;
   const limit = Math.max(1, Math.floor(days.length * share));
   if (used > limit) { console.log(`     ✗ ${used} of ${days.length} titles use the accent face; at most ${limit}. Keep it for the one word that is the point.`); failed++; }
+  if (days.length >= 4) {
+    const count = (key: (d: (typeof days)[number]) => string) => days.reduce((m, d) => m.set(key(d), (m.get(key(d)) ?? 0) + 1), new Map<string, number>());
+    const fmtMax = Math.max(2, Math.ceil(days.length * (brand.seriesFormatShare ?? 1 / 3)));
+    for (const [f, n] of count((d) => d.archetype)) if (n > fmtMax) { console.log(`     ✗ ${n} of ${days.length} posts use ${f}; at most ${fmtMax}. Take the next-best format that still shows the claim.`); failed++; }
+    const groundMax = Math.floor(days.length * (brand.seriesGroundShare ?? 0.65));
+    for (const [g, n] of count((d) => d.ground)) if (n > groundMax) { console.log(`     ✗ ${n} of ${days.length} posts are on ${g}; at most ${groundMax}. Alternate the grounds.`); failed++; }
+    const stackMax = Math.floor(days.length * (brand.seriesStackShare ?? 0.5));
+    const stacks = days.filter((d) => d.centredStack).length;
+    if (stacks > stackMax) { console.log(`     ✗ ${stacks} of ${days.length} posts set a centred title over a card; at most ${stackMax}. The series reads as one template.`); failed++; }
+  }
 }
 
 // One contact sheet of every feed preview, so a whole run reviews as one image.

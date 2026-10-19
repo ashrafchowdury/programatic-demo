@@ -46,6 +46,14 @@ campaign.
 Run this end to end without asking the user anything. They review the result
 in the gallery, not the process.
 
+**Stop if `render.mts` cannot run.** Every post is built from a template in
+`.agents/skills/social-graphic/kit/templates/` and rendered by
+`.agents/skills/social-graphic/render.mts`, whose audit is the brand. If the
+fonts are missing (see Setup), Chromium is not installed, or the script fails,
+stop and tell the user exactly what is missing. Never build a page, render, or
+contact sheet of your own: a series made that way skips every check below,
+and that is how off-brand, all-yellow, title-over-a-card series reach the user.
+
 1. **Read the brief.** Put the post copy in `social/<name>/brief.md`, one
    `## <date>` section per post, with where each post is published. Add the
    `brand` file (one line: `.agents/skills/agenta-social-graphic/brand`).
@@ -83,8 +91,21 @@ in the gallery, not the process.
      formats fit, vary the one that fits instead: its ground, its subject
      (a different card, a different moment of the same flow) or its
      composition. Never pad with a format that does not fit.
-   - Repeating a format across days is fine (the user's decision,
-     2026-10-16). Never take a weaker fit just to vary the series.
+   - Repeating a format is fine, but not for most of a series. The audit
+     fails a series of four or more posts when:
+     - one format is used by more than a third of the posts (at least 2 are
+       always allowed);
+     - more than half the posts set a centred title over a card, tiles or
+       chat (statement, quiet and lockup don't count);
+     - one ground holds more than 65 % of the posts. Alternate white and
+       yellow.
+     Never take a weaker fit just to vary the series. When the best fit would
+     break a cap, take the next-best format that still shows the claim.
+   - **No generic title over a card.** A centred title above a card narrower
+     than 55 % of the width, on a mostly empty canvas, is the layout every
+     unguided model falls back to, and the audit fails it. Set the subject
+     large (window, bento, plate), or give it a format whose picture is the
+     idea (hub, sankey, modules, milestone, tiles).
    - The title is the claim in at most 8 words (rules below). If the claim
      needs more, it belongs in the post text. All three candidates carry the
      same title, so the test is about the picture.

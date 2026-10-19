@@ -7,6 +7,13 @@ on review notes.
 
 ## Rejected
 
+- **2026-10-19 · Every post a centred title over a small card, all yellow.**
+  An agent's ten-post draft, made without `render.mts`. The audit now fails
+  the layout (subject under 55 %W on bare ground), and from four posts on, a
+  series where one format takes over a third of the posts, one ground over
+  65 %, or the centred title-over-card layout over half. If `render.mts`
+  cannot run, the agent stops; it never renders posters another way.
+
 - **2026-10-17 · Connect.** Disliked. Removed from the Agenta brand; lockup and
   pair cover partner posts. The template stays in the kit for other brands.
 

@@ -1,4 +1,5 @@
-"""Regression test for the audit: four posters rebuilt from a real broken series (2026-10-16). Each must fail with its defect.
+"""Regression test for the audit: posters rebuilt from real broken series (2026-10-16, and the all-yellow title-over-a-card
+series of 2026-10-19). Each must fail with its defect, and the series must fail its variety checks.
 
     python3 .agents/skills/social-graphic/review/regress.py [--brand <pack dir>]
 
@@ -23,7 +24,10 @@ expect = {
     "04-diagram": ["Title Case", "subject is too small"],
     "05-title-covered": ["covers the title"],
     "06-glyph-icon": ["fell back to"],
-    "series": ["use the accent face"],
+    "07-generic-schedule": ["generic layout"],
+    "08-generic-reply": ["generic layout"],
+    "09-generic-support": ["generic layout"],
+    "series": ["use the accent face", "posts use context", "Alternate the grounds", "centred title over a card"],
 }
 blocks, cur = {}, None
 for line in out.splitlines():

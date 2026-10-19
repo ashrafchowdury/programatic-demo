@@ -120,6 +120,13 @@ quiet).
 
 ## Make it
 
+**`render.mts` is the only way to make a post.** It loads the brand's fonts,
+renders every size, audits every post and writes the contact sheet. If it
+cannot run (missing fonts, no Chromium, a script error), stop and report what
+is missing. Never render posters another way: no hand-built HTML pages, no
+screenshots from another tool, no contact sheet of your own. A poster that
+skipped the audit is not a draft; it is a defect nobody has caught yet.
+
 1. **Choose the brand.** Put the brand pack's path, relative to the repo root,
    in `social/<name>/brand`. Without that file, `--brand <dir>`, or
    `$SOCIAL_BRAND`, the example brand is used.
